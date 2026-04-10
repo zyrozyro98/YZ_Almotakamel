@@ -21,11 +21,12 @@ async function initializeSession(employeeId, onQrGenerated) {
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
+  const { Browsers } = require('@whiskeysockets/baileys');
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'info' }),
-    browser: ['YZ Almotakamel', 'Chrome', '11.0.0'], // Custom identity to avoid 405 errors
+    browser: Browsers.macOS('Desktop'),
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 0,
     keepAliveIntervalMs: 10000,
