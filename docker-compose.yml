@@ -1,0 +1,34 @@
+name: yz-almotakamel
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: almotakamel_backend
+    restart: unless-stopped
+    ports:
+      - "5005:5000"
+    volumes:
+      # CRITICAL: Persist WhatsApp sessions so QRs don't need to be resent if server restarts
+      - ./backend/sessions:/usr/src/app/sessions
+    networks:
+      - almotakamel_net
+      
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: almotakamel_frontend
+    restart: unless-stopped
+    ports:
+      - "8085:80"
+    depends_on:
+      - backend
+    networks:
+      - almotakamel_net
+
+networks:
+  almotakamel_net:
+    driver: bridge
+

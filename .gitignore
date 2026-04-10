@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+dist/
+.DS_Store
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+frontend/.env
+backend/.env
+frontend/.env.production
+backend/serviceAccountKey.json
+serviceAccountKey.json
+
+# WhatsApp Sessions
+backend/sessions/
+sessions/
+
+# Docker
+.dockerignore
+
+# Firebase
+.firebase/
+.firebaserc
+firebase-debug.log
+
+# IDEs
+.vscode/
+.idea/
