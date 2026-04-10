@@ -18,8 +18,8 @@ if ! getent group docker | grep -q "\b$USER\b"; then
     echo "NOTICE: You might need to log out and log back in for docker group changes to take effect."
 fi
 
-echo "[3/5] Installing Node.js 18 for local utilities..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+echo "[3/5] Installing Node.js 20 for local utilities..."
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 echo "[4/5] Preparing environment..."
