@@ -24,7 +24,11 @@ async function initializeSession(employeeId, onQrGenerated) {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: 'info' }), // Set to 'info' for debugging
+    logger: pino({ level: 'info' }),
+    browser: ['YZ Almotakamel', 'Chrome', '11.0.0'], // Custom identity to avoid 405 errors
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 0,
+    keepAliveIntervalMs: 10000,
   });
 
   sock.ev.on('creds.update', saveCreds);
