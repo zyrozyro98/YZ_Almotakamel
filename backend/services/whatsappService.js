@@ -116,18 +116,38 @@ function getSession(employeeId) {
   return sessions.get(employeeId);
 }
 
+const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
+
+async function logout(employeeId) {
+  const sock = sessions.get(employeeId);
+  if (sock) {
+    try {
+      await sock.logout();
+    } catch (e) {}
+    sessions.delete(employeeId);
+  }
+  
+  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+  if (fs.existsSync(sessionPath)) {
+    fs.rmSync(sessionPath, { recursive: true, force: true });
+  }
+  return { success: true };
+}
+
 function getConnectionStatus(employeeId) {
-  const sessionPath = path.join(__dirname, '..', 'sessions', `session-${employeeId}`);
-  const hasCreds = fs.existsSync(sessionPath);
+  const sock = sessions.get(employeeId);
+  const isConnected = !!sock && !!sock.user && !!sock.user.id;
   return {
-    isConnected: sessions.has(employeeId),
-    hasCredentialsSaved: hasCreds
+    isConnected,
+    employeeId,
+    user: sock?.user || null
   };
 }
 
 module.exports = {
   initializeSession,
   getSession,
-  getConnectionStatus
+  getConnectionStatus,
+  logout
 };
 

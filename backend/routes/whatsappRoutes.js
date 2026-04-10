@@ -4,6 +4,16 @@ const whatsappService = require('../services/whatsappService');
 const qrcode = require('qrcode-terminal'); // Only for terminal test, the real logic sends base64 to FE
 
 // Initialize Session Route - Returns QR Code or Connected status
+router.post('/logout', async (req, res) => {
+  const { employeeId } = req.body;
+  try {
+    const result = await whatsappService.logout(employeeId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 router.post('/init', async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: 'employeeId is required.' });

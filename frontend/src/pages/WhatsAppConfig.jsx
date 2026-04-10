@@ -40,6 +40,22 @@ export default function WhatsAppConfig() {
     }
   };
 
+  const handleLogout = async () => {
+    if (!window.confirm('هل أنت متأكد من رغبتك في فصل الواتساب ومسح بيانات الجلسة؟')) return;
+    setLoading(true);
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/logout`, { employeeId });
+      setWaStatus('qr_needed');
+      setQrCode(null);
+      alert('تم فصل الحساب ومسح الجلسة بنجاح.');
+    } catch (err) {
+      console.error('Logout failed:', err);
+      alert('فشل في تسجيل الخروج');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const initWhatsApp = async () => {
     setLoading(true);
     setWaStatus('checking');
@@ -166,7 +182,7 @@ export default function WhatsAppConfig() {
                   حسابك الشخصي مرتبط الآن بنظام المتكامل. يمكنك الذهاب لشاشة الدردشة أو الرقابة الحية لمتابعة العمل.
                 </p>
                 <div className="flex gap-4 justify-center">
-                  <button className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-white font-bold transition-all">تفعيل الإشعارات</button>
+                  <button onClick={handleLogout} className="px-8 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-2xl text-red-500 font-bold transition-all">قطع الاتصال</button>
                   <button className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-bold shadow-lg shadow-green-600/20 transition-all">بدء الدردشة</button>
                 </div>
               </div>
