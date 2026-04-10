@@ -11,20 +11,35 @@ router.post('/init', async (req, res) => {
   let qrSent = false;
 
   try {
-    const sock = await whatsappService.initializeSession(employeeId, (qrString) => {
-      if (!qrSent) {
-        qrSent = true;
-        // Respond with raw QR string. The frontend can use a qrcode-react package to render it.
-        res.status(200).json({ status: 'qr_generated', qr: qrString });
-      }
-    });
-    
-    // If we get here and it's an existing session without QR
-    setTimeout(() => {
-        if (!qrSent) {
-          res.status(200).json({ status: 'connected', message: 'WhatsApp session is already open and valid.' });
+    // Create a promise that resolves when either QR is generated OR session is confirmed connected
+    const sessionPromise = new Promise(async (resolve, reject) => {
+      let resolved = false;
+
+      const sock = await whatsappService.initializeSession(employeeId, (qrString) => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ status: 'qr_generated', qr: qrString });
         }
-    }, 2000);
+      });
+
+      // Check if already connected immediately
+      const status = whatsappService.getConnectionStatus(employeeId);
+      if (status.isConnected && !resolved) {
+          resolved = true;
+          resolve({ status: 'connected' });
+      }
+
+      // Timeout as fallback
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ status: 'timeout', message: 'Checking status...' });
+        }
+      }, 5000);
+    });
+
+    const result = await sessionPromise;
+    res.status(200).json(result);
 
   } catch (error) {
     if (!res.headersSent) {
