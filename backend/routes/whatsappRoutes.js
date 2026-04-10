@@ -39,13 +39,13 @@ router.post('/init', async (req, res) => {
           resolve({ status: 'connected' });
       }
 
-      // Timeout as fallback
+      // Timeout as fallback - Increased to 15s for stability
       setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          resolve({ status: 'timeout', message: 'Checking status...' });
+          resolve({ status: 'timeout', message: 'The server is taking longer than usual. Please try refreshing status.' });
         }
-      }, 5000);
+      }, 15000);
     });
 
     const result = await sessionPromise;

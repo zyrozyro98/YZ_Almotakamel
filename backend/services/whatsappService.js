@@ -17,7 +17,8 @@ async function initializeSession(employeeId, onQrGenerated) {
     return sessions.get(employeeId);
   }
 
-  const sessionPath = path.join(__dirname, '..', 'sessions', `session-${employeeId}`);
+  const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
+  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
   const sock = makeWASocket({

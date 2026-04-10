@@ -66,6 +66,9 @@ export default function WhatsAppConfig() {
         setWaStatus('qr_needed');
       } else if (res.data.status === 'connected') {
         setWaStatus('connected');
+      } else if (res.data.status === 'timeout') {
+        alert('تأخر النظام في توليد الرمز. جاري التحقق من الحالة تلقائياً، يرجى الانتظار أو المحاولة مرة أخرى.');
+        checkStatus();
       }
     } catch (err) {
       console.error('WhatsApp Init Error:', err);
