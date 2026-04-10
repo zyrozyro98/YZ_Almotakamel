@@ -21,6 +21,9 @@ router.post('/init', async (req, res) => {
   let qrSent = false;
 
   try {
+    // CRITICAL: Always logout/clear old session before starting a new one for QR
+    await whatsappService.logout(employeeId);
+
     // Create a promise that resolves when either QR is generated OR session is confirmed connected
     const sessionPromise = new Promise(async (resolve, reject) => {
       let resolved = false;

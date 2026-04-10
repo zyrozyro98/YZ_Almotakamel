@@ -24,7 +24,7 @@ async function initializeSession(employeeId, onQrGenerated) {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: 'silent' }), // Set to 'info' for debugging
+    logger: pino({ level: 'info' }), // Set to 'info' for debugging
   });
 
   sock.ev.on('creds.update', saveCreds);
