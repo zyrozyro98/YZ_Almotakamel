@@ -1,4 +1,4 @@
-name: yz-almotakamel
+version: '3.8'
 
 services:
   backend:
