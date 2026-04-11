@@ -30,6 +30,14 @@ export default function WhatsAppChat() {
   const [activeChats, setActiveChats] = useState([]); // From RTDB
   const [mergedChats, setMergedChats] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [formData, setFormData] = useState({
+    fullName: '',
+    university: '',
+    major: '',
+    username: '',
+    password: '',
+    idNumber: ''
+  });
   const [searchQuery, setSearchQuery] = useState('');
   
   const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
@@ -98,28 +106,43 @@ export default function WhatsAppChat() {
     return () => { unsubUniv(); unsubMaj(); unsubStudents(); unsubActiveChats(); unsubStatus(); };
   }, []);
 
+  // Advanced Normalization for matching (last 9 digits)
+  const getMatchKey = (phone) => {
+    if (!phone) return '';
+    const clean = phone.replace(/[^0-9]/g, '');
+    return clean.slice(-9); // Match by last 9 digits to be country-code agnostic
+  };
+
   // Merge Students and Active Chats
   useEffect(() => {
     const combined = [...activeChats];
     
     // Add students who aren't in active chats yet
     students.forEach(student => {
-      const cleanPhone = student.phone?.replace(/[^0-9]/g, '');
-      const exists = combined.find(c => c.phone === cleanPhone);
+      const studentSfx = getMatchKey(student.phone);
+      if (!studentSfx) return;
+
+      const exists = combined.find(c => getMatchKey(c.phone) === studentSfx);
       if (exists) {
         exists.name = student.name;
         exists.isStudent = true;
         exists.id = student.id;
         exists.university = student.university;
         exists.major = student.major;
+        exists.username = student.username;
+        exists.password = student.password;
+        exists.idNumber = student.idNumber;
       } else {
         combined.push({
-          phone: cleanPhone,
+          phone: student.phone.replace(/[^0-9]/g, ''),
           name: student.name,
           isStudent: true,
           id: student.id,
           university: student.university,
           major: student.major,
+          username: student.username,
+          password: student.password,
+          idNumber: student.idNumber,
           lastTimestamp: 0
         });
       }
@@ -134,14 +157,16 @@ export default function WhatsAppChat() {
       }
     });
 
-    // Sort by last activity
-    combined.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+    // Sort by last activity (timestamp or 0)
+    combined.sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
     setMergedChats(combined);
   }, [students, activeChats]);
 
   const filteredChats = mergedChats.filter(c => 
     c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.phone?.includes(searchQuery)
+    c.phone?.includes(searchQuery) ||
+    c.university?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.major?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const checkWhatsAppStatus = async () => {
@@ -317,41 +342,58 @@ export default function WhatsAppChat() {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem' }}>
+        <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
           {filteredChats.map(chat => (
             <div
               key={chat.id}
-              onClick={() => setSelectedChat(chat)}
-              className="glass-panel"
-              style={{
-                padding: '1.25rem', marginBottom: '0.5rem', display: 'flex', gap: '1rem', cursor: 'pointer',
-                background: selectedChat?.id === chat.id ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.15), transparent)' : 'transparent',
-                borderColor: selectedChat?.id === chat.id ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
-                borderWidth: selectedChat?.id === chat.id ? '1px' : '0px'
+              onClick={() => {
+                setSelectedChat(chat);
+                setFormData({
+                  fullName: chat.name || '',
+                  university: chat.university || '',
+                  major: chat.major || '',
+                  username: chat.username || '',
+                  password: chat.password || '',
+                  idNumber: chat.idNumber || ''
+                });
               }}
+              className={`group relative p-4 rounded-2xl cursor-pointer transition-all duration-300 border ${
+                selectedChat?.id === chat.id 
+                ? 'bg-blue-500/10 border-blue-500/30' 
+                : 'bg-white/5 border-transparent hover:bg-white/10'
+              }`}
             >
-              <div style={{ 
-                width: '52px', height: '52px', borderRadius: '15px', 
-                background: chat.isStudent ? `linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))` : 'rgba(255,255,255,0.05)', 
-                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                fontWeight: 800, color: '#fff', fontSize: '1.2rem' 
-              }}>
-                {chat.isStudent ? chat.name?.charAt(0) : <User size={24} />}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="flex justify-between items-start" style={{ marginBottom: '0.25rem' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{chat.name}</span>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{maskPhone(chat.phone)}</span>
+              <div className="flex gap-4">
+                <div className={`relative w-14 h-14 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-white text-xl shadow-lg ${
+                  chat.isStudent ? 'bg-gradient-to-br from-blue-600 to-indigo-600' : 'bg-slate-700'
+                }`}>
+                  {chat.isStudent ? chat.name?.charAt(0) : <User size={24} />}
+                  <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-slate-900 ${waStatus === 'connected' ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {chat.isStudent ? `${chat.university} - ${chat.major}` : 'عميل غير مسجل'}
-                  </p>
-                  {!chat.isStudent && <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>جديد</span>}
+                
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start mb-1">
+                    <h4 className="font-bold text-white truncate text-[1.05rem]">{chat.name}</h4>
+                    <span className="text-[0.7rem] text-slate-400 font-medium">{maskPhone(chat.phone)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-slate-400 truncate max-w-[150px]">
+                      {chat.isStudent ? `${chat.university} | ${chat.major}` : 'عميل غير مسجل بعد'}
+                    </p>
+                    {(!chat.isStudent || !chat.lastTimestamp) && (
+                      <span className="px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[0.6rem] font-bold border border-orange-500/20">جديد</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           ))}
+          {filteredChats.length === 0 && (
+            <div className="text-center py-10 opacity-40">
+              <Search size={40} className="mx-auto mb-3" />
+              <p>لا توجد نتائج مطابقة</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -568,33 +610,84 @@ export default function WhatsAppChat() {
             <div className="animate-fade-in-up flex-col gap-6">
               {orderType === 'add_student' && (
                 <>
-                  <div className="grid grid-cols-2 sm-grid-cols-1 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="input-label">الاسم الكامل للطالب</label>
-                      <input type="text" className="input-base" placeholder="أدخل الاسم الرباعي" />
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        placeholder="أدخل الاسم الرباعي" 
+                        value={formData.fullName}
+                        onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                      />
                     </div>
                     <div>
                       <label className="input-label">رقم الدفعة <span style={{ color: 'var(--danger)' }}>*</span></label>
-                      <input type="text" className="input-base" placeholder="مثل: 2024-1" value={lastBatchNum} onChange={(e) => { setLastBatchNum(e.target.value); localStorage.setItem('lastBatchNum', e.target.value); }} required />
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        placeholder="مثل: 2024-1" 
+                        value={lastBatchNum} 
+                        onChange={(e) => { setLastBatchNum(e.target.value); localStorage.setItem('lastBatchNum', e.target.value); }} 
+                        required 
+                      />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm-grid-cols-1 gap-4">
-                    <div><label className="input-label">اسم المستخدم (اليوزر)</label><input type="text" className="input-base" placeholder="Username" /></div>
-                    <div><label className="input-label">كلمة المرور</label><input type="text" className="input-base" placeholder="Password" /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="input-label">اسم المستخدم (اليوزر)</label>
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        placeholder="Username" 
+                        value={formData.username}
+                        onChange={(e) => setFormData({...formData, username: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">كلمة المرور</label>
+                      <input 
+                        type="password" 
+                        className="input-base" 
+                        placeholder="Password" 
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                      />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 sm-grid-cols-1 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="input-label">الجامعة</label>
-                      <select className="input-base"><option>اختر الجامعة...</option>{universities.map(u => <option key={u.id}>{u.name}</option>)}</select>
+                      <select 
+                        className="input-base"
+                        value={formData.university}
+                        onChange={(e) => setFormData({...formData, university: e.target.value})}
+                      >
+                        <option value="">اختر الجامعة...</option>
+                        {universities.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className="input-label">التخصص</label>
-                      <select className="input-base"><option>اختر التخصص...</option>{majors.map(m => <option key={m.id}>{m.name}</option>)}</select>
+                      <select 
+                        className="input-base"
+                        value={formData.major}
+                        onChange={(e) => setFormData({...formData, major: e.target.value})}
+                      >
+                        <option value="">اختر التخصص...</option>
+                        {majors.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      </select>
                     </div>
                   </div>
-                  <div className="flex-col">
+                  <div>
                     <label className="input-label">رقم الهوية / الجواز (اختياري)</label>
-                    <input type="text" className="input-base" placeholder="أدخل رقم الهوية" />
+                    <input 
+                      type="text" 
+                      className="input-base" 
+                      placeholder="أدخل رقم الهوية" 
+                      value={formData.idNumber}
+                      onChange={(e) => setFormData({...formData, idNumber: e.target.value})}
+                    />
                   </div>
                   <input type="hidden" value={selectedChat.phone} />
                 </>
@@ -602,13 +695,64 @@ export default function WhatsAppChat() {
 
               {orderType === 'edit_details' && (
                 <div className="flex-col gap-6">
-                  <div className="grid grid-cols-2 sm-grid-cols-1 gap-4">
-                    <div><label className="input-label">تعديل اسم الطالب</label><input type="text" className="input-base" defaultValue={selectedChat.name} /></div>
-                    <div><label className="input-label">تعديل رقم الهاتف</label><input type="text" className="input-base" value={maskPhone(selectedChat.phone)} readOnly /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="input-label">تعديل اسم الطالب</label>
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        value={formData.fullName}
+                        onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">رقم الهاتف (لا يمكن تعديله)</label>
+                      <input type="text" className="input-base opacity-60" value={maskPhone(selectedChat.phone)} readOnly />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 sm-grid-cols-1 gap-4">
-                    <div><label className="input-label">الجامعة المحددة</label><select className="input-base">{universities.map(u => <option key={u.id}>{u.name}</option>)}</select></div>
-                    <div><label className="input-label">التخصص المحدد</label><select className="input-base">{majors.map(m => <option key={m.id}>{m.name}</option>)}</select></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="input-label">الجامعة المحددة</label>
+                      <select 
+                        className="input-base"
+                        value={formData.university}
+                        onChange={(e) => setFormData({...formData, university: e.target.value})}
+                      >
+                        <option value="">اختر الجامعة...</option>
+                        {universities.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="input-label">التخصص المحدد</label>
+                      <select 
+                        className="input-base"
+                        value={formData.major}
+                        onChange={(e) => setFormData({...formData, major: e.target.value})}
+                      >
+                        <option value="">اختر التخصص...</option>
+                        {majors.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="input-label">اسم المستخدم</label>
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        value={formData.username}
+                        onChange={(e) => setFormData({...formData, username: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">كلمة المرور</label>
+                      <input 
+                        type="text" 
+                        className="input-base" 
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -657,16 +801,21 @@ export default function WhatsAppChat() {
                 try {
                   const payload = {
                     studentData: {
-                      phone: selectedChat.phone,
-                      name: selectedChat.name,
+                      phone: selectedChat.phone.replace(/[^0-9]/g, ''),
+                      name: formData.fullName,
+                      university: formData.university,
+                      major: formData.major,
+                      username: formData.username,
+                      password: formData.password,
+                      idNumber: formData.idNumber,
                       batch: lastBatchNum,
-                      type: orderType,
-                      // Capture form fields here if implemented
+                      orderType: orderType,
+                      lastUpdatedBy: employeeId
                     }
                   };
                   await axios.post(`${BASE_URL}/api/orders/save-student`, payload);
                   setOrderModalOpen(false);
-                  alert('تم حفظ البيانات بنجاح!');
+                  alert('تم حفظ البيانات بنجاح وتحديث ملف الطالب!');
                 } catch (err) {
                   alert('حدث خطأ أثناء الحفظ.');
                 }

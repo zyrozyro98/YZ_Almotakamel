@@ -17,20 +17,37 @@ export default function Students() {
     password: '',
     university: '',
     major: '',
+    batch: '',
+    group: '',
     notes: ''
   });
 
+  const [filters, setFilters] = useState({
+    university: '',
+    major: '',
+    batch: '',
+    group: '',
+    sortBy: 'newest' // 'newest', 'oldest'
+  });
+
+  const [univs, setUnivs] = useState([]);
+  const [majors, setMajors] = useState([]);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
-      const data = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      }));
-      setStudentsList(data);
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
+      setStudentsList(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
     });
-    return () => unsubscribe();
+    
+    const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
+      setUnivs(snapshot.docs.map(doc => doc.data().name));
+    });
+
+    const unsubMajors = onSnapshot(collection(db, 'majors'), (snapshot) => {
+      setMajors(snapshot.docs.map(doc => doc.data().name));
+    });
+
+    return () => { unsubStudents(); unsubUniv(); unsubMajors(); };
   }, []);
 
   const validateForm = () => {
@@ -94,11 +111,24 @@ export default function Students() {
     }
   };
 
-  const filteredStudents = studentsList.filter(s => 
-    s.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.phone?.includes(searchQuery) ||
-    s.university?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = studentsList
+    .filter(s => {
+      const matchSearch = (s.name?.toLowerCase().includes(searchQuery.toLowerCase()) || s.phone?.includes(searchQuery));
+      const matchUniv = !filters.university || s.university === filters.university;
+      const matchMajor = !filters.major || s.major === filters.major;
+      const matchBatch = !filters.batch || s.batch === filters.batch;
+      const matchGroup = !filters.group || s.group === filters.group;
+      return matchSearch && matchUniv && matchMajor && matchBatch && matchGroup;
+    })
+    .sort((a, b) => {
+      const timeA = a.createdAt?.seconds || 0;
+      const timeB = b.createdAt?.seconds || 0;
+      return filters.sortBy === 'newest' ? timeB - timeA : timeA - timeB;
+    });
+
+  // Get unique batches and groups for filters
+  const uniqueBatches = [...new Set(studentsList.map(s => s.batch).filter(Boolean))];
+  const uniqueGroups = [...new Set(studentsList.map(s => s.group).filter(Boolean))];
 
   return (
     <div className="animate-fade-in-up">
@@ -199,17 +229,44 @@ export default function Students() {
         </div>
       ) : (
         <div className="flex-col gap-6">
-          <div className="glass-panel" style={{ padding: '1rem 1.5rem' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={22} style={{ position: 'absolute', right: '18px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} />
-              <input 
-                type="text" 
-                className="input-base" 
-                style={{ paddingRight: '3.5rem', background: 'transparent', border: 'none', fontSize: '1.2rem' }} 
-                placeholder="ابحث عن طالب بالاسم، الهاتف، أو الجامعة..." 
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-              />
+          <div className="glass-panel" style={{ padding: '1.5rem' }}>
+            <div className="flex flex-col gap-4">
+              {/* Main Search */}
+              <div style={{ position: 'relative' }}>
+                <Search size={20} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} />
+                <input 
+                  type="text" 
+                  className="input-base" 
+                  style={{ paddingRight: '2.8rem' }} 
+                  placeholder="ابحث بالاسم أو رقم الهاتف..." 
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+
+              {/* Filters Bar */}
+              <div className="grid grid-cols-5 sm-grid-cols-2 gap-3">
+                <select className="input-base" value={filters.university} onChange={e => setFilters({...filters, university: e.target.value})}>
+                  <option value="">كل الجامعات</option>
+                  {univs.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <select className="input-base" value={filters.major} onChange={e => setFilters({...filters, major: e.target.value})}>
+                  <option value="">كل التخصصات</option>
+                  {majors.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <select className="input-base" value={filters.batch} onChange={e => setFilters({...filters, batch: e.target.value})}>
+                  <option value="">كل الدفعات</option>
+                  {uniqueBatches.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <select className="input-base" value={filters.group} onChange={e => setFilters({...filters, group: e.target.value})}>
+                  <option value="">كل المجموعات</option>
+                  {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+                <select className="input-base" value={filters.sortBy} onChange={e => setFilters({...filters, sortBy: e.target.value})}>
+                  <option value="newest">الأحدث تسجيلاً</option>
+                  <option value="oldest">الأقدم أولاً</option>
+                </select>
+              </div>
             </div>
           </div>
 
