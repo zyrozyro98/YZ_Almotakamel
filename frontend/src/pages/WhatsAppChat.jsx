@@ -74,10 +74,28 @@ export default function WhatsAppChat() {
       }
     });
 
-    // 4. Check WhatsApp Status
+    // 4. Listen for WhatsApp Status in RTDB
+    const statusRef = ref(rtdb, `status/${employeeId}`);
+    const unsubStatus = onValue(statusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        if (data.isConnected) {
+          setWaStatus('connected');
+          setQrCode(null);
+        } else if (data.qr) {
+          setWaStatus('qr_needed');
+          setQrCode(data.qr);
+        } else if (waStatus !== 'checking') {
+           // No connection and no QR? maybe re-check
+           checkWhatsAppStatus();
+        }
+      }
+    });
+
+    // 5. Check Initial WhatsApp Status
     checkWhatsAppStatus();
 
-    return () => { unsubUniv(); unsubMaj(); unsubStudents(); unsubActiveChats(); };
+    return () => { unsubUniv(); unsubMaj(); unsubStudents(); unsubActiveChats(); unsubStatus(); };
   }, []);
 
   // Merge Students and Active Chats
@@ -143,12 +161,7 @@ export default function WhatsAppChat() {
     setWaStatus('checking');
     try {
       const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId });
-      if (res.data.status === 'qr_generated') {
-        setQrCode(res.data.qr);
-        setWaStatus('qr_needed');
-      } else if (res.data.status === 'connected') {
-        setWaStatus('connected');
-      }
+      // Status and QR handled by the RTDB listener now
     } catch (err) {
       setWaStatus('error');
     }

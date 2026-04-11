@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
@@ -6,6 +6,7 @@ const { db, rtdb } = require('../firebaseAdmin');
 
 // Store map of active sockets by employeeId
 const sessions = new Map();
+const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
 
 /**
  * Initialize a WhatsApp Baileys Session for a specific employee.
@@ -13,47 +14,88 @@ const sessions = new Map();
  */
 async function initializeSession(employeeId, onQrGenerated) {
   if (sessions.has(employeeId)) {
-    console.log(`[WA] Session already active for employee: ${employeeId}`);
-    return sessions.get(employeeId);
+    const existingSock = sessions.get(employeeId);
+    // If it's already connected, just return it
+    if (existingSock.user) {
+      console.log(`[WA] Session already active and connected for employee: ${employeeId}`);
+      return existingSock;
+    }
+    // If it's initializing but not connected, we might want to continue or restart
+    console.log(`[WA] Session exists but not fully connected for ${employeeId}. Re-initializing...`);
+    // Close old one if it exists
+    try { existingSock.ws.close(); } catch(e) {}
+    sessions.delete(employeeId);
   }
 
-  const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+  if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath, { recursive: true });
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
-  const { Browsers } = require('@whiskeysockets/baileys');
+  // Fetch latest version to avoid 405 error
+  const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307], isLatest: false }));
+  console.log(`[WA] Using WhatsApp Web v${version.join('.')}, isLatest: ${isLatest}`);
+
   const sock = makeWASocket({
+    version,
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'info' }),
-    browser: Browsers.macOS('Desktop'),
-    connectTimeoutMs: 60000,
+    browser: Browsers.ubuntu('Chrome'), // Ubuntu chrome is often more stable for VMs
+    connectTimeoutMs: 120000, 
     defaultQueryTimeoutMs: 0,
-    keepAliveIntervalMs: 10000,
+    keepAliveIntervalMs: 30000,
   });
+
+  sessions.set(employeeId, sock);
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     
-    if (qr && onQrGenerated) {
+    if (qr) {
       console.log(`[WA-${employeeId}] New QR Code generated.`);
-      onQrGenerated(qr); // Pass QR back to controller to send to frontend
+      // Push QR to RTDB for real-time frontend pickup
+      rtdb.ref(`status/${employeeId}`).update({ 
+        qr: qr, 
+        lastUpdate: Date.now(),
+        isConnected: false 
+      }).catch(e => {});
+
+      if (onQrGenerated) onQrGenerated(qr); 
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+      const statusCode = (lastDisconnect.error)?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      
       console.log(`[WA-${employeeId}] Connection closed due to `, lastDisconnect.error, ', reconnecting ', shouldReconnect);
-      sessions.delete(employeeId); // Remove from active map
+      
+      // Update status in RTDB
+      rtdb.ref(`status/${employeeId}`).set({ isConnected: false, lastUpdate: Date.now() }).catch(e => {});
+
       if (shouldReconnect) {
+        // Only re-init if not logged out
         initializeSession(employeeId, onQrGenerated);
       } else {
-        // Logged out - clean folder maybe
         console.log(`[WA-${employeeId}] Logged out. Credentials invalidated.`);
+        sessions.delete(employeeId);
+        // Clean up session folder
+        if (fs.existsSync(sessionPath)) {
+          fs.rmSync(sessionPath, { recursive: true, force: true });
+        }
       }
     } else if (connection === 'open') {
       console.log(`[WA-${employeeId}] Opened connection successfully!`);
+      // Update status in RTDB - clear QR as it's no longer needed
+      rtdb.ref(`status/${employeeId}`).set({ 
+        isConnected: true, 
+        qr: null,
+        lastUpdate: Date.now() 
+      }).catch(e => {});
     }
   });
 
@@ -108,7 +150,6 @@ async function initializeSession(employeeId, onQrGenerated) {
     }
   });
 
-  sessions.set(employeeId, sock);
   return sock;
 }
 
@@ -116,13 +157,12 @@ async function initializeSession(employeeId, onQrGenerated) {
  * Get an active socket for an employee. Throws error if not connected.
  */
 function getSession(employeeId) {
-  if (!sessions.has(employeeId)) {
-    throw new Error(`Employee ${employeeId} WhatsApp session not connected.`);
+  const sock = sessions.get(employeeId);
+  if (!sock) {
+    throw new Error(`Employee ${employeeId} WhatsApp session not initialized.`);
   }
-  return sessions.get(employeeId);
+  return sock;
 }
-
-const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
 
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
@@ -156,4 +196,5 @@ module.exports = {
   getConnectionStatus,
   logout
 };
+
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
-import { auth } from '../firebase';
+import { auth, rtdb } from '../firebase';
+import { ref, onValue } from 'firebase/database';
 
 export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
@@ -11,17 +12,26 @@ export default function WhatsAppConfig() {
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
   useEffect(() => {
+    // 1. Initial manual status check
     checkStatus();
     
-    // Auto-poll status if not connected to detect QR scan automatically
-    const interval = setInterval(() => {
-      if (waStatus !== 'connected') {
-        checkStatus();
+    // 2. Setup RTDB listener for real-time updates
+    const statusRef = ref(rtdb, `status/${employeeId}`);
+    const unsubStatus = onValue(statusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        if (data.isConnected) {
+          setWaStatus('connected');
+          setQrCode(null);
+        } else if (data.qr) {
+          setWaStatus('qr_needed');
+          setQrCode(data.qr);
+        }
       }
-    }, 5000);
+    });
 
-    return () => clearInterval(interval);
-  }, [employeeId, waStatus]);
+    return () => unsubStatus();
+  }, [employeeId]);
 
   const checkStatus = async () => {
     setLoading(true);
@@ -61,14 +71,9 @@ export default function WhatsAppConfig() {
     setWaStatus('checking');
     try {
       const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId });
-      if (res.data.status === 'qr_generated') {
-        setQrCode(res.data.qr);
-        setWaStatus('qr_needed');
-      } else if (res.data.status === 'connected') {
-        setWaStatus('connected');
-      } else if (res.data.status === 'timeout') {
-        alert('تأخر النظام في توليد الرمز. جاري التحقق من الحالة تلقائياً، يرجى الانتظار أو المحاولة مرة أخرى.');
-        checkStatus();
+      // The status will be updated via RTDB listener
+      if (res.data.status === 'initializing') {
+        console.log('Session initialization started...');
       }
     } catch (err) {
       console.error('WhatsApp Init Error:', err);

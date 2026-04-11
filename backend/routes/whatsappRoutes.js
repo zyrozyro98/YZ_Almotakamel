@@ -18,41 +18,16 @@ router.post('/init', async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: 'employeeId is required.' });
 
-  let qrSent = false;
-
   try {
     // CRITICAL: Always logout/clear old session before starting a new one for QR
     await whatsappService.logout(employeeId);
 
-    // Create a promise that resolves when either QR is generated OR session is confirmed connected
-    const sessionPromise = new Promise(async (resolve, reject) => {
-      let resolved = false;
-
-      const sock = await whatsappService.initializeSession(employeeId, (qrString) => {
-        if (!resolved) {
-          resolved = true;
-          resolve({ status: 'qr_generated', qr: qrString });
-        }
-      });
-
-      // Check if already connected immediately
-      const status = whatsappService.getConnectionStatus(employeeId);
-      if (status.isConnected && !resolved) {
-          resolved = true;
-          resolve({ status: 'connected' });
-      }
-
-      // Timeout as fallback - Increased to 15s for stability
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          resolve({ status: 'timeout', message: 'The server is taking longer than usual. Please try refreshing status.' });
-        }
-      }, 15000);
+    // Start session in background
+    whatsappService.initializeSession(employeeId).catch(err => {
+      console.error(`[WA-${employeeId}] Async init failed:`, err.message);
     });
 
-    const result = await sessionPromise;
-    res.status(200).json(result);
+    res.status(200).json({ status: 'initializing', message: 'Session initialization started. Watch RTDB for status.' });
 
   } catch (error) {
     if (!res.headersSent) {
