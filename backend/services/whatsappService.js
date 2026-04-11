@@ -34,17 +34,20 @@ async function initializeSession(employeeId, onQrGenerated) {
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
-  // Fetch latest version to avoid 405 error
-  const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307], isLatest: false }));
+  // Fetch latest version to avoid 405 error - updated fallback to a more recent version
+  const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({ 
+    version: [2, 3000, 1017531287], // More recent fallback
+    isLatest: false 
+  }));
   console.log(`[WA] Using WhatsApp Web v${version.join('.')}, isLatest: ${isLatest}`);
 
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: 'info' }),
-    browser: Browsers.ubuntu('Chrome'), // Ubuntu chrome is often more stable for VMs
-    connectTimeoutMs: 120000, 
+    logger: pino({ level: 'silent' }), // Reduce log noise
+    browser: ['YZ_Almotakamel', 'Chrome', '114.0.5735.199'], // Custom browser string often bypasses 405
+    connectTimeoutMs: 60000, 
     defaultQueryTimeoutMs: 0,
     keepAliveIntervalMs: 30000,
   });
@@ -74,8 +77,8 @@ async function initializeSession(employeeId, onQrGenerated) {
       
       console.log(`[WA-${employeeId}] Connection closed due to `, lastDisconnect.error, ', reconnecting ', shouldReconnect);
       
-      // Update status in RTDB
-      rtdb.ref(`status/${employeeId}`).set({ isConnected: false, lastUpdate: Date.now() }).catch(e => {});
+      // Update status in RTDB - use update to preserve QR if exists
+      rtdb.ref(`status/${employeeId}`).update({ isConnected: false, lastUpdate: Date.now() }).catch(e => {});
 
       if (shouldReconnect) {
         // Only re-init if not logged out
