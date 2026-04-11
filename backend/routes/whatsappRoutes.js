@@ -85,7 +85,18 @@ router.post('/send-image', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    const jid = `${phoneNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+    
+    // Normalize phone number (International format)
+    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('05') && cleanPhone.length === 10) {
+      cleanPhone = '966' + cleanPhone.slice(1);
+    } else if (cleanPhone.startsWith('5') && cleanPhone.length === 9) {
+      cleanPhone = '966' + cleanPhone;
+    } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+      cleanPhone = '967' + cleanPhone;
+    }
+
+    const jid = `${cleanPhone}@s.whatsapp.net`;
     const imageBuffer = Buffer.from(base64Image.split(',')[1] || base64Image, 'base64');
     
     await sock.sendMessage(jid, { 
@@ -94,6 +105,7 @@ router.post('/send-image', async (req, res) => {
     });
     res.status(200).json({ status: 'sent', to: jid });
   } catch (error) {
+    console.error('[WA SEND-IMAGE ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -107,7 +119,18 @@ router.post('/send-audio', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    const jid = `${phoneNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+    
+    // Normalize phone number (International format)
+    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('05') && cleanPhone.length === 10) {
+      cleanPhone = '966' + cleanPhone.slice(1);
+    } else if (cleanPhone.startsWith('5') && cleanPhone.length === 9) {
+      cleanPhone = '966' + cleanPhone;
+    } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+      cleanPhone = '967' + cleanPhone;
+    }
+
+    const jid = `${cleanPhone}@s.whatsapp.net`;
     const audioBuffer = Buffer.from(base64Audio.split(',')[1] || base64Audio, 'base64');
     
     await sock.sendMessage(jid, { 
@@ -117,6 +140,7 @@ router.post('/send-audio', async (req, res) => {
     });
     res.status(200).json({ status: 'sent', to: jid });
   } catch (error) {
+    console.error('[WA SEND-AUDIO ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });

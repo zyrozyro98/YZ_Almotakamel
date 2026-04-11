@@ -108,7 +108,7 @@ async function initializeSession(employeeId, onQrGenerated) {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+    if (type !== 'notify' && type !== 'append') return;
     for (const msg of messages) {
       if (!msg.message) continue;
       
