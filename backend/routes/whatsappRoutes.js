@@ -45,8 +45,19 @@ router.post('/send', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    // Format number to Jid
-    const jid = `${phoneNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+    // Normalize phone number (International format)
+    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    
+    // Auto-Correct for Saudi/Yemen
+    if (cleanPhone.startsWith('05') && cleanPhone.length === 10) {
+      cleanPhone = '966' + cleanPhone.slice(1);
+    } else if (cleanPhone.startsWith('5') && cleanPhone.length === 9) {
+      cleanPhone = '966' + cleanPhone;
+    } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+      cleanPhone = '967' + cleanPhone;
+    }
+    
+    const jid = `${cleanPhone}@s.whatsapp.net`;
     
     await sock.sendMessage(jid, { text: message });
     res.status(200).json({ status: 'sent', to: jid });
