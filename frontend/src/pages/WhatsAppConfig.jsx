@@ -13,12 +13,15 @@ export default function WhatsAppConfig() {
 
   useEffect(() => {
     // 1. Initial manual status check
-    checkStatus();
+    if (employeeId) checkStatus();
     
     // 2. Setup RTDB listener for real-time updates
     const statusRef = ref(rtdb, `status/${employeeId}`);
+    console.log(`[WA] Listening for status updates at: status/${employeeId}`);
+    
     const unsubStatus = onValue(statusRef, (snapshot) => {
       const data = snapshot.val();
+      console.log(`[WA] RTDB Updated for ${employeeId}:`, data);
       if (data) {
         if (data.isConnected) {
           setWaStatus('connected');
@@ -28,10 +31,22 @@ export default function WhatsAppConfig() {
           setQrCode(data.qr);
         }
       }
+    }, (error) => {
+      console.error(`[WA] RTDB Listener Error for ${employeeId}:`, error);
     });
 
-    return () => unsubStatus();
-  }, [employeeId]);
+    // 3. Fallback polling every 10 seconds just in case listener fails
+    const interval = setInterval(() => {
+      if (waStatus !== 'connected' && !qrCode) {
+        checkStatus();
+      }
+    }, 10000);
+
+    return () => {
+      unsubStatus();
+      clearInterval(interval);
+    };
+  }, [employeeId, waStatus, qrCode]);
 
   const checkStatus = async () => {
     setLoading(true);
@@ -39,7 +54,12 @@ export default function WhatsAppConfig() {
       const res = await axios.get(`${BASE_URL}/api/whatsapp/status/${employeeId}`);
       if (res.data.isConnected) {
         setWaStatus('connected');
-      } else {
+        setQrCode(null);
+      } else if (res.data.qr) {
+        setWaStatus('qr_needed');
+        setQrCode(res.data.qr);
+      } else if (waStatus !== 'qr_needed') {
+        // Only reset if we are not already waiting for a scan
         setWaStatus('qr_needed');
       }
     } catch (err) {

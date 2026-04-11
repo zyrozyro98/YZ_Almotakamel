@@ -6,6 +6,7 @@ const { db, rtdb } = require('../firebaseAdmin');
 
 // Store map of active sockets by employeeId
 const sessions = new Map();
+const qrCache = new Map(); // Store last generated QR as fallback
 const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
 
 /**
@@ -61,7 +62,8 @@ async function initializeSession(employeeId, onQrGenerated) {
     
     if (qr) {
       console.log(`[WA-${employeeId}] New QR Code generated.`);
-      // Push QR to RTDB for real-time frontend pickup
+      qrCache.set(employeeId, qr); // Cache in memory
+      
       rtdb.ref(`status/${employeeId}`).update({ 
         qr: qr, 
         lastUpdate: Date.now(),
@@ -93,6 +95,9 @@ async function initializeSession(employeeId, onQrGenerated) {
       }
     } else if (connection === 'open') {
       console.log(`[WA-${employeeId}] Opened connection successfully!`);
+      // Clear local cache if connected
+      qrCache.delete(employeeId);
+      
       // Update status in RTDB - clear QR as it's no longer needed
       rtdb.ref(`status/${employeeId}`).set({ 
         isConnected: true, 
@@ -185,9 +190,9 @@ async function logout(employeeId) {
 
 function getConnectionStatus(employeeId) {
   const sock = sessions.get(employeeId);
-  const isConnected = !!sock && !!sock.user && !!sock.user.id;
   return {
-    isConnected,
+    isConnected: !!(sock && sock.user),
+    qr: qrCache.get(employeeId) || null, // Return cached QR if exists
     employeeId,
     user: sock?.user || null
   };
