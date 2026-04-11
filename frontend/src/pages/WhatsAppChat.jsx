@@ -8,6 +8,9 @@ import { ref, onValue, push, set, serverTimestamp as rtdbTimestamp } from 'fireb
 
 export default function WhatsAppChat() {
   const [selectedChat, setSelectedChat] = useState(null);
+  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
   const [message, setMessage] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -27,6 +30,7 @@ export default function WhatsAppChat() {
   const messagesEndRef = useRef(null);
 
   const [students, setStudents] = useState([]);
+
   const [activeChats, setActiveChats] = useState([]); // From RTDB
   const [mergedChats, setMergedChats] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -40,9 +44,6 @@ export default function WhatsAppChat() {
   });
   const [searchQuery, setSearchQuery] = useState('');
   
-  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
