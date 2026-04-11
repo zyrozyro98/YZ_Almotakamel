@@ -133,27 +133,34 @@ async function initializeSession(employeeId, onQrGenerated) {
       console.log(`[WA-${employeeId}][${isMe ? 'SENT' : 'RECV'}] ${remoteJid}: [${msgType}] ${textMsg}`);
       
       // Save message to Firebase for Frontend Sync
-      const chatId = remoteJid.replace('@s.whatsapp.net', '');
+      // Ensure chatId is always the plain number (no @s.whatsapp.net)
+      const chatId = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
       const messagePayload = {
-        text: textMsg,
+        text: textMsg || '',
         type: msgType,
         url: url,
         time: new Date().toISOString(),
         sender: isMe ? 'me' : 'them',
-        remoteJid: remoteJid
+        remoteJid: remoteJid,
+        id: msg.key.id || Date.now().toString()
       };
 
       try {
-        const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
-        // 1. Push the actual message
+        const chatPath = `chats/${employeeId}/${chatId}`;
+        const chatRef = rtdb.ref(chatPath);
+        
+        // 1. Push the message
         await chatRef.child('messages').push(messagePayload);
-        // 2. Update chat metadata for sorting and preview
+        
+        // 2. Update chat metadata for sidebar
         await chatRef.update({
-          lastMessage: textMsg,
-          timestamp: Date.now()
+          lastMessage: textMsg || '',
+          timestamp: Date.now(),
+          phone: chatId,
+          name: isMe ? 'أنا' : (msg.pushName || chatId)
         });
       } catch (err) {
-        console.error('[WA] Firebase Sync error:', err);
+        console.error(`[WA-${employeeId}] Firebase Sync error for ${chatId}:`, err.message);
       }
     }
   });
