@@ -229,7 +229,9 @@ export default function WhatsAppChat() {
         setMessage('');
         setShowEmojiPicker(false);
       } catch (err) {
-        alert('فشل في إرسال الرسالة. يرجى التأكد من اتصال واتساب.');
+        console.error('[SEND ERROR]', err);
+        const errorMsg = err.response?.data?.error || 'يرجى التأكد من اتصال واتساب في صفحة الإعدادات.';
+        alert(`فشل في إرسال الرسالة: ${errorMsg}`);
       } finally {
         setIsSending(false);
       }
@@ -472,7 +474,10 @@ export default function WhatsAppChat() {
 
           {/* Messages Area */}
           <div style={{ 
-            flex: 1, padding: '2rem', overflowY: 'auto', background: 'url("https://www.transparenttextures.com/patterns/cubes.png")', backgroundSize: '200px', opacity: 1
+            flex: 1, padding: '2rem', overflowY: 'auto', 
+            backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)',
+            backgroundSize: '30px 30px',
+            backgroundColor: 'rgba(15, 23, 42, 0.2)'
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {waStatus === 'qr_needed' && qrCode && (
@@ -500,33 +505,34 @@ export default function WhatsAppChat() {
               )}
 
               {messages.map((msg, index) => (
-                <div key={msg.id || index} style={{ alignSelf: msg.sender === 'me' ? 'flex-start' : 'flex-end', maxWidth: '80%' }}>
+                <div key={msg.id || index} style={{ alignSelf: msg.sender === 'me' ? 'flex-start' : 'flex-end', maxWidth: '80%', position: 'relative' }}>
                   <div className="glass-panel" style={{
                     background: msg.sender === 'me' ? 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))' : 'rgba(30, 41, 59, 0.95)',
-                    color: '#fff', padding: msg.type === 'image' ? '0.25rem' : '0.9rem 1.2rem', 
-                    borderRadius: msg.sender === 'me' ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+                    color: '#fff', padding: msg.type === 'image' ? '0.25rem' : '0.9rem 1.25rem', 
+                    borderRadius: msg.sender === 'me' ? '0 20px 20px 20px' : '20px 0 20px 20px',
                     borderColor: 'transparent', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', position: 'relative'
                   }}>
-                    {msg.type === 'text' && (
-                      <p style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 500, lineHeight: 1.5 }}>{msg.text}</p>
+                    {msg.sender === 'me' && (
+                       <div style={{ position: 'absolute', top: 0, right: '-8px', width: 0, height: 0, borderTop: '10px solid var(--brand-primary)', borderRight: '10px solid transparent' }}></div>
                     )}
-                    {msg.type === 'audio' && <audio controls src={msg.url} style={{ height: '36px', minWidth: '200px' }} />}
+                    {msg.sender === 'them' && (
+                       <div style={{ position: 'absolute', top: 0, left: '-8px', width: 0, height: 0, borderTop: '10px solid rgba(30, 41, 59, 0.95)', borderLeft: '10px solid transparent' }}></div>
+                    )}
+                    
+                    {msg.type === 'text' && (
+                      <p style={{ margin: 0, color: '#fff', fontSize: '0.98rem', fontWeight: 500, lineHeight: 1.6 }}>{msg.text}</p>
+                    )}
+                    {msg.type === 'audio' && <audio controls src={msg.url} style={{ height: '36px', minWidth: '220px' }} />}
                     {msg.type === 'image' && (
                       <div style={{ position: 'relative', borderRadius: '15px', overflow: 'hidden' }}>
                         <img src={msg.url} alt="attachment" style={{ maxWidth: '100%', maxHeight: '400px', display: 'block' }} />
-                        {msg.sender === 'them' && isSelectReceiptMode && (
-                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <button className="btn-primary" style={{ padding: '0.5rem 1rem' }}
-                              onClick={() => { setSelectedReceipt(msg.id); setIsSelectReceiptMode(false); setOrderType('transfer'); setOrderModalOpen(true); }}>
-                              <CheckCircle size={16} /> اعتماد كإيصال
-                            </button>
-                          </div>
-                        )}
                       </div>
                     )}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.4rem', textAlign: msg.sender === 'me' ? 'left' : 'right', fontWeight: 600 }}>
-                    {msg.time}
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', marginTop: '4px', opacity: 0.7 }}>
+                      <span style={{ fontSize: '0.65rem' }}>{msg.time}</span>
+                      {msg.sender === 'me' && <CheckCircle size={10} />}
+                    </div>
                   </div>
                 </div>
               ))}
