@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
+const { rtdb } = require('../firebaseAdmin');
 const qrcode = require('qrcode-terminal'); // Only for terminal test, the real logic sends base64 to FE
 
 // Initialize Session Route - Returns QR Code or Connected status
@@ -59,8 +60,35 @@ router.post('/send', async (req, res) => {
     
     const jid = `${cleanPhone}@s.whatsapp.net`;
     
-    await sock.sendMessage(jid, { text: message });
-    res.status(200).json({ status: 'sent', to: jid });
+    const result = await sock.sendMessage(jid, { text: message });
+    
+    // PERFORM DB UPDATE IN BACKGROUND - DON'T WAIT
+    const chatId = cleanPhone;
+    const messagePayload = {
+      text: message,
+      type: 'text',
+      url: null,
+      time: new Date().toISOString(),
+      sender: 'me',
+      remoteJid: jid,
+      id: result?.key?.id || Date.now().toString()
+    };
+
+    // Run this in background to respond faster to user
+    (async () => {
+      try {
+        const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
+        await chatRef.child('messages').push(messagePayload);
+        await chatRef.update({
+          lastMessage: message,
+          timestamp: Date.now()
+        });
+      } catch (dbErr) {
+        console.log('[WA] Background DB Save skipped/error:', dbErr.message);
+      }
+    })();
+
+    return res.status(200).json({ status: 'sent', to: jid });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
