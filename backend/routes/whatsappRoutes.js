@@ -91,4 +91,65 @@ router.get('/status/:employeeId', (req, res) => {
   }
 });
 
+// Helper function to resolve target JID (Shared with text send)
+async function getTargetJid(employeeId, phoneNumber, fullJid) {
+  let targetJid = fullJid;
+  let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+  const chatId = cleanPhone.slice(-9);
+
+  if (!targetJid) {
+    try {
+      const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
+      targetJid = snap.val()?.fullJid;
+    } catch(e) {}
+  }
+
+  if (!targetJid) {
+    let finalPhone = cleanPhone;
+    if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
+      if (finalPhone.startsWith('05') && finalPhone.length === 10) finalPhone = '966' + finalPhone.slice(1);
+      else if (finalPhone.startsWith('5') && finalPhone.length === 9) finalPhone = '966' + finalPhone;
+      else if (finalPhone.startsWith('7') && finalPhone.length === 9) finalPhone = '967' + finalPhone;
+    }
+    targetJid = `${finalPhone}@s.whatsapp.net`;
+  }
+  return targetJid;
+}
+
+// Send Image
+router.post('/send-image', async (req, res) => {
+  const { employeeId, phoneNumber, base64Image, caption, fullJid } = req.body;
+  try {
+    const sock = whatsappService.getSession(employeeId);
+    if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
+
+    const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+
+    await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
+    res.status(200).json({ status: 'sent', to: targetJid });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Send Document
+router.post('/send-document', async (req, res) => {
+  const { employeeId, phoneNumber, base64File, fileName, caption, fullJid } = req.body;
+  try {
+    const sock = whatsappService.getSession(employeeId);
+    if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
+
+    const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    const buffer = Buffer.from(base64File.split(',')[1], 'base64');
+    const mime = base64File.split(';')[0].split(':')[1];
+
+    await sock.sendMessage(targetJid, { 
+      document: buffer, 
+      mimetype: mime, 
+      fileName: fileName || "file",
+      caption: caption || "" 
+    });
+    res.status(200).json({ status: 'sent', to: targetJid });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
