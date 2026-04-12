@@ -286,14 +286,19 @@ export default function WhatsAppChat() {
 
   // 4. Real-time Messages for Selected Chat
   useEffect(() => {
-    if (!selectedChat) {
+    if (!selectedChat || !employeeId || employeeId === 'emp1') {
       setMessages([]);
       return;
     }
 
-    const chatId = selectedChat.phone.replace(/[^0-9]/g, '').slice(-9);
+    const phone = selectedChat.phone || selectedChat.id;
+    if (!phone) return;
+
+    const chatId = phone.replace(/[^0-9]/g, '').slice(-9);
     const messagesRef = ref(rtdb, `chats/${employeeId}/${chatId}/messages`);
     
+    console.log(`[UI] Subscribing to messages for employee: ${employeeId}, chat: ${chatId}`);
+
     const unsubRtdb = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
