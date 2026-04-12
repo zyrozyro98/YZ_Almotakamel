@@ -4,7 +4,7 @@ import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Trash2, Image as ImageIcon
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
