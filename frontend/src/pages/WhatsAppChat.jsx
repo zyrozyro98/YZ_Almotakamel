@@ -32,7 +32,6 @@ export default function WhatsAppChat() {
   const [formData, setFormData] = useState({});
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
-  const [showMaskedData, setShowMaskedData] = useState(false); // Toggle for privacy view
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -90,6 +89,17 @@ export default function WhatsAppChat() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  const formatMessageDate = (timestamp) => {
+    const d = new Date(timestamp);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'اليوم';
+    if (diffDays === 1) return 'أمس';
+    if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
+    return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
 
   const combinedList = () => {
@@ -126,15 +136,22 @@ export default function WhatsAppChat() {
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
-    const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
+    const textToSend = message; 
+    setMessage(''); 
+    setShowEmojiPicker(false); 
+    setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
         employeeId, 
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
         message: textToSend,
-        fullJid: selectedChat.fullJid // THE KEY FOR INSTANT DELIVERY
+        fullJid: selectedChat.fullJid 
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
+  };
+
+  const addEmoji = (e) => {
+    setMessage(prev => prev + e.native);
   };
 
   // --- Modal Logic ---
@@ -285,49 +302,90 @@ export default function WhatsAppChat() {
                 <Info size={20} style={{ color: '#aaa', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
               </div>
 
-              <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '15px' : '30px', display: 'flex', flexDirection: 'column', gap: '15px', background: '#020617' }}>
+              <div className="custom-scrollbar" style={{ 
+                flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '20px', 
+                display: 'flex', flexDirection: 'column', gap: '8px', 
+                background: '#0f172a', backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', backgroundSize: '24px 24px'
+              }}>
                 {messages.map((m, i) => {
                   const isMe = m.sender === 'me';
                   const isPicked = selectedMessage?.id === m.id;
+                  const messageDate = formatMessageDate(m.time || Date.now());
+                  const prevMessageDate = i > 0 ? formatMessageDate(messages[i-1].time || Date.now()) : null;
+                  const showDateSeparator = messageDate !== prevMessageDate;
+
                   return (
-                    <div 
-                      key={i} 
-                      style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%' }} 
-                      onClick={() => {
-                        if (isSelectingMessage) {
-                          setSelectedMessage(m);
-                          setIsSelectingMessage(false);
-                          setActiveModal('receipt');
-                        }
-                      }}
-                    >
-                      <div style={{ 
-                        maxWidth: '85%', width: 'fit-content', padding: '12px 18px', borderRadius: '22px', 
-                        background: isMe ? '#059669' : '#1e293b', color: '#fff',
-                        borderTopRightRadius: isMe ? '4px' : '22px', borderTopLeftRadius: isMe ? '22px' : '4px',
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-                        cursor: isSelectingMessage ? 'pointer' : 'default',
-                        border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
-                        transition: '0.2s',
-                        transform: (isSelectingMessage && !isPicked) ? 'scale(0.98)' : 'scale(1)',
-                        opacity: (isSelectingMessage && !isPicked) ? 0.7 : 1
-                      }}>
-                        <p style={{ margin: 0, fontSize: isMobile ? '0.85rem' : '0.95rem', lineHeight: 1.6 }}>{m.text}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '6px', fontSize: '9px', color: 'rgba(255,255,255,0.5)', justifyContent: 'flex-start' }}>
-                          {m.time ? new Date(m.time).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : ''}
-                          {isMe && <CheckCheck size={12} />}
+                    <React.Fragment key={i}>
+                      {showDateSeparator && (
+                        <div style={{ display: 'flex', justifyContent: 'center', margin: '20px 0 10px' }}>
+                          <span style={{ background: 'rgba(30,41,59,0.8)', color: 'rgba(255,255,255,0.6)', padding: '4px 12px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 600 }}>{messageDate}</span>
+                        </div>
+                      )}
+                      
+                      <div 
+                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }} 
+                        onClick={() => {
+                          if (isSelectingMessage) {
+                            setSelectedMessage(m);
+                            setIsSelectingMessage(false);
+                            setActiveModal('receipt');
+                          }
+                        }}
+                      >
+                        <div style={{ 
+                          maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px', 
+                          background: isMe ? '#065f46' : '#1e293b', 
+                          color: '#fff',
+                          borderTopRightRadius: isMe ? '2px' : '12px', 
+                          borderTopLeftRadius: isMe ? '12px' : '2px',
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                          cursor: isSelectingMessage ? 'pointer' : 'default',
+                          border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
+                          position: 'relative',
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}>
+                          <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
+                              {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                            </span>
+                            {isMe && <CheckCheck size={14} style={{ color: '#34d399' }} />}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 })}
                 <div ref={messagesEndRef} />
               </div>
 
-              <div style={{ padding: '20px', background: '#1e293b' }}>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <input type="text" value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="اكتب..." style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff' }} />
-                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px' }}><Send size={20} /></button>
+              <div style={{ padding: '20px', background: '#1e293b', position: 'relative' }}>
+                {showEmojiPicker && (
+                  <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000 }}>
+                    <Picker 
+                      data={async () => (await fetch('https://cdn.jsdelivr.net/npm/@emoji-mart/data')).json()}
+                      onEmojiSelect={addEmoji} 
+                      theme="dark"
+                      set="apple"
+                      locale="ar"
+                    />
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button 
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
+                    style={{ background: 'none', border: 'none', color: showEmojiPicker ? '#3b82f6' : '#94a3b8', cursor: 'pointer' }}
+                  >
+                    <Smile size={24} />
+                  </button>
+                  <input 
+                    type="text" value={message} 
+                    onChange={e => setMessage(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && handleSend()} 
+                    placeholder="اكتب..." 
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '12px 15px', borderRadius: '15px', color: '#fff', fontSize: '1rem' }} 
+                  />
+                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px 15px' }}><Send size={20} /></button>
                 </div>
               </div>
             </>
@@ -507,21 +565,15 @@ export default function WhatsAppChat() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>إسم المستخدم</span>
-                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>{showMaskedData ? selectedChat.platformUser : '••••••••'}</p>
+                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>••••••••</p>
                     </div>
-                    <button onClick={() => setShowMaskedData(!showMaskedData)} style={{ background: 'none', border: 'none', color: '#a855f7' }}>
-                      {showMaskedData ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
                   </div>
                   <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>كلمة المرور</span>
-                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>{showMaskedData ? selectedChat.platformPass : '••••••••'}</p>
+                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>••••••••</p>
                     </div>
-                    <button onClick={() => setShowMaskedData(!showMaskedData)} style={{ background: 'none', border: 'none', color: '#a855f7' }}>
-                      {showMaskedData ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
                   </div>
                 </div>
 
