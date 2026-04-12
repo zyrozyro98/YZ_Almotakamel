@@ -1,9 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, Edit, Trash2, GraduationCap, Phone, User, Lock } from 'lucide-react';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function Students() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(user => {
+      if (user) {
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+      setCheckingAdmin(false);
+    });
+    return () => unsub();
+  }, []);
   const [activeTab, setActiveTab] = useState('list');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentsList, setStudentsList] = useState([]);
@@ -129,6 +145,26 @@ export default function Students() {
   // Get unique batches and groups for filters
   const uniqueBatches = [...new Set(studentsList.map(s => s.batch).filter(Boolean))];
   const uniqueGroups = [...new Set(studentsList.map(s => s.group).filter(Boolean))];
+
+  if (checkingAdmin) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
+        <RefreshCw size={40} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مسموح بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الصفحة مخصصة للمسؤولين فقط لإدارة السجلات الكاملة للطلاب.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in-up">

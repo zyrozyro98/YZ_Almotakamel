@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Filter, Eye, ChevronRight, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
-import { db } from '../firebase';
+import { Filter, Eye, ChevronRight, CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
 // Maps main status to acceptable sub-statuses
@@ -39,6 +39,22 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState('الكل');
   const [ordersData, setOrdersData] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(user => {
+      if (user) {
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+      setCheckingAdmin(false);
+    });
+    return () => unsub();
+  }, []);
 
   // For editing status in detailed view
   const [editMainStatus, setEditMainStatus] = useState('');
@@ -111,6 +127,26 @@ export default function Orders() {
       alert('حدث خطأ بالاتصال بقاعدة البيانات.');
     }
   };
+
+  if (checkingAdmin) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
+        <RefreshCw size={40} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مسموح بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الصفحة مخصصة للمسؤولين فقط لإدارة وتحديث حالات الطلبات.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

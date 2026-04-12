@@ -73,14 +73,14 @@ export default function DashboardLayout() {
 
   const allNavItems = [
     { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false },
-    { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: false },
+    { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: true },
     { path: '/employees', label: 'فريق العمل', icon: <Users size={20} />, adminOnly: true },
     { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} />, adminOnly: true },
-    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} />, adminOnly: false },
+    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} />, adminOnly: true },
     { path: '/chat', label: 'دردشة الواتساب', icon: <MessageCircle size={20} />, adminOnly: false },
     { path: '/live-monitoring', label: 'الرقابة الحية', icon: <Radio size={20} />, adminOnly: true },
     { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} />, adminOnly: true },
-    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: false },
+    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: true },
     { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true },
     { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true },
   ];

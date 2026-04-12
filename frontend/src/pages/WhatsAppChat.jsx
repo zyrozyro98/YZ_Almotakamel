@@ -271,16 +271,19 @@ export default function WhatsAppChat() {
 
     const msgText = `*مرحباً ${selectedChat.name}* 👋\n\nإليك بيانات الدخول الخاصة بك للمنصة التعليمية:\n\n👤 *اسم المستخدم:* ${selectedChat.platformUser}\n🔐 *كلمة المرور:* ${selectedChat.platformPass}\n\nيرجى الاحتفاظ بها وعدم مشاركتها مع أي شخص آخر. بالتوفيق! 🌸`;
     
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId, 
+        employeeId: targetId, 
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
         message: msgText,
-        fullJid: selectedChat.fullJid
+        fullJid: selectedChat.fullJid,
+        senderId: employeeId,
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
       });
       alert('تم إرسال البيانات للطالب بنجاح ✔️');
       setActiveModal(null);
-    } catch (err) { alert('فشل الإرسال'); }
+    } catch (err) { alert('فشل الإرسال: تأكد من ربط واتساب الموظف المختار'); }
   };
 
   const handleFileSelect = (e) => {
