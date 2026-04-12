@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
-import { auth, rtdb } from '../firebase';
+import { auth, rtdb, db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
@@ -32,11 +33,6 @@ export default function WhatsAppConfig() {
     return () => unsubAuth();
   }, []);
 
-  // If Admin, fetch employees from Firestore
-  useEffect(() => {
-    if (!isAdmin) return;
-    const { collection, onSnapshot, db } = require('../firebase'); // Import here if needed or use existing
-  }, [isAdmin]);
 
   // 2. Real-time Status using Golden Key
   useEffect(() => {
@@ -69,9 +65,7 @@ export default function WhatsAppConfig() {
   // For Admin: Get all employees from Firestore
   useEffect(() => {
     if (!isAdmin) return;
-    const { collection, onSnapshot, query, orderBy } = require('firebase/firestore');
-    const { db } = require('../firebase');
-
+    
     const q = query(collection(db, 'employees'), orderBy('name', 'asc'));
     const unsub = onSnapshot(q, (snapshot) => {
       setEmployees(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
