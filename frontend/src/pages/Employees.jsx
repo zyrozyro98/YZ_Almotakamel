@@ -1,12 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  UserPlus, Search, Edit, Trash2, Shield, 
-  Mail, Phone, UserCheck, UserX, ChevronLeft,
-  Briefcase, AtSign, ShieldCheck, Activity
-} from 'lucide-react';
+import { UserPlus, Search, Edit, Trash2, Shield, Mail, Phone, UserCheck, UserX } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { collection, serverTimestamp, onSnapshot, doc, deleteDoc, query, orderBy } from 'firebase/firestore';
 
 export default function Employees() {
   const [activeTab, setActiveTab] = useState('list');
@@ -24,12 +20,19 @@ export default function Employees() {
     status: 'active'
   });
 
-  const [filters, setFilters] = useState({ role: '', status: '' });
+  const [filters, setFilters] = useState({
+    role: '',
+    status: ''
+  });
 
   useEffect(() => {
     const q = query(collection(db, 'employees'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setEmployeesList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const data = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setEmployeesList(data);
     });
     return () => unsubscribe();
   }, []);
@@ -40,16 +43,26 @@ export default function Employees() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const endpoint = editingId ? `update/${editingId}` : 'create';
-      await axios.post(`${BASE_URL}/api/employees/${endpoint}`, formData);
+      console.log('Sending request to:', `${BASE_URL}/api/employees/${editingId ? 'update/' + editingId : 'create'}`);
       
-      setEditingId(null);
-      setActiveTab('list');
+      const response = await axios.post(`${BASE_URL}/api/employees/${editingId ? 'update/' + editingId : 'create'}`, formData);
+      
+      if (editingId) {
+        setEditingId(null);
+        setActiveTab('list');
+      } else {
+        setActiveTab('list');
+      }
       setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active' });
-      alert('تم حفظ بيانات الموظف بنجاح');
+      alert('تمت العملية بنجاح');
     } catch (err) {
       console.error('[SUBMIT ERROR]', err);
-      alert(err.response?.data?.error || 'حدث خطأ أثناء معالجة البيانات.');
+      
+      if (!err.response) {
+        alert('لا يمكن الاتصال بالخادم. إذا كنت تستخدم الرابط العام (https)، يرجى التأكد من تشغيل الخادم المحلي واستخدام الرابط المحلي (http://localhost:5173) لتتمكن من الاتصال بالـ Backend المحلي.');
+      } else {
+        alert(err.response?.data?.error || 'حدث خطأ أثناء المعالجة');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -68,7 +81,7 @@ export default function Employees() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا الحساب نهائياً؟')) {
+    if (window.confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
       try {
         await deleteDoc(doc(db, 'employees', id));
       } catch (err) {
@@ -84,27 +97,35 @@ export default function Employees() {
     return matchSearch && matchRole && matchStatus;
   });
 
-  const getRoleBadge = (role) => {
+  const getRoleIcon = (role) => {
     switch(role) {
-      case 'admin': return <span className="badge badge-danger"><Shield size={12} /> مدير النظام</span>;
-      case 'supervisor': return <span className="badge badge-warning"><ShieldCheck size={12} /> مشرف</span>;
-      default: return <span className="badge badge-info"><Briefcase size={12} /> موظف دعم</span>;
+      case 'admin': return <Shield size={18} className="text-rose-500" />;
+      case 'supervisor': return <UserCheck size={18} className="text-amber-500" />;
+      default: return <UserPlus size={18} className="text-blue-500" />;
+    }
+  };
+
+  const getRoleLabel = (role) => {
+    switch(role) {
+      case 'admin': return 'مدير النظام';
+      case 'supervisor': return 'مشرف عام';
+      default: return 'موظف دعم';
     }
   };
 
   return (
-    <div className="space-y-8 animate-fade-in-up">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+    <div className="animate-fade-in-up">
+      <div className="flex justify-between items-center responsive-flex" style={{ marginBottom: '2.5rem' }}>
         <div>
-          <h1 className="text-3xl font-extrabold text-white mb-2">إدارة فريق العمل</h1>
-          <p className="text-white/50 text-sm font-medium">التحكم في صلاحيات الوصول وإضافة أعضاء جدد للمنظمة.</p>
+          <h1 style={{ marginBottom: '0.25rem' }}>إدارة فريق العمل</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>إضافة وتعديل صلاحيات الموظفين في النظام</p>
         </div>
         <div className="flex gap-3">
           <button 
             className={activeTab === 'list' ? 'btn-primary' : 'btn-secondary'} 
             onClick={() => setActiveTab('list')}
           >
-            <Search size={18} /> قائمة الفريق
+            <Search size={18} /> قائمة الموظفين
           </button>
           <button 
             className={activeTab === 'add' ? 'btn-primary' : 'btn-secondary'} 
@@ -114,162 +135,137 @@ export default function Employees() {
                 setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active' }); 
             }}
           >
-            <UserPlus size={18} /> {editingId ? 'تعديل بيانات' : 'إضافة موظف'}
+            <UserPlus size={18} /> {editingId ? 'تعديل موظف' : 'إضافة موظف'}
           </button>
         </div>
       </div>
 
       {activeTab === 'add' ? (
-        <div className="glass-panel p-8 max-w-3xl mx-auto">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-brand-primary/20 text-brand-primary flex items-center justify-center">
-              <UserPlus size={24} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">{editingId ? 'تعديل الموظف' : 'تسجيل موظف جديد'}</h2>
-              <p className="text-white/40 text-xs">تأكد من إدخال بريد إلكتروني صالح لتفعيل الحساب.</p>
-            </div>
-          </div>
+        <div className="glass-panel" style={{ padding: '2.5rem', maxWidth: '800px', margin: '0 auto' }}>
+          <h2 style={{ marginBottom: '2rem' }}>{editingId ? 'تحديث بيانات الموظف' : 'بيانات الموظف الجديد'}</h2>
           
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="grid grid-cols-2 sm-grid-cols-1 gap-6">
+            <div className="flex-col gap-2">
               <label className="input-label">الاسم الكامل</label>
-              <div className="relative">
-                <UserCheck size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20" />
-                <input type="text" className="input-base pr-12" placeholder="اسم الموظف" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
-              </div>
+              <input type="text" className="input-base" placeholder="اسم الموظف" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
             </div>
 
-            <div className="space-y-2">
-              <label className="input-label">البريد الإلكتروني</label>
-              <div className="relative">
-                <AtSign size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20" />
-                <input type="email" className="input-base pr-12" placeholder="mail@example.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} required />
-              </div>
+            <div className="flex-col gap-2">
+              <label className="input-label">البريد الإلكتروني (لتسجيل الدخول)</label>
+              <input type="email" className="input-base" placeholder="email@example.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} required />
             </div>
 
             {!editingId && (
-              <div className="space-y-2">
-                <label className="input-label">كلمة المرور</label>
-                <div className="relative">
-                  <Shield size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20" />
-                  <input type="text" className="input-base pr-12" placeholder="باسوورد مؤقت" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} required />
+              <div className="flex-col gap-2">
+                <label className="input-label">كلمة المرور المؤقتة</label>
+                <div style={{ position: 'relative' }}>
+                  <Shield size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                  <input type="text" className="input-base" style={{ paddingRight: '2.8rem' }} placeholder="أدخل كلمة مرور قوية" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} required />
                 </div>
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="flex-col gap-2">
               <label className="input-label">رقم الهاتف</label>
-              <div className="relative">
-                <Phone size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20" />
-                <input type="tel" className="input-base pr-12 text-right" placeholder="05XXXXXXXX" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-              </div>
+              <input type="tel" className="input-base" placeholder="05XXXXXXXX" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
             </div>
 
-            <div className="space-y-2">
+            <div className="flex-col gap-2">
               <label className="input-label">الدور الوظيفي</label>
               <select className="input-base" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
-                <option value="employee">موظف دعم</option>
-                <option value="supervisor">مشرف عام</option>
-                <option value="admin">مدير نظام</option>
+                <option value="employee">موظف (Employee)</option>
+                <option value="admin">مدير (Admin)</option>
+                <option value="supervisor">مشرف (Supervisor)</option>
               </select>
             </div>
 
-            <div className="space-y-2">
-              <label className="input-label">حالة الحساب</label>
-              <select className="input-base" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                <option value="active">نشط (فعال)</option>
-                <option value="inactive">معطل (محظور)</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-2 flex justify-end gap-3 mt-4">
-              <button type="button" className="btn-secondary" onClick={() => setActiveTab('list')}>إلغاء</button>
-              <button type="submit" className="btn-primary px-12" disabled={isSubmitting}>
-                {isSubmitting ? 'جاري الحفظ...' : editingId ? 'تحديث البيانات' : 'إنشاء الحساب'}
+            <div className="flex gap-4 justify-end" style={{ gridColumn: 'span 2', marginTop: '1rem' }}>
+              <button type="submit" className="btn-primary" disabled={isSubmitting} style={{ padding: '1rem 3rem' }}>
+                {isSubmitting ? 'جاري المعالجة...' : editingId ? 'تحديث البيانات' : 'إنشاء حساب الموظف'}
               </button>
             </div>
           </form>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="glass-panel p-4 flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20" size={20} />
-              <input 
-                type="text" 
-                className="input-base pr-12" 
-                placeholder="ابحث عن اسم أو بريد..." 
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-4">
-              <select className="input-base min-w-[150px]" value={filters.role} onChange={e => setFilters({...filters, role: e.target.value})}>
-                <option value="">جميع الأدوار</option>
-                <option value="admin">المدراء</option>
-                <option value="employee">الموظفين</option>
-              </select>
-              <select className="input-base min-w-[150px]" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
-                <option value="">جميع الحالات</option>
-                <option value="active">نشط</option>
-                <option value="inactive">معطل</option>
-              </select>
+        <div className="flex-col gap-6">
+          <div className="glass-panel" style={{ padding: '1.5rem' }}>
+            <div className="flex flex-col gap-4">
+              <div style={{ position: 'relative' }}>
+                <Search size={22} style={{ position: 'absolute', right: '18px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} />
+                <input 
+                  type="text" 
+                  className="input-base" 
+                  style={{ paddingRight: '3.5rem' }} 
+                  placeholder="ابحث عن موظف بالاسم أو البريد..." 
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              
+              <div className="grid grid-cols-3 sm-grid-cols-1 gap-3">
+                <select className="input-base" value={filters.role} onChange={e => setFilters({...filters, role: e.target.value})}>
+                  <option value="">كل الأدوار الوظيفية</option>
+                  <option value="admin">المدراء</option>
+                  <option value="supervisor">المشرفين</option>
+                  <option value="employee">الموظفين</option>
+                </select>
+                <select className="input-base" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
+                  <option value="">كل الحالات</option>
+                  <option value="active">نشط</option>
+                  <option value="inactive">غير نشط</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-3 md-grid-cols-2 sm-grid-cols-1 gap-6">
             {filteredEmployees.map(emp => (
-              <div key={emp.id} className="glass-panel p-6 group hover-card relative">
-                <div 
-                  className="absolute top-0 right-0 w-1.5 h-full rounded-l-full" 
-                  style={{ backgroundColor: emp.role === 'admin' ? 'var(--danger)' : 'var(--brand-primary)' }}
-                ></div>
+              <div key={emp.id} className="group relative glass-panel hover:bg-white/[0.03] transition-all duration-500" style={{ padding: '1.75rem', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', background: emp.role === 'admin' ? 'var(--danger)' : 'var(--brand-primary)' }}></div>
                 
                 <div className="flex justify-between items-start mb-6">
                   <div className="relative">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center text-2xl font-black text-white shadow-2xl">
+                    <div style={{ width: '60px', height: '60px', borderRadius: '18px', background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-primary))', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1.4rem', boxShadow: '0 8px 20px rgba(0,0,0,0.2)' }}>
                       {emp.name?.charAt(0)}
                     </div>
-                    <div className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full border-4 border-[#1e293b] ${emp.status === 'active' ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-500'}`}></div>
+                    <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-[#1e293b] ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-500'}`}></div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleEditClick(emp)} className="p-2.5 bg-white/5 hover:bg-brand-primary/20 text-brand-primary rounded-xl border border-white/10 transition-all"><Edit size={16} /></button>
-                    <button onClick={() => handleDelete(emp.id)} className="p-2.5 bg-white/5 hover:bg-danger/20 text-danger rounded-xl border border-white/10 transition-all"><Trash2 size={16} /></button>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleEditClick(emp)} className="p-2.5 bg-white/5 hover:bg-blue-500/20 text-blue-400 rounded-xl border border-white/10 transition-colors"><Edit size={16} /></button>
+                    <button onClick={() => handleDelete(emp.id)} className="p-2.5 bg-white/5 hover:bg-red-500/20 text-red-400 rounded-xl border border-white/10 transition-colors"><Trash2 size={16} /></button>
                   </div>
                 </div>
                 
-                <div className="mb-4">
-                  <h3 className="text-xl font-black text-white mb-1">{emp.name}</h3>
-                  <div className="flex items-center gap-1 text-white/30 text-xs font-bold">
-                    <AtSign size={12} /> {emp.email}
+                <h3 className="text-xl font-extrabold text-white mb-2 leading-tight">{emp.name}</h3>
+                
+                <div className="flex flex-col gap-3 mt-4 text-sm font-medium text-slate-400">
+                  <div className="flex items-center gap-3 bg-white/5 p-2 rounded-lg">
+                    <Mail size={16} className="text-slate-500" /> 
+                    <span className="truncate">{emp.email}</span>
+                  </div>
+                  <div className="flex items-center gap-3 bg-white/5 p-2 rounded-lg">
+                    {getRoleIcon(emp.role)}
+                    <span className="text-white">{getRoleLabel(emp.role)}</span>
+                  </div>
+                  <div className="flex items-center gap-3 bg-white/5 p-2 rounded-lg">
+                    <Phone size={16} className="text-slate-500" /> 
+                    <span>{emp.phone || 'بدون رقم هاتف'}</span>
                   </div>
                 </div>
 
-                <div className="space-y-2 mb-6">
-                   <div className="flex items-center justify-between text-xs py-2 border-b border-white/5">
-                      <span className="text-white/30">الدور الوظيفي</span>
-                      {getRoleBadge(emp.role)}
-                   </div>
-                   <div className="flex items-center justify-between text-xs py-2">
-                      <span className="text-white/30">رقم التواصل</span>
-                      <span className="text-white font-bold">{emp.phone || 'N/A'}</span>
+                <div className="mt-6 flex gap-2">
+                   <div className={`flex-1 py-2 rounded-xl text-center text-xs font-bold border ${emp.status === 'active' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-slate-500/10 text-slate-500 border-slate-500/20'}`}>
+                      {emp.status === 'active' ? 'حساب نشط' : 'حساب معطل'}
                    </div>
                 </div>
-
-                <button className="w-full btn-secondary text-xs py-2 flex items-center justify-center gap-2 group-hover:bg-brand-primary/10 group-hover:text-brand-primary group-hover:border-brand-primary/20 transition-all">
-                  <Activity size={14} /> سجل النشاط
-                </button>
               </div>
             ))}
+            {filteredEmployees.length === 0 && (
+              <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '5rem opacity-40' }}>
+                 <p>لا يوجد موظفون يطابقون خيارات البحث الحالية.</p>
+              </div>
+            )}
           </div>
-
-          {filteredEmployees.length === 0 && (
-            <div className="glass-panel p-20 text-center opacity-40">
-              <Search size={48} className="mx-auto mb-4" />
-              <p className="font-bold">لم نجد أي موظفين يطابقون هذه الفلاتر.</p>
-            </div>
-          )}
         </div>
       )}
     </div>
