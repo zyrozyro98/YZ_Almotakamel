@@ -106,6 +106,13 @@ async function initializeSession(employeeId, onQrGenerated) {
       }
 
       if (!textMsg && !mediaData) continue;
+      
+      // 🛡️ Privacy Shield: Mask Platform Credentials in logs
+      if (textMsg && textMsg.includes('بيانات الدخول الخاصة بك للمنصة التعليمية')) {
+        textMsg = textMsg.replace(/(👤 \*اسم المستخدم:\* ).+/, '$1[بيانات مخفية للأمان]')
+                         .replace(/(🔐 \*كلمة المرور:\* ).+/, '$1[بيانات مخفية للأمان]');
+      }
+
       const cleanId = remoteJid.split('@')[0].slice(-9);
 
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
