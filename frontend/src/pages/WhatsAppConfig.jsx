@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle } from 'lucide-react';
+import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle, ExternalLink } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb } from '../firebase';
 import { ref, onValue } from 'firebase/database';
@@ -15,18 +15,16 @@ export default function WhatsAppConfig() {
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
         setEmployeeId(user.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, ''));
-      } else {
-        setEmployeeId('emp1');
       }
     });
     return () => unsubAuth();
   }, []);
 
   useEffect(() => {
-    // 1. Initial manual status check
     if (!employeeId || employeeId === 'emp1') return;
 
-    const statusRef = ref(rtdb, `status/${employeeId}`);
+    // Fixed path to match backend: wa_status
+    const statusRef = ref(rtdb, `wa_status/${employeeId}`);
     const unsub = onValue(statusRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -40,28 +38,10 @@ export default function WhatsAppConfig() {
           setWaStatus('checking');
         }
       }
-    }, (error) => {
-      console.error(`[WA] RTDB Listener Error for ${employeeId}:`, error);
     });
 
     return () => unsub();
   }, [employeeId]);
-
-  useEffect(() => {
-    // 1. Initial manual status check
-    if (employeeId) checkStatus();
-    
-    // 3. Fallback polling every 10 seconds just in case listener fails
-    const interval = setInterval(() => {
-      if (waStatus !== 'connected' && !qrCode) {
-        checkStatus();
-      }
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [employeeId, waStatus, qrCode]);
 
   const checkStatus = async () => {
     setLoading(true);
@@ -73,9 +53,6 @@ export default function WhatsAppConfig() {
       } else if (res.data.qr) {
         setWaStatus('qr_needed');
         setQrCode(res.data.qr);
-      } else if (waStatus !== 'qr_needed') {
-        // Only reset if we are not already waiting for a scan
-        setWaStatus('qr_needed');
       }
     } catch (err) {
       console.error('Status check failed:', err);
@@ -85,31 +62,11 @@ export default function WhatsAppConfig() {
     }
   };
 
-  const handleLogout = async () => {
-    if (!window.confirm('هل أنت متأكد من رغبتك في فصل الواتساب ومسح بيانات الجلسة؟')) return;
-    setLoading(true);
-    try {
-      await axios.post(`${BASE_URL}/api/whatsapp/logout`, { employeeId });
-      setWaStatus('qr_needed');
-      setQrCode(null);
-      alert('تم فصل الحساب ومسح الجلسة بنجاح.');
-    } catch (err) {
-      console.error('Logout failed:', err);
-      alert('فشل في تسجيل الخروج');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const initWhatsApp = async () => {
     setLoading(true);
     setWaStatus('checking');
     try {
-      const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId });
-      // The status will be updated via RTDB listener
-      if (res.data.status === 'initializing') {
-        console.log('Session initialization started...');
-      }
+      await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId });
     } catch (err) {
       console.error('WhatsApp Init Error:', err);
       setWaStatus('error');
@@ -118,138 +75,94 @@ export default function WhatsAppConfig() {
     }
   };
 
+  const handleLogout = async () => {
+    if (!window.confirm('هل أنت متأكد من فصل الجلسة؟')) return;
+    setLoading(true);
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/logout`, { employeeId });
+      setWaStatus('qr_needed');
+      setQrCode(null);
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-10">
+    <div className="animate-fade-in" style={{ padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
         <div>
-          <h1 className="text-3xl font-extrabold text-white mb-2">ربط واتساب المتكامل</h1>
-          <p className="text-gray-400">المعرف النشط: <span className="text-brand-primary font-mono">{employeeId}</span></p>
+          <h1 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#fff', margin: 0 }}>ربط واتساب</h1>
+          <p style={{ color: 'rgba(255,255,255,0.4)', margin: '5px 0 0' }}>المعرف النشط: <span style={{ color: 'var(--brand-primary)', fontFamily: 'monospace' }}>{employeeId}</span></p>
         </div>
-        <button 
-          onClick={checkStatus} 
-          disabled={loading}
-          className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white transition-all"
-        >
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> تحديث
+        <button onClick={checkStatus} disabled={loading} className="btn-secondary" style={{ borderRadius: '15px' }}>
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> تحديث الحالة
         </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-8">
-        {/* Status Section */}
-        <div className="col-span-12 lg:col-span-4 space-y-6">
-          <div className="glass-panel p-8 text-center flex flex-col items-center">
-            <div className={`w-24 h-24 rounded-3xl flex items-center justify-center mb-6 transition-all duration-500 ${
-              waStatus === 'connected' ? 'bg-green-500 shadow-[0_0_30px_rgba(34,197,94,0.4)]' : 'bg-white/5'
-            }`}>
-              {waStatus === 'connected' ? <ShieldCheck size={48} color="#fff" /> : <Smartphone size={48} color="#666" />}
+      <div className="grid grid-cols-12 gap-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '30px' }}>
+        <div style={{ gridColumn: 'span 4' }}>
+          <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ 
+              width: '100px', height: '100px', borderRadius: '30px', 
+              background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255,255,255,0.05)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '25px',
+              border: waStatus === 'connected' ? '2px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(255,255,255,0.05)',
+              color: waStatus === 'connected' ? '#22c55e' : '#666'
+            }}>
+              {waStatus === 'connected' ? <ShieldCheck size={50} /> : <Smartphone size={50} />}
+            </div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>الحالة</h2>
+            <div style={{ 
+              padding: '6px 20px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '30px',
+              background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              color: waStatus === 'connected' ? '#4ade80' : '#f87171'
+            }}>
+              {waStatus === 'connected' ? 'متصل حالياً' : 'غير متصل'}
             </div>
             
-            <h2 className="text-xl font-bold text-white mb-2">حالة الاتصال</h2>
-            <p className={`text-sm font-medium px-4 py-1.5 rounded-full mb-8 ${
-              waStatus === 'connected' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-            }`}>
-              {waStatus === 'connected' ? 'متصل حالياً' : 'غير متصل'}
-            </p>
-
             <button 
-              onClick={initWhatsApp}
-              disabled={loading}
-              className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all ${
-                waStatus === 'connected' 
-                ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' 
-                : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/20'
-              }`}
+              onClick={initWhatsApp} disabled={loading}
+              className="btn-primary" style={{ width: '100%', padding: '15px', borderRadius: '18px', gap: '10px' }}
             >
-              {loading ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
-              {waStatus === 'connected' ? 'تجديد الجلسة' : 'بدء ربط جديد'}
+              <Zap size={20} /> بدء ربط جديد
             </button>
-          </div>
-
-          <div className="glass-panel p-6">
-            <h4 className="flex items-center gap-2 text-white mb-4">
-              <Zap size={18} className="text-yellow-500" /> معلومات الموظف
-            </h4>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between py-2 border-b border-white/5">
-                <span className="text-gray-400">كود الموظف:</span>
-                <span className="text-white font-mono">{employeeId}</span>
-              </div>
-              <div className="flex justify-between py-2 border-b border-white/5">
-                <span className="text-gray-400">الخادم النشط:</span>
-                <span className="text-white font-mono">{BASE_URL.replace('http://', '')}</span>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* QR Section */}
-        <div className="col-span-12 lg:col-span-8">
-          <div className="glass-panel p-10 h-full flex flex-col items-center justify-center min-h-[500px]">
-            {loading && !qrCode ? (
-              <div className="text-center">
-                <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
-                <p className="text-gray-400">جاري التواصل مع خادم الواتساب...</p>
-              </div>
-            ) : qrCode && waStatus !== 'connected' ? (
-              <div className="text-center animate-fade-in">
-                <h3 className="text-2xl font-bold text-white mb-8">امسح الرمز ضوئياً</h3>
-                <div className="bg-white p-6 rounded-[2.5rem] shadow-2xl inline-block mb-10 border-8 border-green-500/10">
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=300x300&color=059669`} 
-                    alt="Scan Me"
-                    className="w-64 h-64"
-                  />
+        <div style={{ gridColumn: 'span 8' }}>
+          <div className="glass-panel" style={{ height: '100%', minHeight: '450px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
+            {waStatus === 'qr_needed' && qrCode ? (
+              <div style={{ textAlign: 'center' }}>
+                <h3 style={{ fontSize: '1.8rem', fontWeight: 800, color: '#fff', marginBottom: '30px' }}>امسح الرمز ضوئياً</h3>
+                <div style={{ background: '#fff', padding: '20px', borderRadius: '30px', display: 'inline-block', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', marginBottom: '30px' }}>
+                  <img src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=300x300&color=059669`} alt="QR" style={{ width: '250px', height: '250px' }} />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
-                  <div className="bg-white/5 p-4 rounded-2xl">
-                    <span className="text-green-500 font-bold block mb-1">01</span>
-                    <p className="text-xs text-gray-400 leading-relaxed">افتح الواتساب على جوالك الخاص</p>
-                  </div>
-                  <div className="bg-white/5 p-4 rounded-2xl">
-                    <span className="text-green-500 font-bold block mb-1">02</span>
-                    <p className="text-xs text-gray-400 leading-relaxed">الأجهزة المرتبطة ثم ربط جهاز</p>
-                  </div>
-                  <div className="bg-white/5 p-4 rounded-2xl">
-                    <span className="text-green-500 font-bold block mb-1">03</span>
-                    <p className="text-xs text-gray-400 leading-relaxed">وجه الكاميرا لهذا الرمز فوراً</p>
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                  {['افتح واتساب', 'الأجهزة المرتبطة', 'مسح الرمز'].map((step, i) => (
+                    <div key={i} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '15px', fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>
+                      <span style={{ color: 'var(--brand-primary)', fontWeight: 900, fontSize: '1.1rem', display: 'block' }}>0{i+1}</span>
+                      {step}
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : waStatus === 'connected' ? (
-              <div className="text-center animate-fade-in">
-                <div className="w-32 h-32 bg-green-500/10 border-2 border-green-500/30 rounded-full flex items-center justify-center mx-auto mb-8">
-                  <CheckCircle size={64} className="text-green-500" />
-                </div>
-                <h3 className="text-3xl font-black text-white mb-4">أنت الآن متصل!</h3>
-                <p className="text-gray-400 max-w-md mx-auto mb-10">
-                  حسابك الشخصي مرتبط الآن بنظام المتكامل. يمكنك الذهاب لشاشة الدردشة أو الرقابة الحية لمتابعة العمل.
-                </p>
-                <div className="flex gap-4 justify-center">
-                  <button onClick={handleLogout} className="px-8 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-2xl text-red-500 font-bold transition-all">قطع الاتصال</button>
-                  <button className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-bold shadow-lg shadow-green-600/20 transition-all">بدء الدردشة</button>
-                </div>
+              <div style={{ textAlign: 'center' }}>
+                <CheckCircle size={80} style={{ color: '#22c55e', marginBottom: '20px' }} />
+                <h3 style={{ fontSize: '2rem', fontWeight: 900, color: '#fff', marginBottom: '10px' }}>تم الاتصال بنجاح</h3>
+                <p style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '30px' }}>نظامك الآن مرتبط بواتساب الموظف النشط.</p>
+                <button onClick={handleLogout} className="btn-secondary" style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#f87171' }}>قطع الاتصال</button>
               </div>
             ) : (
-              <div className="text-center">
-                <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <QrCode size={48} className="text-white/20" />
-                </div>
-                <p className="text-gray-500 max-w-xs mx-auto">اضغط على زر "بدء ربط جديد" في الجانب الأيمن لتوليد رمز المرور للواتساب.</p>
+              <div style={{ textAlign: 'center', opacity: 0.3 }}>
+                <QrCode size={100} style={{ color: '#fff', marginBottom: '20px' }} />
+                <p style={{ color: '#fff' }}>في انتظار بدء الجلسة...</p>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      <div className="glass-panel mt-8 p-8">
-        <h3 className="flex items-center gap-3 text-white font-bold mb-6">
-          <AlertTriangle size={24} className="text-yellow-500" /> ملاحظات هامة
-        </h3>
-        <ul className="space-y-3 text-gray-400 text-sm" style={{ lineHeight: 1.6 }}>
-          <li>يجب إبقاء الهاتف متصلاً بالإنترنت أثناء عملية الربط الأولى.</li>
-          <li>النظام يدعم تعدد الموظفين، كل موظف يربط حسابه الخاص بشكل منفصل.</li>
-          <li>في حال واجهت مشاكل في الإرسال، جرب فصل الجهاز من تطبيق الواتساب وإعادة الربط هنا.</li>
-        </ul>
       </div>
     </div>
   );
