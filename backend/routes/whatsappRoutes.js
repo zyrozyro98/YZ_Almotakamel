@@ -45,7 +45,15 @@ router.post('/send', async (req, res) => {
   }
 
   try {
+    console.log(`[HTTP] Request to SEND text from employee: ${employeeId} to: ${phoneNumber}`);
+    
+    // Check if session exists for this SPECIFIC employeeId
     const sock = whatsappService.getSession(employeeId);
+    if (!sock || !sock.user) {
+      console.error(`[WA ERROR] No ACTIVE/CONNECTED session for: ${employeeId}`);
+      return res.status(401).json({ error: `حساب الواتساب الخاص بـ (${employeeId}) غير مربوط. يرجى الربط من الإعدادات.` });
+    }
+
     // Normalize phone number (International format)
     let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     
@@ -61,6 +69,7 @@ router.post('/send', async (req, res) => {
     const jid = `${cleanPhone}@s.whatsapp.net`;
     
     const result = await sock.sendMessage(jid, { text: message });
+    console.log(`[WA SUCCESS] Message sent via session: ${employeeId}`);
     
     // PERFORM DB UPDATE IN BACKGROUND - DON'T WAIT
     const chatId = cleanPhone;
@@ -74,7 +83,6 @@ router.post('/send', async (req, res) => {
       id: result?.key?.id || Date.now().toString()
     };
 
-    // Run this in background to respond faster to user
     (async () => {
       try {
         const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
@@ -90,6 +98,7 @@ router.post('/send', async (req, res) => {
 
     return res.status(200).json({ status: 'sent', to: jid });
   } catch (error) {
+    console.error(`[WA SEND FATAL ERROR] Employee: ${employeeId}, Error:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });

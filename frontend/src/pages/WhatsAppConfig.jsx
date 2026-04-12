@@ -108,7 +108,7 @@ export default function WhatsAppConfig() {
       <div className="flex justify-between items-center mb-10">
         <div>
           <h1 className="text-3xl font-extrabold text-white mb-2">ربط واتساب المتكامل</h1>
-          <p className="text-gray-400">تحكم بجلستك النشطة وتابع حالة الربط لحظياً</p>
+          <p className="text-gray-400">المعرف النشط: <span className="text-brand-primary font-mono">{employeeId}</span></p>
         </div>
         <button 
           onClick={checkStatus} 
