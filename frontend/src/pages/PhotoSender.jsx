@@ -101,7 +101,8 @@ export default function PhotoSender() {
             phoneNumber: targetNumber,
             base64Image: b64,
             caption: messageTemplate,
-            senderName: auth.currentUser?.displayName || 'المرسل الآلي'
+            senderName: auth.currentUser?.displayName || 'المرسل الآلي',
+            senderId: auth.currentUser?.uid || 'system'
           });
           
           setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال الصورة والرسالة بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
