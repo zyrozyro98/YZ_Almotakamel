@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  MessageCircle, Search, Send, User, CheckCheck, RefreshCw, 
+import {
+  MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList
 } from 'lucide-react';
@@ -11,7 +11,7 @@ import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, 
 import Picker from '@emoji-mart/react';
 
 export default function WhatsAppChat() {
-  const [employeeId, setEmployeeId] = useState('emp1'); 
+  const [employeeId, setEmployeeId] = useState('emp1');
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [activeChats, setActiveChats] = useState([]);
@@ -24,7 +24,7 @@ export default function WhatsAppChat() {
   const [showDetails, setShowDetails] = useState(false);
   const messagesEndRef = useRef(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [view, setView] = useState('list'); 
+  const [view, setView] = useState('list');
 
   // Modals State
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
@@ -49,7 +49,7 @@ export default function WhatsAppChat() {
 
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
-    
+
     // Listen to Students
     const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -88,7 +88,7 @@ export default function WhatsAppChat() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
-  
+
   const combinedList = () => {
     const list = [...students];
     activeChats.forEach(chat => {
@@ -124,18 +124,15 @@ export default function WhatsAppChat() {
     const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId, 
-        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
-        message: textToSend,
-        fullJid: selectedChat.fullJid // Pass the Gold JID if available
+        employeeId, phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), message: textToSend
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };
 
   // --- Modal Logic ---
   const openAddModal = () => {
-    setFormData({ 
-      name: selectedChat?.name?.includes('مجهول') ? '' : (selectedChat?.name || ''), 
+    setFormData({
+      name: selectedChat?.name?.includes('مجهول') ? '' : (selectedChat?.name || ''),
       phone: selectedChat?.phone || '',
       university: '', specialization: '', batch: '', platformUser: '', platformPass: '', idNumber: '', notes: ''
     });
@@ -202,24 +199,24 @@ export default function WhatsAppChat() {
 
   return (
     <div style={{ position: 'relative', height: '100%' }}>
-      <div className="whatsapp-container" style={{ 
-        display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px', 
+      <div className="whatsapp-container" style={{
+        display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px',
         overflow: 'hidden', background: '#0f172a', direction: 'rtl'
       }}>
         {/* Sidebar */}
         <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ width: isMobile ? '100%' : '380px', background: '#1e293b', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '25px', background: 'rgba(0,0,0,0.2)' }}>
             <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', margin: '0 0 20px' }}>الدردشات</h2>
-            <input 
+            <input
               type="text" placeholder="بحث..." className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
           <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
             {filteredSidebar.map(item => (
-              <div key={item.id} onClick={() => { setSelectedChat(item); if(isMobile) setView('chat'); }} style={{ padding: '15px 20px', cursor: 'pointer', background: selectedChat?.id === item.id ? 'rgba(34,197,94,0.1)' : 'transparent', borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent' }}>
+              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{ padding: '15px 20px', cursor: 'pointer', background: selectedChat?.id === item.id ? 'rgba(34,197,94,0.1)' : 'transparent', borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent' }}>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                  <div style={{ width: '45px', height: '45px', borderRadius: '15px', background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900 }}>{item.name?.substring(0,1)}</div>
+                  <div style={{ width: '45px', height: '45px', borderRadius: '15px', background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900 }}>{item.name?.substring(0, 1)}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem' }}>{item.name}</h4>
                     <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6' }}>{item.university || 'غير مسجل'}</p>
@@ -236,15 +233,15 @@ export default function WhatsAppChat() {
             <>
               {/* Quick Toolbar */}
               <div style={{ padding: '10px 20px', background: '#1e293b', display: 'flex', gap: '10px', overflowX: 'auto' }}>
-                <button onClick={openAddModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserPlus size={14}/> إضافة</button>
-                <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14}/> تعديل</button>
-                <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14}/> إيصال</button>
-                <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserMinus size={14}/> إنسحاب</button>
+                <button onClick={openAddModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserPlus size={14} /> إضافة</button>
+                <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14} /> تعديل</button>
+                <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14} /> إيصال</button>
+                <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserMinus size={14} /> إنسحاب</button>
               </div>
 
               <div style={{ padding: '15px 25px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24}/></button>}
+                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24} /></button>}
                   <h3 style={{ margin: 0, color: '#fff' }}>{selectedChat.name}</h3>
                 </div>
                 <Info size={20} style={{ color: '#3b82f6', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
@@ -264,7 +261,7 @@ export default function WhatsAppChat() {
               <div style={{ padding: '20px', background: '#1e293b' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <input type="text" value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="اكتب..." style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff' }} />
-                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px' }}><Send size={20}/></button>
+                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px' }}><Send size={20} /></button>
                 </div>
               </div>
             </>
@@ -292,20 +289,20 @@ export default function WhatsAppChat() {
               <form onSubmit={activeModal === 'add' ? handleAddStudent : handleUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <div>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>اسم الطالب</label>
-                  <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+                  <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
                 </div>
-                
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>الجامعة</label>
-                    <select className="input-base" style={{ background: '#0f172a' }} value={formData.university} onChange={e => setFormData({...formData, university: e.target.value})} required>
+                    <select className="input-base" style={{ background: '#0f172a' }} value={formData.university} onChange={e => setFormData({ ...formData, university: e.target.value })} required>
                       <option value="">اختر الجامعة</option>
                       {universities.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>التخصص</label>
-                    <input type="text" className="input-base" list="specializations" value={formData.specialization} onChange={e => setFormData({...formData, specialization: e.target.value})} required />
+                    <input type="text" className="input-base" list="specializations" value={formData.specialization} onChange={e => setFormData({ ...formData, specialization: e.target.value })} required />
                     <datalist id="specializations">
                       {universities.find(u => u.name === formData.university)?.specializations?.map((s, i) => <option key={i} value={s} />)}
                     </datalist>
@@ -316,11 +313,11 @@ export default function WhatsAppChat() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                     <div>
                       <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة</label>
-                      <input type="text" className="input-base" value={formData.platformUser} onChange={e => setFormData({...formData, platformUser: e.target.value})} />
+                      <input type="text" className="input-base" value={formData.platformUser} onChange={e => setFormData({ ...formData, platformUser: e.target.value })} />
                     </div>
                     <div>
                       <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة</label>
-                      <input type="password" placeholder="****" className="input-base" onChange={e => setFormData({...formData, platformPass: e.target.value})} />
+                      <input type="password" placeholder="****" className="input-base" onChange={e => setFormData({ ...formData, platformPass: e.target.value })} />
                     </div>
                   </div>
                 )}
@@ -328,17 +325,17 @@ export default function WhatsAppChat() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الدفعة</label>
-                    <input type="text" className="input-base" value={formData.batch} onChange={e => setFormData({...formData, batch: e.target.value})} required />
+                    <input type="text" className="input-base" value={formData.batch} onChange={e => setFormData({ ...formData, batch: e.target.value })} required />
                   </div>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الهوية (اختياري)</label>
-                    <input type="text" className="input-base" value={formData.idNumber} onChange={e => setFormData({...formData, idNumber: e.target.value})} />
+                    <input type="text" className="input-base" value={formData.idNumber} onChange={e => setFormData({ ...formData, idNumber: e.target.value })} />
                   </div>
                 </div>
 
                 <div>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>ملاحظات</label>
-                  <textarea className="input-base" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} rows={2}></textarea>
+                  <textarea className="input-base" value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} rows={2}></textarea>
                 </div>
 
                 <button type="submit" className="btn-primary" style={{ padding: '15px', borderRadius: '15px', marginTop: '10px' }}>
@@ -352,7 +349,7 @@ export default function WhatsAppChat() {
                 <div style={{ background: 'rgba(59,130,246,0.1)', padding: '15px', borderRadius: '15px', border: '1px border-dashed #3b82f6' }}>
                   <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6' }}>{selectedMessage ? `الرسالة المختارة: ${selectedMessage.text.substring(0, 40)}...` : 'يرجى النقر على رسالة في الدردشة أولاً لتحديدها كإيصال'}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
                   className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
                   disabled={!selectedMessage}
@@ -360,11 +357,11 @@ export default function WhatsAppChat() {
                   <ClipboardList size={20} /> اعتماد الرسالة المختارة كإيصال
                 </button>
                 <div style={{ textAlign: 'center', opacity: 0.3 }}>أو</div>
-                <textarea 
+                <textarea
                   placeholder="الصق نص التحويل يدوياً هنا..." className="input-base" rows={4}
-                  onChange={e => setFormData({...formData, manualReceipt: e.target.value})}
+                  onChange={e => setFormData({ ...formData, manualReceipt: e.target.value })}
                 ></textarea>
-                <button 
+                <button
                   onClick={() => handleReceiptSave({ text: formData.manualReceipt, fromChat: false })}
                   className="btn-secondary" style={{ padding: '15px', borderRadius: '15px' }}
                   disabled={!formData.manualReceipt}
