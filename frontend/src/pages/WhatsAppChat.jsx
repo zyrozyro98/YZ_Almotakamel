@@ -57,7 +57,7 @@ export default function WhatsAppChat() {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
+    const messagesRef = ref(rtdb, `messages/${targetId}/${cleanId}`);
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {

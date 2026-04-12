@@ -121,21 +121,20 @@ async function initializeSession(employeeId, onQrGenerated) {
 
       const cleanId = remoteJid.split('@')[0].slice(-9);
 
-      const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
-      const msgData = {
+      // 1. Store heavy message data in a separate node
+      const msgRef = rtdb.ref(`messages/${employeeId}/${cleanId}/${msg.key.id}`);
+      await msgRef.update({
         text: textMsg,
         type: mediaType,
         mediaData: mediaData,
         time: Date.now(),
         sender: isMe ? 'me' : 'them',
         id: msg.key.id
-      };
+      });
 
-      // Use update with message ID to avoid duplicates and allow API to set sender info
-      await chatRef.child('messages').child(msg.key.id).update(msgData);
-      
-      await chatRef.update({
-        lastMessage: textMsg, 
+      // 2. Store lightweight metadata in chat_list (NO MEDIA DATA HERE)
+      await rtdb.ref(`chat_list/${employeeId}/${cleanId}`).update({
+        lastMessage: textMsg.substring(0, 100), // Only first 100 chars
         timestamp: Date.now(), 
         phone: cleanId, 
         fullJid: remoteJid, 

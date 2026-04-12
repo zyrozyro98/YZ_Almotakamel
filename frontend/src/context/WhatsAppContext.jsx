@@ -68,7 +68,7 @@ export const WhatsAppProvider = ({ children }) => {
 
     // Helper to start a listener for a specific employee
     const startListening = (targetId) => {
-      const activeRef = ref(rtdb, `chats/${targetId}`);
+      const activeRef = ref(rtdb, `chat_list/${targetId}`);
       return onValue(activeRef, (snapshot) => {
         const data = snapshot.val();
         const list = data ? Object.entries(data).map(([id, val]) => ({ phone: id, ...val })) : [];

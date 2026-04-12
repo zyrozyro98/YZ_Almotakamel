@@ -49,7 +49,7 @@ router.post('/send', async (req, res) => {
     if (!targetJid) {
       // Try to find verified JID from RTDB
       try {
-        const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
+        const snap = await rtdb.ref(`chat_list/${employeeId}/${chatId}`).once('value');
         targetJid = snap.val()?.fullJid;
       } catch(e) {}
     }
@@ -77,10 +77,17 @@ router.post('/send', async (req, res) => {
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
       const chatId = targetJid.split('@')[0].slice(-9);
-      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+      await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update({
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
       }).catch(e => console.error('Failed to update sender info:', e.message));
+      
+      // Also update last message in list
+      await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
+        lastMessage: message.substring(0, 100),
+        timestamp: Date.now(),
+        lastSender: 'me'
+      }).catch(() => {});
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
@@ -108,7 +115,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
 
   if (!targetJid) {
     try {
-      const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
+      const snap = await rtdb.ref(`chat_list/${employeeId}/${chatId}`).once('value');
       targetJid = snap.val()?.fullJid;
     } catch(e) {}
   }
@@ -164,9 +171,9 @@ router.post('/send-image', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+    await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+    await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: chatId,
@@ -209,9 +216,9 @@ router.post('/send-document', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+    await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+    await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
       lastMessage: caption || "📎 ملف",
       timestamp: Date.now(),
       phone: chatId,
@@ -254,9 +261,9 @@ router.post('/send-video', async (req, res) => {
           senderId: senderId || "system"
         };
 
-        await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+        await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
 
-        await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+        await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
           lastMessage: caption || "🎥 فيديو",
           timestamp: Date.now(),
           phone: chatId,
@@ -294,9 +301,9 @@ router.post('/delete', async (req, res) => {
       } 
     });
 
-    // Mark as deleted in RTDB for admin visibility
+    // Mark as deleted in RTDB
     const cleanId = targetJid.split('@')[0].slice(-9);
-    await rtdb.ref(`chats/${employeeId}/${cleanId}/messages/${messageId}`).update({
+    await rtdb.ref(`messages/${employeeId}/${cleanId}/${messageId}`).update({
       isDeleted: true,
       deletedAt: Date.now()
     });
