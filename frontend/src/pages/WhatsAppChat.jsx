@@ -103,7 +103,13 @@ export default function WhatsAppChat() {
     // 5. Check Initial WhatsApp Status
     checkWhatsAppStatus();
 
-    return () => { unsubUniv(); unsubMaj(); unsubStudents(); unsubActiveChats(); unsubStatus(); };
+    return () => { 
+      unsubUniv(); 
+      unsubMaj(); 
+      unsubStudents(); 
+      unsubActiveChats(); 
+      unsubStatus(); 
+    };
   }, [employeeId]);
 
   // Advanced Normalization for matching (last 9 digits)

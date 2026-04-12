@@ -48,7 +48,6 @@ export default function WhatsAppConfig() {
     }, 10000);
 
     return () => {
-      unsubStatus();
       clearInterval(interval);
     };
   }, [employeeId, waStatus, qrCode]);
