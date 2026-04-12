@@ -402,7 +402,15 @@ export default function WhatsAppChat() {
               </div>
 
               <div className="custom-scrollbar" style={{ 
-                background: '#0f172a', backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', backgroundSize: '24px 24px'
+                flex: 1, 
+                overflowY: 'auto', 
+                padding: isMobile ? '12px' : '20px', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '8px', 
+                background: '#0f172a', 
+                backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', 
+                backgroundSize: '24px 24px'
               }}>
                 {messages.map((m, i) => {
                   const isMe = m.sender === 'me';
