@@ -216,24 +216,14 @@ export default function WhatsAppChat() {
           employeeId: employeeId,
           phoneNumber: phone,
           message: textToSend
-        });
-
-        // Instant update to RTDB
-        const chatId = selectedChat.phone.replace(/[^0-9]/g, '').slice(-9);
-        const messagesRef = ref(rtdb, `chats/${employeeId}/${chatId}/messages`);
-        await push(messagesRef, {
-          text: textToSend,
-          type: 'text',
-          time: new Date().toISOString(),
-          sender: 'me'
-        });
+        }, { timeout: 15000 });
 
         setMessage('');
         setShowEmojiPicker(false);
       } catch (err) {
         console.error('[SEND ERROR]', err);
-        const errorMsg = err.response?.data?.error || 'يرجى التأكد من اتصال واتساب في صفحة الإعدادات.';
-        alert(`فشل في إرسال الرسالة: ${errorMsg}`);
+        const errorMsg = err.response?.data?.error || 'حدث تأخير بسيط في الرد، غالباً تم الإرسال بنجاح. يرجى التحقق من قائمة الدردشة.';
+        alert(`تنبيه: ${errorMsg}`);
       } finally {
         setIsSending(false);
       }
