@@ -68,10 +68,17 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
-      setEmployees(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEmployees(emps);
+      
+      // If we are an admin and viewing ourselves, auto-pick the first real employee if available
+      if (viewingEmployeeId === employeeId && emps.length > 0) {
+        const firstOther = emps.find(e => e.id !== employeeId);
+        if (firstOther) setViewingEmployeeId(firstOther.id);
+      }
     });
     return () => unsub();
-  }, [isAdmin]);
+  }, [isAdmin, employeeId, viewingEmployeeId]);
 
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
@@ -376,18 +383,22 @@ export default function WhatsAppChat() {
               style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: isAdmin ? '10px' : '0' }}
             />
             {isAdmin && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', paddingRight: '5px' }}>عرض محادثات الموظف:</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', borderRadius: '15px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <label style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 800, paddingRight: '5px' }}>📈 إدارة رقابة الموظفين:</label>
                 <select 
                   className="input-base" 
-                  style={{ padding: '8px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.05)' }}
+                  style={{ padding: '8px', fontSize: '0.85rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)' }}
                   value={viewingEmployeeId || ''}
                   onChange={(e) => setViewingEmployeeId(e.target.value)}
                 >
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name} {emp.id === employeeId ? '(أنا)' : ''}</option>
+                  <option value={employeeId}>-- محادثاتي الشخصية --</option>
+                  {employees.filter(e => e.id !== employeeId).map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} (موظف)</option>
                   ))}
                 </select>
+                <p style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', margin: 0, textAlign: 'center' }}>
+                  أنت تشاهد الآن محادثات: {employees.find(e => e.id === viewingEmployeeId)?.name || 'نفسك'}
+                </p>
               </div>
             )}
           </div>
