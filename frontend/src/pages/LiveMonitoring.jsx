@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, MessageSquare, User, Clock, Shield, Filter, Search, BarChart3, Radio } from 'lucide-react';
-import { rtdb } from '../firebase';
-import { ref, onValue, limitToLast, query } from 'firebase/database';
+import { rtdb, db as firestoreDb } from '../firebase';
+import { ref, onValue, limitToLast, query as rtdbQuery } from 'firebase/database';
+import { collection, onSnapshot, query as firestoreQuery } from 'firebase/firestore';
 
 export default function LiveMonitoring() {
   const [liveMessages, setLiveMessages] = useState([]);
@@ -11,6 +12,18 @@ export default function LiveMonitoring() {
     activeChats: 0
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [employeesMap, setEmployeesMap] = useState({});
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(firestoreDb, 'employees'), (snap) => {
+      const map = {};
+      snap.docs.forEach(doc => {
+        map[doc.id] = doc.data().name;
+      });
+      setEmployeesMap(map);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     // Listen to ALL chats for real-time monitoring
@@ -59,6 +72,7 @@ export default function LiveMonitoring() {
   const filteredMessages = liveMessages.filter(m => 
     m.text?.toLowerCase().includes(searchQuery.toLowerCase()) || 
     m.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.senderName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.chatId?.includes(searchQuery)
   );
 
@@ -130,12 +144,12 @@ export default function LiveMonitoring() {
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
           <thead style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--glass-border)' }}>
             <tr>
-              <th style={{ padding: '1.25rem' }}>الموظف</th>
-              <th style={{ padding: '1.25rem' }}>الجهة</th>
-              <th style={{ padding: '1.25rem', width: '40%' }}>محتوى الرسالة</th>
-              <th style={{ padding: '1.25rem' }}>النوع</th>
+              <th style={{ padding: '1.25rem' }}>المسؤول عن المحادثة</th>
+              <th style={{ padding: '1.25rem' }}>الطرف الآخر</th>
+              <th style={{ padding: '1.25rem', width: '35%' }}>محتوى الرسالة</th>
+              <th style={{ padding: '1.25rem' }}>المرسل</th>
               <th style={{ padding: '1.25rem' }}>الوقت</th>
-              <th style={{ padding: '1.25rem' }}>الحالة</th>
+              <th style={{ padding: '1.25rem' }}>إجراء</th>
             </tr>
           </thead>
           <tbody>
@@ -150,22 +164,30 @@ export default function LiveMonitoring() {
                 <tr key={msg.id} className="table-row-hover" style={{ borderBottom: '1px solid var(--glass-border)' }}>
                   <td style={{ padding: '1.25rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem' }}>
-                        {msg.employeeId?.charAt(0).toUpperCase()}
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 800 }}>
+                        {employeesMap[msg.employeeId]?.charAt(0) || msg.employeeId?.charAt(0).toUpperCase()}
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{msg.employeeId}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{employeesMap[msg.employeeId] || 'موظف مجهول'}</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>ID: {msg.employeeId?.substring(0,8)}</span>
+                      </div>
                     </div>
                   </td>
                   <td style={{ padding: '1.25rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{msg.chatId}</td>
                   <td style={{ padding: '1.25rem' }}>
-                    <p style={{ margin: 0, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '400px' }}>
-                      {msg.text || (msg.type === 'image' ? 'ارسل صورة' : 'ارسل ملف')}
+                    <p style={{ margin: 0, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '350px' }}>
+                      {msg.text || (msg.type === 'image' ? '🖼️ صورة' : (msg.type === 'video' ? '🎥 فيديو' : '📎 ملف'))}
                     </p>
                   </td>
                   <td style={{ padding: '1.25rem' }}>
-                    <span className={`badge ${msg.sender === 'me' ? 'badge-info' : 'badge-success'}`} style={{ fontSize: '0.75rem' }}>
-                      {msg.sender === 'me' ? 'صادرة' : 'واردة'}
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span className={`badge ${msg.sender === 'me' ? 'badge-info' : 'badge-success'}`} style={{ fontSize: '0.7rem', width: 'fit-content' }}>
+                        {msg.sender === 'me' ? 'صادرة (نحن)' : 'واردة (الطالب)'}
+                      </span>
+                      {msg.sender === 'me' && msg.senderName && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--brand-primary)', fontWeight: 600 }}>بواسطة: {msg.senderName}</span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     <div className="flex items-center gap-2">
@@ -174,9 +196,13 @@ export default function LiveMonitoring() {
                     </div>
                   </td>
                   <td style={{ padding: '1.25rem' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--success)' }}>
-                      <Shield size={14} /> آمن
-                    </span>
+                    <button 
+                      onClick={() => window.location.href = `/chat?select=${msg.chatId}`}
+                      className="btn-secondary" 
+                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '8px' }}
+                    >
+                      عرض المحادثة
+                    </button>
                   </td>
                 </tr>
               ))

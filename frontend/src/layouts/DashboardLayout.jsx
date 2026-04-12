@@ -57,6 +57,20 @@ export default function DashboardLayout() {
     });
   };
 
+  const handleNotificationClick = async (notif) => {
+    if (employeeId === 'emp1' || !notif.chatId) return;
+
+    // 1. Mark all NOTIFS from same student as read
+    const sameStudentNotifs = notifications.filter(n => n.chatId === notif.chatId && !n.read);
+    for (const n of sameStudentNotifs) {
+      update(ref(rtdb, `notifications/${employeeId}/${n.id}`), { read: true });
+    }
+
+    // 2. Navigate to chat with the target chatId
+    window.location.href = `/chat?select=${notif.chatId}`;
+    setShowDropdown(false);
+  };
+
   const allNavItems = [
     { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false },
     { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: false },
@@ -194,12 +208,17 @@ export default function DashboardLayout() {
                     </div>
                   ) : (
                     notifications.map(n => (
-                      <div key={n.id} style={{ 
-                        background: n.read ? 'rgba(255,255,255,0.03)' : 'rgba(59, 130, 246, 0.08)', 
-                        padding: '1rem', borderRadius: '14px', 
-                        borderRight: n.read ? '3px solid transparent' : '3px solid var(--brand-secondary)',
-                        transition: 'all 0.2s', marginBottom: '8px'
-                      }}>
+                      <div 
+                        key={n.id} 
+                        onClick={() => handleNotificationClick(n)}
+                        style={{ 
+                          background: n.read ? 'rgba(255,255,255,0.03)' : 'rgba(59, 130, 246, 0.08)', 
+                          padding: '1rem', borderRadius: '14px', 
+                          borderRight: n.read ? '3px solid transparent' : '3px solid var(--brand-secondary)',
+                          transition: 'all 0.2s', marginBottom: '8px',
+                          cursor: 'pointer'
+                        }}
+                      >
                         <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{n.title}</p>
                         <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</p>
                       </div>

@@ -125,9 +125,16 @@ async function initializeSession(employeeId, onQrGenerated) {
         id: msg.key.id
       };
 
-      await chatRef.child('messages').push(msgData);
+      // Use update with message ID to avoid duplicates and allow API to set sender info
+      await chatRef.child('messages').child(msg.key.id).update(msgData);
+      
       await chatRef.update({
-        lastMessage: textMsg, timestamp: Date.now(), phone: cleanId, fullJid: remoteJid, name: pushName
+        lastMessage: textMsg, 
+        timestamp: Date.now(), 
+        phone: cleanId, 
+        fullJid: remoteJid, 
+        name: pushName,
+        lastSender: isMe ? 'me' : 'them'
       });
 
       if (!isMe) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
@@ -20,6 +21,9 @@ export default function WhatsAppChat() {
   const [universities, setUniversities] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -30,6 +34,8 @@ export default function WhatsAppChat() {
   // Modals State
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
   const [formData, setFormData] = useState({});
+  const [showUser, setShowUser] = useState(false);
+  const [showPass, setShowPass] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
   const [attachment, setAttachment] = useState(null); // Current selected file
@@ -45,11 +51,27 @@ export default function WhatsAppChat() {
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
-      if (user) setEmployeeId(user.uid);
-      else setEmployeeId('emp1');
+      if (user) {
+        setEmployeeId(user.uid);
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+        if (!viewingEmployeeId) setViewingEmployeeId(user.uid);
+      } else {
+        setEmployeeId('emp1');
+        setIsAdmin(false);
+      }
     });
     return () => unsubAuth();
-  }, []);
+  }, [viewingEmployeeId]);
+
+  // Fetch all employees if admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
+      setEmployees(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
@@ -64,8 +86,11 @@ export default function WhatsAppChat() {
       setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Listen to Active Chats from RTDB
-    const activeRef = ref(rtdb, `chats/${employeeId}`);
+    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId) return;
+
+    const activeRef = ref(rtdb, `chats/${targetId}`);
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
@@ -73,12 +98,13 @@ export default function WhatsAppChat() {
     });
 
     return () => { unsubStudents(); unsubActive(); unsubUnivs(); };
-  }, [employeeId]);
+  }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
-    if (!selectedChat || !employeeId || employeeId === 'emp1') return;
+    if (!selectedChat || !employeeId) return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    const messagesRef = ref(rtdb, `chats/${employeeId}/${cleanId}/messages`);
+    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -87,9 +113,23 @@ export default function WhatsAppChat() {
       } else setMessages([]);
     });
     return () => unsubMsg();
-  }, [selectedChat, employeeId]);
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // Handle URL Selection (from Notification)
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const selectId = params.get('select');
+    if (selectId && combinedList().length > 0) {
+      const target = combinedList().find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+      if (target) {
+        setSelectedChat(target);
+        if (isMobile) setView('chat');
+      }
+    }
+  }, [location.search, students, activeChats]);
 
   const formatMessageDate = (timestamp) => {
     const d = new Date(timestamp);
@@ -138,13 +178,16 @@ export default function WhatsAppChat() {
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId, 
+        employeeId: targetId, 
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
         message: textToSend,
-        fullJid: selectedChat.fullJid // THE KEY FOR INSTANT DELIVERY
+        fullJid: selectedChat.fullJid,
+        senderId: employeeId,
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };
@@ -261,12 +304,14 @@ export default function WhatsAppChat() {
       }
       
       await axios.post(`${BASE_URL}${endpoint}`, {
-        employeeId,
+        employeeId: isAdmin ? viewingEmployeeId : employeeId,
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
         fullJid: selectedChat.fullJid,
         [payloadKey]: attachment.preview,
         caption: formData.attachmentCaption || '',
-        fileName: attachment.file.name
+        fileName: attachment.file.name,
+        senderId: employeeId,
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
       });
       
       alert('تم إرسال المرفق بنجاح');
@@ -328,8 +373,23 @@ export default function WhatsAppChat() {
             <input
               type="text" placeholder="بحث عن طالب أو محادثة..." className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ borderRadius: '12px', padding: '10px 15px' }}
+              style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: isAdmin ? '10px' : '0' }}
             />
+            {isAdmin && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', paddingRight: '5px' }}>عرض محادثات الموظف:</label>
+                <select 
+                  className="input-base" 
+                  style={{ padding: '8px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.05)' }}
+                  value={viewingEmployeeId || ''}
+                  onChange={(e) => setViewingEmployeeId(e.target.value)}
+                >
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} {emp.id === employeeId ? '(أنا)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
             {filteredSidebar.map(item => (
@@ -500,7 +560,12 @@ export default function WhatsAppChat() {
                           {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
                              <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
                           )}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', justifyContent: 'flex-end', borderTop: isMe && m.senderName ? '1px solid rgba(255,255,255,0.1)' : 'none', paddingTop: isMe && m.senderName ? '4px' : '0' }}>
+                            {isMe && m.senderName && (
+                              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, marginRight: 'auto' }}>
+                                بقلم: {m.senderName}
+                              </span>
+                            )}
                             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
                               {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                             </span>
@@ -620,21 +685,41 @@ export default function WhatsAppChat() {
                   </div>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>التخصص</label>
-                    <input type="text" className="input-base" list="specializations" value={formData.specialization} onChange={e => setFormData({ ...formData, specialization: e.target.value })} required />
-                    <datalist id="specializations">
-                      {universities.find(u => u.name === formData.university)?.specializations?.map((s, i) => <option key={i} value={s} />)}
-                    </datalist>
+                    <select 
+                      className="input-base" 
+                      style={{ background: '#0f172a' }}
+                      value={formData.specialization} 
+                      onChange={e => setFormData({ ...formData, specialization: e.target.value })} 
+                      required
+                      disabled={!formData.university}
+                    >
+                      <option value="">{formData.university ? 'اختر التخصص' : 'اختر الجامعة أولاً'}</option>
+                      {universities.find(u => u.name === formData.university)?.specializations?.map((s, i) => (
+                        <option key={i} value={s}>{s}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
-                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة</label>
-                    <input type="text" className="input-base" value={formData.platformUser || ''} onChange={e => setFormData({ ...formData, platformUser: e.target.value })} />
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة (مخفي للأمان)</label>
+                    <input 
+                      type="password" 
+                      className="input-base" 
+                      value={formData.platformUser || ''} 
+                      onChange={e => setFormData({ ...formData, platformUser: e.target.value })} 
+                    />
                   </div>
                   <div>
-                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة</label>
-                    <input type="text" className="input-base" placeholder="****" value={formData.platformPass || ''} onChange={e => setFormData({ ...formData, platformPass: e.target.value })} />
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة (مخفي للأمان)</label>
+                    <input 
+                      type="password" 
+                      className="input-base" 
+                      placeholder="••••••••" 
+                      value={formData.platformPass || ''} 
+                      onChange={e => setFormData({ ...formData, platformPass: e.target.value })} 
+                    />
                   </div>
                 </div>
 

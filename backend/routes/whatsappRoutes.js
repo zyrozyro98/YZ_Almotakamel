@@ -29,7 +29,7 @@ router.post('/init', async (req, res) => {
 
 // THE REPAIRED SEND ROUTE
 router.post('/send', async (req, res) => {
-  const { employeeId, phoneNumber, message, fullJid } = req.body;
+  const { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
   
   if (!employeeId || !phoneNumber || !message) {
     return res.status(400).json({ error: 'Missing required parameters.' });
@@ -73,6 +73,15 @@ router.post('/send', async (req, res) => {
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
     const result = await sock.sendMessage(targetJid, { text: message });
+
+    // Record the sender info in RTDB immediately for the monitoring feed
+    if (senderId || senderName) {
+      const chatId = targetJid.split('@')[0].slice(-9);
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+        senderName: senderName || 'نظام',
+        senderId: senderId || 'system'
+      }).catch(e => console.error('Failed to update sender info:', e.message));
+    }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
   } catch (error) {
@@ -118,7 +127,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
 
 // Send Image
 router.post('/send-image', async (req, res) => {
-  const { employeeId, phoneNumber, base64Image, caption, fullJid } = req.body;
+  const { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
@@ -126,14 +135,23 @@ router.post('/send-image', async (req, res) => {
     const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
 
-    await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
+    const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
+    
+    if (senderId || senderName) {
+      const chatId = targetJid.split('@')[0].slice(-9);
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+        senderName: senderName,
+        senderId: senderId
+      }).catch(() => {});
+    }
+
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Send Document
 router.post('/send-document', async (req, res) => {
-  const { employeeId, phoneNumber, base64File, fileName, caption, fullJid } = req.body;
+  const { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
   try {
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
@@ -142,39 +160,75 @@ router.post('/send-document', async (req, res) => {
     const buffer = Buffer.from(base64File.split(',')[1], 'base64');
     const mime = base64File.split(';')[0].split(':')[1];
 
-    await sock.sendMessage(targetJid, { 
+    const result = await sock.sendMessage(targetJid, { 
       document: buffer, 
       mimetype: mime, 
       fileName: fileName || "file",
       caption: caption || "" 
     });
+
+    if (senderId || senderName) {
+      const chatId = targetJid.split('@')[0].slice(-9);
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+        senderName: senderName,
+        senderId: senderId
+      }).catch(() => {});
+    }
+
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // 3. Send Video
 router.post('/send-video', async (req, res) => {
-    const { employeeId, phoneNumber, fullJid, base64Video, caption } = req.body;
+    const { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
     if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
 
     try {
-        const sock = getSession(employeeId);
+        const sock = whatsappService.getSession(employeeId);
         if (!sock) return res.status(404).json({ error: 'Session not found' });
 
         const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
         const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
-        await sock.sendMessage(targetJid, { 
+        const result = await sock.sendMessage(targetJid, { 
             video: buffer, 
             caption: caption || '',
             mimetype: 'video/mp4' // Standard for WhatsApp
         });
         
+        if (senderId || senderName) {
+          const chatId = targetJid.split('@')[0].slice(-9);
+          await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+            senderName: senderName,
+            senderId: senderId
+          }).catch(() => {});
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error("Send Video Error:", err);
         res.status(500).json({ error: err.message });
     }
+});
+
+// Admin Route: Get ALL session statuses
+router.get('/status-all', async (req, res) => {
+  try {
+    const sessionsPath = path.join(__dirname, '..', 'sessions');
+    const files = fs.existsSync(sessionsPath) ? fs.readdirSync(sessionsPath) : [];
+    const sessionsFound = files.filter(f => f.startsWith('session-')).map(f => f.replace('session-', ''));
+    
+    // Also check current active sessions in memory
+    const activeSessions = [];
+    for (const eid of sessionsFound) {
+      activeSessions.push(whatsappService.getConnectionStatus(eid));
+    }
+    
+    res.json(activeSessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;
