@@ -283,30 +283,23 @@ export default function WhatsAppChat() {
 
   return (
     <div style={{ 
-      position: 'fixed', 
-      top: isMobile ? 0 : '70px', 
-      position: isMobile ? 'fixed' : 'relative',
-      top: isMobile ? 0 : 'auto',
-      left: 0, 
-      right: 0, 
-      bottom: 0, 
-      zIndex: isMobile ? 2000 : 1,
-      height: isMobile ? '100dvh' : 'calc(100vh - 110px)', 
+      height: isMobile ? 'calc(100vh - 150px)' : 'calc(100vh - 140px)', 
       background: '#020617',
       display: 'flex',
       flexDirection: 'column',
-      width: '100%'
+      width: '100%',
+      borderRadius: isMobile ? '0' : '24px',
+      overflow: 'hidden',
+      boxShadow: isMobile ? 'none' : '0 10px 40px rgba(0,0,0,0.4)',
+      border: isMobile ? 'none' : '1px solid rgba(255,255,255,0.05)',
+      position: 'relative'
     }}>
       <div className="whatsapp-container" style={{
         display: 'flex', 
         flex: 1,
-        borderRadius: isMobile ? '0' : '24px',
         overflow: 'hidden', 
         background: '#0f172a', 
-        direction: 'rtl',
-        margin: isMobile ? '0' : '0',
-        boxShadow: isMobile ? 'none' : '0 10px 40px rgba(0,0,0,0.4)',
-        border: isMobile ? 'none' : '1px solid rgba(255,255,255,0.05)'
+        direction: 'rtl'
       }}>
         {/* Sidebar */}
         <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ 
