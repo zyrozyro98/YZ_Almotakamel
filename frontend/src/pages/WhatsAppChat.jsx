@@ -19,6 +19,7 @@ export default function WhatsAppChat() {
   const [activeChats, setActiveChats] = useState([]);
   const [students, setStudents] = useState([]);
   const [universities, setUniversities] = useState([]);
+  const [majors, setMajors] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -93,6 +94,11 @@ export default function WhatsAppChat() {
       setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Listen to Global Majors
+    const unsubMajors = onSnapshot(collection(db, 'majors'), (snap) => {
+      setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
+    });
+
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     if (!targetId) return;
@@ -104,7 +110,7 @@ export default function WhatsAppChat() {
       else setActiveChats([]);
     });
 
-    return () => { unsubStudents(); unsubActive(); unsubUnivs(); };
+    return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
@@ -702,11 +708,10 @@ export default function WhatsAppChat() {
                       value={formData.specialization} 
                       onChange={e => setFormData({ ...formData, specialization: e.target.value })} 
                       required
-                      disabled={!formData.university}
                     >
-                      <option value="">{formData.university ? 'اختر التخصص' : 'اختر الجامعة أولاً'}</option>
-                      {universities.find(u => u.name === formData.university)?.specializations?.map((s, i) => (
-                        <option key={i} value={s}>{s}</option>
+                      <option value="">اختر التخصص</option>
+                      {majors.sort().map((m, i) => (
+                        <option key={i} value={m}>{m}</option>
                       ))}
                     </select>
                   </div>

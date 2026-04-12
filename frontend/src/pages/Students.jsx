@@ -209,7 +209,17 @@ export default function Students() {
 
             <div className="flex-col gap-2">
               <label className="input-label">التخصص</label>
-              <input type="text" className="input-base" placeholder="التخصص الدراسي" value={formData.major} onChange={e => setFormData({...formData, major: e.target.value})} />
+              <select 
+                className="input-base" 
+                value={formData.major} 
+                onChange={e => setFormData({...formData, major: e.target.value})}
+                required
+              >
+                <option value="">اختر التخصص</option>
+                {majors.sort().map((m, i) => (
+                  <option key={i} value={m}>{m}</option>
+                ))}
+              </select>
             </div>
 
             <div className="flex-col gap-2" style={{ gridColumn: 'span 2' }}>
