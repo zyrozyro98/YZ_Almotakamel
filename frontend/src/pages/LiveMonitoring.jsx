@@ -12,6 +12,7 @@ export default function LiveMonitoring() {
     activeChats: 0
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('all');
   const [employeesMap, setEmployeesMap] = useState({});
 
   useEffect(() => {
@@ -69,12 +70,17 @@ export default function LiveMonitoring() {
     return () => unsubscribe();
   }, []);
 
-  const filteredMessages = liveMessages.filter(m => 
-    m.text?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    m.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.senderName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.chatId?.includes(searchQuery)
-  );
+  const filteredMessages = liveMessages.filter(m => {
+    const matchesSearch = 
+      m.text?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      m.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.senderName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.chatId?.includes(searchQuery);
+    
+    const matchesEmployee = selectedEmployeeId === 'all' || m.employeeId === selectedEmployeeId;
+    
+    return matchesSearch && matchesEmployee;
+  });
 
   return (
     <div className="animate-fade-in-up">
@@ -85,7 +91,21 @@ export default function LiveMonitoring() {
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>مراقبة فورية لجميع المحادثات الصادرة والواردة عبر النظام</p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '5px 15px', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+            <User size={16} color="var(--brand-primary)" />
+            <select 
+              value={selectedEmployeeId} 
+              onChange={(e) => setSelectedEmployeeId(e.target.value)}
+              className="input-base"
+              style={{ padding: '5px', border: 'none', background: 'transparent', fontSize: '0.85rem', width: '150px' }}
+            >
+              <option value="all">كل الموظفين</option>
+              {Object.entries(employeesMap).map(([id, name]) => (
+                <option key={id} value={id}>{name}</option>
+              ))}
+            </select>
+          </div>
           <div style={{ position: 'relative' }}>
             <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)' }} />
             <input 
@@ -94,7 +114,7 @@ export default function LiveMonitoring() {
               placeholder="تصفية المحادثات..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ paddingRight: '2.5rem', width: '250px' }} 
+              style={{ paddingRight: '2.5rem', width: '200px' }} 
             />
           </div>
         </div>
