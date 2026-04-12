@@ -117,6 +117,26 @@ export default function WhatsAppConfig() {
     } catch (err) { console.error('Logout failed:', err); } finally { setLoading(false); }
   };
 
+  if (loading && waStatus === 'checking') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
+        <RefreshCw size={40} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مسموح بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الصفحة مخصصة للمسؤولين فقط لإدارة جلسات الربط المركزية.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in" style={{ padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>

@@ -1,8 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send } from 'lucide-react';
+import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw } from 'lucide-react';
 import axios from 'axios';
+import { db, auth } from '../firebase';
 
 export default function PhotoSender() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(user => {
+      if (user) {
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+      setCheckingAdmin(false);
+    });
+    return () => unsub();
+  }, []);
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [messageTemplate, setMessageTemplate] = useState('مرحباً بك، نرسل لك صورة الحضور الخاصة بك. شكراً لحضورك!');
@@ -127,6 +143,26 @@ export default function PhotoSender() {
       setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
     }
   };
+
+  if (checkingAdmin) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
+        <RefreshCw size={40} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مسموح بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الأداة مخصصة للمسؤولين فقط لإرسال صور الحضور الجماعية.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

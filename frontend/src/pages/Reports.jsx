@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, QrCode, TrendingUp, BarChart3, Clock, MessageSquare, CheckCircle } from 'lucide-react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function Reports() {
   const [selectedEmp, setSelectedEmp] = useState('emp1');
@@ -11,6 +12,21 @@ export default function Reports() {
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [employeeStatuses, setEmployeeStatuses] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  React.useEffect(() => {
+    const unsub = auth.onAuthStateChanged(user => {
+      if (user) {
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+      setCheckingAdmin(false);
+    });
+    return () => unsub();
+  }, []);
 
   React.useEffect(() => {
     const fetchStatuses = async () => {
@@ -83,6 +99,26 @@ export default function Reports() {
       setIsExporting(false);
     }
   };
+
+  if (checkingAdmin) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
+        <RefreshCw size={40} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مسموح بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الصفحة مخصصة للمسؤولين فقط لعرض التقارير والإحصائيات الحساسة.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
