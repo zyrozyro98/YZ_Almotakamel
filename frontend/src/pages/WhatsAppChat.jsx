@@ -537,15 +537,34 @@ export default function WhatsAppChat() {
                   >
                     <Smile size={24} />
                   </button>
-                  <input 
-                    type="text" value={message} 
+                  <textarea 
+                    value={message} 
                     onChange={e => setMessage(e.target.value)} 
-                    onKeyDown={e => e.key === 'Enter' && handleSend()} 
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }} 
                     placeholder="اكتب رسالتك هنا..." 
+                    rows={1}
                     autoComplete="off"
                     autoCorrect="off"
+                    autoCapitalize="off"
                     spellCheck="false"
-                    style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff', fontSize: '0.94rem' }} 
+                    style={{ 
+                      flex: 1, 
+                      background: 'rgba(255,255,255,0.05)', 
+                      border: 'none', 
+                      padding: '12px 15px', 
+                      borderRadius: '15px', 
+                      color: '#fff', 
+                      fontSize: '0.94rem',
+                      resize: 'none',
+                      fontFamily: 'inherit',
+                      outline: 'none',
+                      lineHeight: '1.4'
+                    }} 
                   />
                   <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px' }}>
                     <Send size={20} />
