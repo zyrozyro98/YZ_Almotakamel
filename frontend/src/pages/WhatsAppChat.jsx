@@ -98,6 +98,7 @@ export default function WhatsAppChat() {
           id: chat.phone,
           name: chat.name || `مجهول: ${chat.phone}`,
           phone: chat.phone,
+          fullJid: chat.fullJid, // CARRY THE JID
           isUnknown: true,
           lastMessage: chat.lastMessage,
           timestamp: chat.timestamp
@@ -108,6 +109,7 @@ export default function WhatsAppChat() {
       const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
       return {
         ...item,
+        fullJid: active?.fullJid || item.fullJid, // ATTACH JID IF AVAILABLE
         lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
         timestamp: active?.timestamp || item.timestamp || 0
       };
@@ -124,7 +126,10 @@ export default function WhatsAppChat() {
     const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId, phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), message: textToSend
+        employeeId, 
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
+        message: textToSend,
+        fullJid: selectedChat.fullJid // THE KEY FOR INSTANT DELIVERY
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };
