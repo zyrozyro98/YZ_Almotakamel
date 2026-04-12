@@ -282,10 +282,10 @@ export default function WhatsAppChat() {
   };
 
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
+    <div style={{ position: 'relative', height: '100%', width: '100%', maxWidth: '100vw', overflowX: 'hidden' }}>
       <div className="whatsapp-container" style={{
         display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px',
-        overflow: 'hidden', background: '#0f172a', direction: 'rtl'
+        overflow: 'hidden', background: '#0f172a', direction: 'rtl', width: '100%'
       }}>
         {/* Sidebar */}
         <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ width: isMobile ? '100%' : '380px', background: '#1e293b', display: 'flex', flexDirection: 'column' }}>
@@ -312,11 +312,19 @@ export default function WhatsAppChat() {
         </div>
 
         {/* Main Chat */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#020617' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#020617', minWidth: 0, overflow: 'hidden' }}>
           {selectedChat ? (
             <>
               {/* Quick Toolbar */}
-              <div style={{ padding: '10px 20px', background: '#1e293b', display: 'flex', gap: '10px', overflowX: 'auto' }}>
+              <div style={{ 
+                padding: '10px 20px', 
+                background: '#1e293b', 
+                display: 'flex', 
+                gap: '10px', 
+                overflowX: 'auto', 
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none'
+              }}>
                 <button onClick={openAddModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserPlus size={14} /> إضافة</button>
                 <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14} /> تعديل</button>
                 <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14} /> إيصال</button>
