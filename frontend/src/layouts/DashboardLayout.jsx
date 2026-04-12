@@ -8,14 +8,15 @@ export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [employeeId, setEmployeeId] = useState('emp1');
+  const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // 1. Reactive Auth Listener
+  // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
-        const id = user.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+        // GOLDEN KEY: Use auth.uid instead of email parts
+        const id = user.uid;
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setEmployeeId(id);
         setIsAdmin(adminStatus);
@@ -27,7 +28,7 @@ export default function DashboardLayout() {
     return () => unsubAuth();
   }, []);
 
-  // 2. Real-time Notifications Listener
+  // 2. Real-time Notifications Listener using Golden Key
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
 
@@ -123,12 +124,12 @@ export default function DashboardLayout() {
                 boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
               }}>{employeeId.substring(0, 2).toUpperCase()}</div>
               <div>
-                <p style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
-                  {isAdmin ? 'المدير العام' : `الموظف: ${employeeId}`}
+                <p style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {isAdmin ? 'المسؤول' : `هوية: ${employeeId.substring(0,6)}`}
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--success)', margin: 0, fontWeight: 600 }}>نشط الآن</p>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--success)', margin: 0, fontWeight: 600 }}>نشط</p>
                 </div>
               </div>
             </div>
@@ -183,13 +184,13 @@ export default function DashboardLayout() {
                   maxHeight: '450px', overflowY: 'auto', boxShadow: '0 15px 50px rgba(0,0,0,0.5)'
                 }}>
                   <div className="flex items-center justify-between" style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.75rem', marginBottom: '0.5rem' }}>
-                    <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>الإشعارات الذكية</h4>
+                    <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>التنبيهات الفورية</h4>
                     {unreadCount > 0 && <span className="badge badge-info">جديد</span>}
                   </div>
                   {notifications.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
                       <Bell size={40} style={{ opacity: 0.1, marginBottom: '1rem' }} />
-                      <p style={{ fontSize: '0.95rem', color: 'var(--text-secondary)', margin: 0 }}>لا توجد إشعارات حالياً</p>
+                      <p style={{ fontSize: '0.95rem', color: 'var(--text-secondary)', margin: 0 }}>لا توجد تنبيهات</p>
                     </div>
                   ) : (
                     notifications.map(n => (
