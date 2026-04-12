@@ -135,15 +135,19 @@ export default function PhotoSender() {
     
     setIsRunning(true);
     setIsPaused(false);
+    isRunningRef.current = true;
+    isPausedRef.current = false;
     processQueue(currentIndex);
   };
 
   const handlePause = () => {
     setIsPaused(true);
+    isPausedRef.current = true;
   };
 
   const handleResume = () => {
     setIsPaused(false);
+    isPausedRef.current = false;
     processQueue(currentIndex);
   };
 
@@ -151,6 +155,8 @@ export default function PhotoSender() {
     if (window.confirm('هل أنت متأكد من تصفير وإلغاء العملية بالكامل؟')) {
       setIsRunning(false);
       setIsPaused(false);
+      isRunningRef.current = false;
+      isPausedRef.current = false;
       setFilesQueue([]);
       setLogs([]);
       setCurrentIndex(0);
