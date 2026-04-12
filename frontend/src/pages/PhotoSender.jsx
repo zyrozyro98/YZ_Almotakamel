@@ -108,7 +108,8 @@ export default function PhotoSender() {
           setStats(prev => ({ ...prev, sent: prev.sent + 1, pending: prev.pending - 1 }));
         } catch (err) {
           console.error(err);
-          setLogs(prev => [{ type: 'error', num: targetNumber, msg: 'فشل الإرسال (تأكد من فتح تطبيق Node.js وربط الواتس)', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+          const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
+          setLogs(prev => [{ type: 'error', num: targetNumber, msg: `فشل الإرسال (${errorMsg})`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
           setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
         }
       }
