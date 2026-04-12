@@ -8,7 +8,6 @@ const WhatsAppContext = createContext();
 export const WhatsAppProvider = ({ children }) => {
   const [employeeId, setEmployeeId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeChats, setActiveChats] = useState([]);
   const [students, setStudents] = useState([]);
   const [universities, setUniversities] = useState([]);
   const [majors, setMajors] = useState([]);
@@ -61,21 +60,42 @@ export const WhatsAppProvider = ({ children }) => {
     return () => { unsubStudents(); unsubUnivs(); unsubMajors(); unsubEmps(); };
   }, [employeeId, isAdmin]);
 
-  // Active Chats Listener (The one that delays UI)
+  const [allActiveChats, setAllActiveChats] = useState({}); // { [empId]: chatList }
+
+  // Active Chats Listener (Enhanced for Admin Caching)
   useEffect(() => {
-    const targetId = isAdmin ? (viewingEmployeeId || employeeId) : employeeId;
-    if (!targetId) return;
+    if (!employeeId) return;
 
-    const activeRef = ref(rtdb, `chats/${targetId}`);
-    const unsubActive = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
-      else setActiveChats([]);
-      setIsLoading(false);
-    });
+    // Helper to start a listener for a specific employee
+    const startListening = (targetId) => {
+      const activeRef = ref(rtdb, `chats/${targetId}`);
+      return onValue(activeRef, (snapshot) => {
+        const data = snapshot.val();
+        const list = data ? Object.entries(data).map(([id, val]) => ({ phone: id, ...val })) : [];
+        setAllActiveChats(prev => ({ ...prev, [targetId]: list }));
+        setIsLoading(false);
+      });
+    };
 
-    return () => unsubActive();
-  }, [employeeId, viewingEmployeeId, isAdmin]);
+    const listeners = [];
+
+    if (isAdmin && employees.length > 0) {
+      // Admin: Listen to ALL employees simultaneously for instant switching
+      employees.forEach(emp => {
+        listeners.push(startListening(emp.id));
+      });
+      // Also listen to self
+      listeners.push(startListening(employeeId));
+    } else if (employeeId) {
+      // Normal employee: Listen only to self
+      listeners.push(startListening(employeeId));
+    }
+
+    return () => listeners.forEach(unsub => unsub());
+  }, [employeeId, isAdmin, employees]);
+
+  // Derived activeChats based on current selection
+  const activeChats = allActiveChats[isAdmin ? (viewingEmployeeId || employeeId) : employeeId] || [];
 
   const value = {
     employeeId, isAdmin, activeChats, students, universities, majors, employees, 
