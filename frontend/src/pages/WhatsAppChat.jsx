@@ -11,20 +11,18 @@ import { auth, rtdb, db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
+import { useWhatsApp } from '../context/WhatsAppContext';
 
 export default function WhatsAppChat() {
-  const [employeeId, setEmployeeId] = useState('emp1');
+  const { 
+    employeeId, isAdmin, activeChats, students, universities, majors, employees, 
+    viewingEmployeeId, setViewingEmployeeId, isLoading 
+  } = useWhatsApp();
+
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [activeChats, setActiveChats] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [universities, setUniversities] = useState([]);
-  const [majors, setMajors] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [employees, setEmployees] = useState([]);
-  const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -42,6 +40,8 @@ export default function WhatsAppChat() {
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
   const [attachment, setAttachment] = useState(null); // Current selected file
   const fileInputRef = useRef(null);
+  
+  const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -51,68 +51,7 @@ export default function WhatsAppChat() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(user => {
-      if (user) {
-        setEmployeeId(user.uid);
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
-        setIsAdmin(adminStatus);
-        if (!viewingEmployeeId) setViewingEmployeeId(user.uid);
-      } else {
-        setEmployeeId('emp1');
-        setIsAdmin(false);
-      }
-    });
-    return () => unsubAuth();
-  }, [viewingEmployeeId]);
-
-  // Fetch all employees if admin
-  useEffect(() => {
-    if (!isAdmin) return;
-    const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
-      const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEmployees(emps);
-      
-      // If we are an admin and viewing ourselves, auto-pick the first real employee if available
-      if (viewingEmployeeId === employeeId && emps.length > 0) {
-        const firstOther = emps.find(e => e.id !== employeeId);
-        if (firstOther) setViewingEmployeeId(firstOther.id);
-      }
-    });
-    return () => unsub();
-  }, [isAdmin, employeeId, viewingEmployeeId]);
-
-  useEffect(() => {
-    if (!employeeId || employeeId === 'emp1') return;
-
-    // Listen to Students
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    // Listen to Universities for dropdowns
-    const unsubUnivs = onSnapshot(collection(db, 'universities'), (snap) => {
-      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    // Listen to Global Majors
-    const unsubMajors = onSnapshot(collection(db, 'majors'), (snap) => {
-      setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
-    });
-
-    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    if (!targetId) return;
-
-    const activeRef = ref(rtdb, `chats/${targetId}`);
-    const unsubActive = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
-      else setActiveChats([]);
-    });
-
-    return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
-  }, [employeeId, viewingEmployeeId, isAdmin]);
+  // All background listeners moved to WhatsAppContext.jsx for performance and state persistence.
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
@@ -366,6 +305,23 @@ export default function WhatsAppChat() {
     } catch (err) { alert('خطأ في حفظ الإيصال'); }
   };
 
+  const handleDeleteMessage = async (msg) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذه الرسالة لدى الجميع؟')) return;
+    try {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      await axios.post(`${BASE_URL}/api/whatsapp/delete`, {
+        employeeId: targetId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
+        fullJid: selectedChat.fullJid,
+        messageId: msg.id,
+        fromMe: msg.sender === 'me'
+      });
+      setActiveMessageId(null);
+    } catch (err) {
+      alert('فشل الحذف: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   return (
     <div style={{ 
       height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)', 
@@ -550,67 +506,93 @@ export default function WhatsAppChat() {
                       )}
                       
                       <div 
-                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }} 
+                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px', position: 'relative' }} 
                         onClick={() => {
                           if (isSelectingMessage) {
                             setSelectedMessage(m);
                             setIsSelectingMessage(false);
                             setActiveModal('receipt');
+                          } else if (m.sender === 'me' && !m.isDeleted) {
+                            setActiveMessageId(activeMessageId === m.id ? null : m.id);
                           }
                         }}
                       >
+                        {/* Delete Button Overlay */}
+                        {activeMessageId === m.id && !m.isDeleted && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteMessage(m); }}
+                            style={{ 
+                              position: 'absolute', [isMe ? 'right' : 'left']: '-45px', top: '50%', transform: 'translateY(-50%)',
+                              background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '50%', padding: '10px',
+                              boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)', transition: '0.2s', zIndex: 10
+                            }}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+
                         <div style={{ 
                           maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px', 
-                          background: isMe ? '#065f46' : '#1e293b', 
-                          color: '#fff',
+                          background: m.isDeleted ? (isAdmin ? 'rgba(30,41,59,0.5)' : 'transparent') : (isMe ? '#065f46' : '#1e293b'), 
+                          color: m.isDeleted ? 'rgba(255,255,255,0.3)' : '#fff',
+                          border: m.isDeleted ? '1px dashed rgba(255,255,255,0.1)' : 'none',
                           borderTopRightRadius: isMe ? '2px' : '12px', 
                           borderTopLeftRadius: isMe ? '12px' : '2px',
-                          boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-                          cursor: isSelectingMessage ? 'pointer' : 'default',
-                          border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
+                          boxShadow: m.isDeleted ? 'none' : '0 2px 5px rgba(0,0,0,0.1)',
+                          cursor: (isSelectingMessage || (isMe && !m.isDeleted)) ? 'pointer' : 'default',
                           position: 'relative',
                           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                           overflow: 'hidden'
                         }}>
-                          {m.type === 'image' && m.mediaData && (
-                            <img 
-                              src={m.mediaData} alt="Shared" 
-                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
-                            />
-                          )}
-                          {m.type === 'video' && m.mediaData && (
-                            <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
-                              <video 
-                                src={m.mediaData} 
-                                controls 
-                                style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
-                              />
+                          {m.isDeleted ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontStyle: 'italic', fontSize: '0.8rem' }}>
+                              <Trash2 size={14} />
+                              {isAdmin ? `رسالة ملغاة: ${m.text || 'محتوى مجهول'}` : 'تم حذف هذه الرسالة'}
                             </div>
+                          ) : (
+                            <>
+                              {m.type === 'image' && m.mediaData && (
+                                <img 
+                                  src={m.mediaData} alt="Shared" 
+                                  style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
+                                />
+                              )}
+                              {m.type === 'video' && m.mediaData && (
+                                <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                                  <video 
+                                    src={m.mediaData} 
+                                    controls 
+                                    style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
+                                  />
+                                </div>
+                              )}
+                              {m.type === 'audio' && m.mediaData && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
+                                  <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
+                                    <MessageCircle size={20} />
+                                  </div>
+                                  <audio 
+                                    src={m.mediaData} 
+                                    controls 
+                                    style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
+                                  />
+                                </div>
+                              )}
+                              {m.type === 'document' && (
+                                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                  <FileText size={24} color="#3b82f6" />
+                                  <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
+                                </div>
+                              )}
+                              {(m.type === 'text' || !m.type) && (
+                                <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
+                              )}
+                              {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
+                                 <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
+                              )}
+                            </>
                           )}
-                          {m.type === 'audio' && m.mediaData && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
-                              <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
-                                <MessageCircle size={20} />
-                              </div>
-                              <audio 
-                                src={m.mediaData} 
-                                controls 
-                                style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
-                              />
-                            </div>
-                          )}
-                          {m.type === 'document' && (
-                            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                              <FileText size={24} color="#3b82f6" />
-                              <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
-                            </div>
-                          )}
-                          {(m.type === 'text' || !m.type) && (
-                            <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
-                          )}
-                          {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
-                             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
-                          )}
+                          
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', justifyContent: 'flex-end', borderTop: isMe && m.senderName ? '1px solid rgba(255,255,255,0.1)' : 'none', paddingTop: isMe && m.senderName ? '4px' : '0' }}>
                             {isMe && m.senderName && (
                               <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, marginRight: 'auto' }}>
@@ -620,7 +602,7 @@ export default function WhatsAppChat() {
                             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
                               {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                             </span>
-                            {isMe && <CheckCheck size={14} style={{ color: '#34d399' }} />}
+                            {isMe && !m.isDeleted && <CheckCheck size={14} style={{ color: '#34d399' }} />}
                           </div>
                         </div>
                       </div>

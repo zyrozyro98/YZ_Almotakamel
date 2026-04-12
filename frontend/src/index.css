@@ -34,7 +34,7 @@
 }
 
 body {
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Cairo', "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "Android Emoji", EmojiSymbols, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
@@ -48,6 +48,9 @@ body {
     radial-gradient(circle at 50% 80%, rgba(244, 63, 94, 0.05) 0%, transparent 30%);
   background-attachment: fixed;
   line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
@@ -95,7 +98,7 @@ a:hover {
 }
 
 button {
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Cairo', "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "Android Emoji", EmojiSymbols, sans-serif;
   cursor: pointer;
   border: none;
   outline: none;
@@ -119,7 +122,7 @@ button:disabled {
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   border-radius: 12px;
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Cairo', "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "Android Emoji", EmojiSymbols, sans-serif;
   transition: var(--transition);
 }
 
