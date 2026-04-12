@@ -283,7 +283,7 @@ export default function WhatsAppChat() {
 
   return (
     <div style={{ 
-      height: isMobile ? 'calc(100vh - 150px)' : 'calc(100vh - 140px)', 
+      height: isMobile ? 'calc(100vh - 220px)' : 'calc(100vh - 150px)', 
       background: '#020617',
       display: 'flex',
       flexDirection: 'column',

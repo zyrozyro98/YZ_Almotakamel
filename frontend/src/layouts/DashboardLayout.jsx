@@ -211,7 +211,11 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
+        <div style={{ 
+          flex: 1, 
+          overflowY: 'auto', 
+          padding: window.location.pathname === '/chat' ? (isSidebarOpen ? '2rem' : '0') : '2rem' 
+        }}>
           <Outlet />
         </div>
       </main>
