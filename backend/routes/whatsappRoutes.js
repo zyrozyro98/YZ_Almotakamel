@@ -67,7 +67,8 @@ router.post('/send', async (req, res) => {
     }
     
     const jid = `${cleanPhone}@s.whatsapp.net`;
-    
+    const chatId = cleanPhone.slice(-9);
+
     const result = await sock.sendMessage(jid, { text: message });
     console.log(`[WA SUCCESS] Message sent via session: ${employeeId}`);
     

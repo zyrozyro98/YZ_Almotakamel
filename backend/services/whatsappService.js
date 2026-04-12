@@ -133,8 +133,10 @@ async function initializeSession(employeeId, onQrGenerated) {
       console.log(`[WA-${employeeId}][${isMe ? 'SENT' : 'RECV'}] ${remoteJid}: [${msgType}] ${textMsg}`);
       
       // Save message to Firebase for Frontend Sync
-      // Ensure chatId is always the plain number (no @s.whatsapp.net)
-      const chatId = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
+      // Use last 9 digits for chatId to ensure perfect matching across different formats
+      const fullPhone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
+      const chatId = fullPhone.slice(-9); 
+      
       const messagePayload = {
         text: textMsg || '',
         type: msgType,

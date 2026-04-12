@@ -219,7 +219,8 @@ export default function WhatsAppChat() {
         });
 
         // Instant update to RTDB
-        const messagesRef = ref(rtdb, `chats/${employeeId}/${phone}/messages`);
+        const chatId = selectedChat.phone.replace(/[^0-9]/g, '').slice(-9);
+        const messagesRef = ref(rtdb, `chats/${employeeId}/${chatId}/messages`);
         await push(messagesRef, {
           text: textToSend,
           type: 'text',
@@ -295,7 +296,7 @@ export default function WhatsAppChat() {
       return;
     }
 
-    const chatId = selectedChat.phone.replace(/[^0-9]/g, '');
+    const chatId = selectedChat.phone.replace(/[^0-9]/g, '').slice(-9);
     const messagesRef = ref(rtdb, `chats/${employeeId}/${chatId}/messages`);
     
     const unsubRtdb = onValue(messagesRef, (snapshot) => {
