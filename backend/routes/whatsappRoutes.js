@@ -74,21 +74,6 @@ router.post('/send', async (req, res) => {
     console.log(`[WA] Sending message to JID: ${targetJid}`);
     const result = await sock.sendMessage(targetJid, { text: message });
 
-    // 2. Save to RTDB History
-    const messagePayload = {
-      text: message,
-      time: Date.now(),
-      sender: 'me',
-      id: result?.key?.id || Date.now().toString()
-    };
-
-    const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
-    await chatRef.child('messages').push(messagePayload);
-    await chatRef.update({
-      lastMessage: message,
-      timestamp: Date.now()
-    });
-
     return res.status(200).json({ status: 'sent', to: targetJid });
   } catch (error) {
     console.error(`[WA SEND ERROR]`, error.message);
