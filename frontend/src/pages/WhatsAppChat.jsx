@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw, 
-  Info, AlertCircle, Smile, ChevronRight, ArrowRight, Phone, MessageSquare
+  Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
+  UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
 
 export default function WhatsAppChat() {
@@ -15,16 +16,20 @@ export default function WhatsAppChat() {
   const [messages, setMessages] = useState([]);
   const [activeChats, setActiveChats] = useState([]);
   const [students, setStudents] = useState([]);
+  const [universities, setUniversities] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const messagesEndRef = useRef(null);
-  
-  // Responsive State
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [view, setView] = useState('list'); // 'list' or 'chat'
+  const [view, setView] = useState('list'); 
+
+  // Modals State
+  const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
+  const [formData, setFormData] = useState({});
+  const [selectedMessage, setSelectedMessage] = useState(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -44,16 +49,26 @@ export default function WhatsAppChat() {
 
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
+    
+    // Listen to Students
     const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data(), isStudent: true })));
+      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
+    // Listen to Universities for dropdowns
+    const unsubUnivs = onSnapshot(collection(db, 'universities'), (snap) => {
+      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // Listen to Active Chats from RTDB
     const activeRef = ref(rtdb, `chats/${employeeId}`);
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val, isUnknown: true })));
+      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
       else setActiveChats([]);
     });
-    return () => { unsubStudents(); unsubActive(); };
+
+    return () => { unsubStudents(); unsubActive(); unsubUnivs(); };
   }, [employeeId]);
 
   useEffect(() => {
@@ -74,7 +89,6 @@ export default function WhatsAppChat() {
 
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
   
-  // Combine Students and Unknown Active Chats
   const combinedList = () => {
     const list = [...students];
     activeChats.forEach(chat => {
@@ -82,7 +96,7 @@ export default function WhatsAppChat() {
       if (!exists) {
         list.push({
           id: chat.phone,
-          name: chat.name || `رقم: ${chat.phone}`,
+          name: chat.name || `مجهول: ${chat.phone}`,
           phone: chat.phone,
           isUnknown: true,
           lastMessage: chat.lastMessage,
@@ -90,7 +104,6 @@ export default function WhatsAppChat() {
         });
       }
     });
-
     return list.map(item => {
       const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
       return {
@@ -103,13 +116,8 @@ export default function WhatsAppChat() {
 
   const filteredSidebar = combinedList().filter(item => {
     const q = searchQuery.toLowerCase();
-    return item.name?.toLowerCase().includes(q) || item.phone?.includes(q);
+    return item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
   });
-
-  const selectChat = (chat) => {
-    setSelectedChat(chat);
-    if (isMobile) setView('chat');
-  };
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
@@ -121,159 +129,261 @@ export default function WhatsAppChat() {
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };
 
+  // --- Modal Logic ---
+  const openAddModal = () => {
+    setFormData({ 
+      name: selectedChat?.name?.includes('مجهول') ? '' : (selectedChat?.name || ''), 
+      phone: selectedChat?.phone || '',
+      university: '', specialization: '', batch: '', platformUser: '', platformPass: '', idNumber: '', notes: ''
+    });
+    setActiveModal('add');
+  };
+
+  const openEditModal = () => {
+    if (!selectedChat?.isStudent) return alert('هذا الطالب غير مسجل في النظام حالياً');
+    setFormData({ ...selectedChat });
+    setActiveModal('edit');
+  };
+
+  const handleAddStudent = async (e) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'students'), {
+        ...formData,
+        createdAt: Timestamp.now(),
+        createdBy: employeeId
+      });
+      alert('تم إضافة الطالب بنجاح');
+      setActiveModal(null);
+    } catch (err) { alert('خطأ في الإضافة: ' + err.message); }
+  };
+
+  const handleUpdateStudent = async (e) => {
+    e.preventDefault();
+    try {
+      const studentRef = doc(db, 'students', selectedChat.id);
+      const { phone, platformUser, platformPass, ...safeUpdate } = formData;
+      await updateDoc(studentRef, safeUpdate);
+      alert('تم تحديث البيانات بنجاح');
+      setActiveModal(null);
+    } catch (err) { alert('خطأ في التحديث'); }
+  };
+
+  const handleWithdrawalRequest = async (reason) => {
+    try {
+      await addDoc(collection(db, 'orders'), {
+        studentId: selectedChat.id,
+        studentName: selectedChat.name,
+        type: 'withdrawal',
+        reason,
+        status: 'pending',
+        createdAt: Timestamp.now()
+      });
+      alert('تم إرسال طلب الانسحاب للإدارة');
+      setActiveModal(null);
+    } catch (err) { alert('فشل إرسال الطلب'); }
+  };
+
+  const handleReceiptSave = async (receiptData) => {
+    try {
+      await addDoc(collection(db, 'receipts'), {
+        studentId: selectedChat.id || selectedChat.phone,
+        studentName: selectedChat.name,
+        ...receiptData,
+        createdAt: Timestamp.now()
+      });
+      alert('تم حفظ الإيصال بنجاح');
+      setActiveModal(null);
+    } catch (err) { alert('خطأ في حفظ الإيصال'); }
+  };
+
   return (
-    <div className="whatsapp-container" style={{ 
-      display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px', 
-      overflow: 'hidden', background: '#0f172a', direction: 'rtl',
-      boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-      position: isMobile ? 'fixed' : 'relative',
-      top: isMobile ? '0' : 'auto', left: 0, right: 0, bottom: 0, zIndex: 1000
-    }}>
-      
-      {/* Sidebar - Visible on Desktop or when View is 'list' on Mobile */}
-      <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ 
-        width: isMobile ? '100%' : '380px', borderLeft: '1px solid rgba(255,255,255,0.05)', 
-        display: 'flex', flexDirection: 'column', background: '#1e293b', transition: '0.3s'
+    <div style={{ position: 'relative', height: '100%' }}>
+      <div className="whatsapp-container" style={{ 
+        display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px', 
+        overflow: 'hidden', background: '#0f172a', direction: 'rtl'
       }}>
-        <div style={{ padding: '25px', background: 'rgba(0,0,0,0.2)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', margin: 0 }}>المحادثات</h2>
-            {isMobile && <button className="btn-secondary" onClick={() => window.location.reload()}><RefreshCw size={18}/></button>}
-          </div>
-          <div style={{ position: 'relative' }}>
-            <Search style={{ position: 'absolute', right: '12px', top: '12px', color: 'rgba(255,255,255,0.2)' }} size={18} />
+        {/* Sidebar */}
+        <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ width: isMobile ? '100%' : '380px', background: '#1e293b', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '25px', background: 'rgba(0,0,0,0.2)' }}>
+            <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', margin: '0 0 20px' }}>الدردشات</h2>
             <input 
-              type="text" placeholder="بحث عن طالب أو رقم..." 
-              style={{ width: '100%', padding: '12px 45px 12px 15px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '15px', color: '#fff', outline: 'none' }}
+              type="text" placeholder="بحث..." className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-        </div>
-
-        <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
-          {filteredSidebar.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', opacity: 0.2 }}>
-              <MessageSquare size={50} style={{ margin: '0 auto 15px' }} />
-              <p>لا توجد محادثات نشطة</p>
-            </div>
-          ) : (
-            filteredSidebar.map(item => (
-              <div 
-                key={item.id} onClick={() => selectChat(item)}
-                style={{ 
-                  padding: '18px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '15px', 
-                  background: selectedChat?.id === item.id ? 'rgba(59, 130, 246, 0.15)' : 'transparent', 
-                  borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
-                  transition: '0.2s', borderBottom: '1px solid rgba(255,255,255,0.02)'
-                }}
-              >
-                <div style={{ 
-                  width: '50px', height: '50px', borderRadius: '16px', 
-                  background: item.isUnknown ? 'linear-gradient(135deg, #64748b, #475569)' : 'linear-gradient(135deg, #3b82f6, #06b6d4)', 
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#fff' 
-                }}>
-                  {item.name?.substring(0, 1)}
-                </div>
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>{item.name}</h4>
-                    {item.timestamp > 0 && <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>{new Date(item.timestamp).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>}
+          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
+            {filteredSidebar.map(item => (
+              <div key={item.id} onClick={() => { setSelectedChat(item); if(isMobile) setView('chat'); }} style={{ padding: '15px 20px', cursor: 'pointer', background: selectedChat?.id === item.id ? 'rgba(34,197,94,0.1)' : 'transparent', borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent' }}>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                  <div style={{ width: '45px', height: '45px', borderRadius: '15px', background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900 }}>{item.name?.substring(0,1)}</div>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem' }}>{item.name}</h4>
+                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6' }}>{item.university || 'غير مسجل'}</p>
                   </div>
-                  <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: selectedChat?.id === item.id ? '#3b82f6' : 'rgba(255,255,255,0.3)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                    {item.isUnknown && <span style={{ fontSize: '9px', background: '#475569', padding: '1px 5px', borderRadius: '4px', marginLeft: '5px' }}>جديد</span>}
-                    {item.lastMessage}
-                  </p>
                 </div>
               </div>
-            ))
+            ))}
+          </div>
+        </div>
+
+        {/* Main Chat */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#020617' }}>
+          {selectedChat ? (
+            <>
+              {/* Quick Toolbar */}
+              <div style={{ padding: '10px 20px', background: '#1e293b', display: 'flex', gap: '10px', overflowX: 'auto' }}>
+                <button onClick={openAddModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserPlus size={14}/> إضافة</button>
+                <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14}/> تعديل</button>
+                <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14}/> إيصال</button>
+                <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserMinus size={14}/> إنسحاب</button>
+              </div>
+
+              <div style={{ padding: '15px 25px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24}/></button>}
+                  <h3 style={{ margin: 0, color: '#fff' }}>{selectedChat.name}</h3>
+                </div>
+                <Info size={20} style={{ color: '#3b82f6', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
+              </div>
+
+              <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {messages.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: m.sender === 'me' ? 'flex-start' : 'flex-end' }} onClick={() => setSelectedMessage(m)}>
+                    <div style={{ padding: '10px 15px', borderRadius: '15px', background: m.sender === 'me' ? '#059669' : '#1e293b', color: '#fff', fontSize: '0.9rem', cursor: 'pointer', border: selectedMessage?.id === m.id ? '2px solid #3b82f6' : 'none' }}>
+                      {m.text}
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <div style={{ padding: '20px', background: '#1e293b' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <input type="text" value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="اكتب..." style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff' }} />
+                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px' }}><Send size={20}/></button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.1 }}><MessageCircle size={100} color="#fff" /></div>
           )}
         </div>
       </div>
 
-      {/* Main Chat Area - Visible on Desktop or when View is 'chat' on Mobile */}
-      <div className={`chat-area ${isMobile && view === 'list' ? 'hidden' : 'visible'}`} style={{ 
-        flex: 1, display: 'flex', flexDirection: 'column', background: '#020617', 
-        width: isMobile ? '100%' : 'auto', transition: '0.3s'
-      }}>
-        {selectedChat ? (
-          <>
-            <div style={{ padding: isMobile ? '15px' : '20px 35px', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                {isMobile && <button style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }} onClick={() => setView('list')}><ArrowRight size={24} /></button>}
-                <div style={{ width: '45px', height: '45px', borderRadius: '12px', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}><User size={24} /></div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: isMobile ? '0.95rem' : '1.1rem', fontWeight: 800, color: '#fff' }}>{selectedChat.name}</h3>
-                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6', fontWeight: 700 }}>{selectedChat.phone}</p>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '15px' }}>
-                {!isMobile && <RefreshCw size={20} style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => window.location.reload()} />}
-                <button onClick={() => setShowDetails(!showDetails)} style={{ background: 'none', border: 'none', color: '#3b82f6' }}><Info size={20} /></button>
-              </div>
+      {/* --- Modals --- */}
+      {activeModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setActiveModal(null)}>
+          <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '500px', padding: '30px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+              <h3 style={{ margin: 0, color: '#fff', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                {activeModal === 'add' && <><UserPlus /> إضافة طالب جديد</>}
+                {activeModal === 'edit' && <><UserCog /> تعديل البيانات</>}
+                {activeModal === 'receipt' && <><Receipt /> إرفاق إيصال</>}
+                {activeModal === 'withdraw' && <><UserMinus /> طلب إنسحاب</>}
+              </h3>
+              <button onClick={() => setActiveModal(null)} style={{ background: 'none', border: 'none', color: '#fff' }}><X /></button>
             </div>
 
-            <div className="custom-scrollbar" style={{ 
-              flex: 1, overflowY: 'auto', padding: isMobile ? '15px' : '30px', 
-              display: 'flex', flexDirection: 'column', gap: '15px', 
-              background: 'radial-gradient(circle at center, #0f172a 0%, #020617 100%)' 
-            }}>
-              {messages.map((msg, idx) => {
-                const isMe = msg.sender === 'me';
-                return (
-                  <div key={msg.id || idx} style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%' }}>
-                    <div style={{ 
-                      maxWidth: '85%', width: 'fit-content', padding: '12px 18px', borderRadius: '22px', 
-                      background: isMe ? '#059669' : '#1e293b', color: '#fff',
-                      borderTopRightRadius: isMe ? '4px' : '22px', borderTopLeftRadius: isMe ? '22px' : '4px',
-                      boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative'
-                    }}>
-                      <p style={{ margin: 0, fontSize: isMobile ? '0.9rem' : '1rem', lineHeight: 1.6 }}>{msg.text}</p>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '6px', fontSize: '9px', color: 'rgba(255,255,255,0.5)', justifyContent: 'flex-start' }}>
-                        {msg.time ? new Date(msg.time).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : ''}
-                        {isMe && <CheckCheck size={12} />}
-                      </div>
+            {(activeModal === 'add' || activeModal === 'edit') && (
+              <form onSubmit={activeModal === 'add' ? handleAddStudent : handleUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>اسم الطالب</label>
+                  <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>الجامعة</label>
+                    <select className="input-base" style={{ background: '#0f172a' }} value={formData.university} onChange={e => setFormData({...formData, university: e.target.value})} required>
+                      <option value="">اختر الجامعة</option>
+                      {universities.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>التخصص</label>
+                    <input type="text" className="input-base" list="specializations" value={formData.specialization} onChange={e => setFormData({...formData, specialization: e.target.value})} required />
+                    <datalist id="specializations">
+                      {universities.find(u => u.name === formData.university)?.specializations?.map((s, i) => <option key={i} value={s} />)}
+                    </datalist>
+                  </div>
+                </div>
+
+                {activeModal === 'add' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div>
+                      <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة</label>
+                      <input type="text" className="input-base" value={formData.platformUser} onChange={e => setFormData({...formData, platformUser: e.target.value})} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة</label>
+                      <input type="password" placeholder="****" className="input-base" onChange={e => setFormData({...formData, platformPass: e.target.value})} />
                     </div>
                   </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
+                )}
 
-            <div style={{ padding: isMobile ? '15px' : '25px 35px', background: '#1e293b' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.05)', padding: '8px 15px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                {!isMobile && <Smile size={24} style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => setShowEmojiPicker(!showEmojiPicker)} />}
-                <input 
-                  type="text" placeholder="اكتب..." 
-                  style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', padding: '10px 0', fontSize: isMobile ? '0.9rem' : '1rem' }}
-                  value={message} onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الدفعة</label>
+                    <input type="text" className="input-base" value={formData.batch} onChange={e => setFormData({...formData, batch: e.target.value})} required />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الهوية (اختياري)</label>
+                    <input type="text" className="input-base" value={formData.idNumber} onChange={e => setFormData({...formData, idNumber: e.target.value})} />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>ملاحظات</label>
+                  <textarea className="input-base" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} rows={2}></textarea>
+                </div>
+
+                <button type="submit" className="btn-primary" style={{ padding: '15px', borderRadius: '15px', marginTop: '10px' }}>
+                  <Save size={18} /> {activeModal === 'add' ? 'حفظ الطالب في النظام' : 'تحديث البيانات'}
+                </button>
+              </form>
+            )}
+
+            {activeModal === 'receipt' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: 'rgba(59,130,246,0.1)', padding: '15px', borderRadius: '15px', border: '1px border-dashed #3b82f6' }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6' }}>{selectedMessage ? `الرسالة المختارة: ${selectedMessage.text.substring(0, 40)}...` : 'يرجى النقر على رسالة في الدردشة أولاً لتحديدها كإيصال'}</p>
+                </div>
                 <button 
-                  onClick={handleSend} disabled={isSending || !message.trim()} 
-                  style={{ background: '#3b82f6', color: '#fff', border: 'none', width: '45px', height: '45px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
+                  className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
+                  disabled={!selectedMessage}
                 >
-                  {isSending ? <RefreshCw size={20} className="animate-spin" /> : <Send size={20} />}
+                  <ClipboardList size={20} /> اعتماد الرسالة المختارة كإيصال
+                </button>
+                <div style={{ textAlign: 'center', opacity: 0.3 }}>أو</div>
+                <textarea 
+                  placeholder="الصق نص التحويل يدوياً هنا..." className="input-base" rows={4}
+                  onChange={e => setFormData({...formData, manualReceipt: e.target.value})}
+                ></textarea>
+                <button 
+                  onClick={() => handleReceiptSave({ text: formData.manualReceipt, fromChat: false })}
+                  className="btn-secondary" style={{ padding: '15px', borderRadius: '15px' }}
+                  disabled={!formData.manualReceipt}
+                >
+                  حفظ النص يدوياً
                 </button>
               </div>
-            </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }}>
-            <div style={{ width: '120px', height: '120px', borderRadius: '40px', background: 'rgba(59,130,246,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '30px' }}>
-              <MessageSquare size={60} color="#3b82f6" style={{ opacity: 0.3 }} />
-            </div>
-            <h2 style={{ color: '#fff', fontSize: '1.8rem', fontWeight: 900 }}>حدد محادثة للبدء</h2>
-            <p style={{ color: 'rgba(255,255,255,0.2)', maxWidth: '300px', marginTop: '10px' }}>اختر طالباً من القائمة اليمنى أو راقب الرسائل الجديدة من أرقام غير مسجلة.</p>
-          </div>
-        )}
-      </div>
+            )}
 
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media (max-width: 767px) {
-          .sidebar.hidden { display: none; }
-          .chat-area.hidden { display: none; }
-        }
-      `}} />
+            {activeModal === 'withdraw' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '10px' }}>يرجى اختيار سبب طلب الانسحاب للطالب {selectedChat.name}:</p>
+                {['عدم موافقة جهة العمل', 'الطالب لا يرد', 'مشترك مع شخص آخر', 'سوء الخدمة', 'أسباب أخرى'].map(reason => (
+                  <button key={reason} onClick={() => handleWithdrawalRequest(reason)} className="btn-secondary" style={{ padding: '15px', textAlign: 'right', borderRadius: '12px', justifyContent: 'flex-start' }}>
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
