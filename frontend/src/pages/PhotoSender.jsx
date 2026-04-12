@@ -9,6 +9,7 @@ export default function PhotoSender() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [senderId, setSenderId] = useState('emp1');
+  const [goldenKey, setGoldenKey] = useState(null);
 
   useEffect(() => {
     if (isAdmin) {
@@ -25,8 +26,11 @@ export default function PhotoSender() {
       if (user) {
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setIsAdmin(adminStatus);
+        setGoldenKey(user.uid);
+        setSenderId(user.uid); // Default to the Golden Key
       } else {
         setIsAdmin(false);
+        setSenderId('emp1');
       }
       setCheckingAdmin(false);
     });
@@ -210,8 +214,9 @@ export default function PhotoSender() {
                 disabled={isRunning}
                 style={{ flex: 1 }}
               >
+                <option value={goldenKey}>المفتاح الذهبي (إرسال من حسابي)</option>
                 <option value="emp1">الحساب الافتراضي (emp1)</option>
-                {employees.filter(e => e.id !== 'emp1').map(emp => (
+                {employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey).map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
                 ))}
               </select>

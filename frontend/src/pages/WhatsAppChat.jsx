@@ -31,6 +31,7 @@ export default function WhatsAppChat() {
   const messagesEndRef = useRef(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [view, setView] = useState('list');
+  const [sidebarTab, setSidebarTab] = useState('chats'); // 'chats' or 'directory'
 
   // Modals State
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
@@ -192,7 +193,13 @@ export default function WhatsAppChat() {
 
   const filteredSidebar = combinedList().filter(item => {
     const q = searchQuery.toLowerCase();
-    return item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
+    const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
+    
+    if (sidebarTab === 'chats') {
+      return matchesSearch && item.timestamp > 0;
+    } else {
+      return matchesSearch && !item.isUnknown;
+    }
   });
 
   const handleSend = async () => {
@@ -393,10 +400,26 @@ export default function WhatsAppChat() {
               {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20}/></button>}
             </div>
             <input
-              type="text" placeholder="بحث عن طالب أو محادثة..." className="input-base"
+              type="text" placeholder="بحث عن طالب..." className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: isAdmin ? '10px' : '0' }}
+              style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: '10px' }}
             />
+            
+            <div style={{ display: 'flex', gap: '5px', marginBottom: isAdmin ? '10px' : '0', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '10px' }}>
+              <button 
+                onClick={() => setSidebarTab('chats')} 
+                style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'chats' ? '#3b82f6' : 'transparent', color: sidebarTab === 'chats' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
+              >
+                الدردشات النشطة
+              </button>
+              <button 
+                onClick={() => setSidebarTab('directory')} 
+                style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'directory' ? '#3b82f6' : 'transparent', color: sidebarTab === 'directory' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
+              >
+                دليل الطلاب
+              </button>
+            </div>
+
             {isAdmin && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', borderRadius: '15px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <label style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 800, paddingRight: '5px' }}>📈 إدارة رقابة الموظفين:</label>
