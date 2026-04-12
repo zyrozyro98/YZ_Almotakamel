@@ -1,4 +1,11 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { 
+  default: makeWASocket, 
+  useMultiFileAuthState, 
+  DisconnectReason, 
+  Browsers, 
+  fetchLatestBaileysVersion,
+  downloadMediaMessage 
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
@@ -66,14 +73,46 @@ async function initializeSession(employeeId, onQrGenerated) {
       const remoteJid = msg.key.remoteJid;
       const isMe = msg.key.fromMe;
       const pushName = msg.pushName || 'مستخدم واتساب';
-      const textMsg = msg.message.conversation || msg.message.extendedTextMessage?.text || (msg.message.imageMessage ? '📷 صورة' : '📎 ملف');
       
+      let textMsg = "";
+      let mediaType = "text";
+      let mediaData = null;
+
+      if (msg.message.conversation) textMsg = msg.message.conversation;
+      else if (msg.message.extendedTextMessage) textMsg = msg.message.extendedTextMessage.text;
+      else if (msg.message.imageMessage) { 
+        textMsg = msg.message.imageMessage.caption || "📷 صورة"; 
+        mediaType = "image"; 
+      }
+      else if (msg.message.videoMessage) { 
+        textMsg = msg.message.videoMessage.caption || "🎥 فيديو"; 
+        mediaType = "video"; 
+      }
+      else if (msg.message.audioMessage) {
+        textMsg = "🎤 رسالة صوتية";
+        mediaType = "audio";
+      }
+      else if (msg.message.documentMessage) { 
+        textMsg = msg.message.documentMessage.fileName || "📎 ملف"; 
+        mediaType = "document"; 
+      }
+
+      if (mediaType !== "text") {
+        try {
+          const buffer = await downloadMediaMessage(msg, 'buffer', {});
+          const mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
+          mediaData = `data:${mime};base64,${buffer.toString('base64')}`;
+        } catch (err) { console.error("[WA] Media download failed:", err.message); }
+      }
+
+      if (!textMsg && !mediaData) continue;
       const cleanId = remoteJid.split('@')[0].slice(-9);
 
-      // 1. Save to RTDB Chat folder
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
         text: textMsg,
+        type: mediaType,
+        mediaData: mediaData,
         time: Date.now(),
         sender: isMe ? 'me' : 'them',
         id: msg.key.id
@@ -81,25 +120,12 @@ async function initializeSession(employeeId, onQrGenerated) {
 
       await chatRef.child('messages').push(msgData);
       await chatRef.update({
-        lastMessage: textMsg,
-        timestamp: Date.now(),
-        phone: cleanId,
-        fullJid: remoteJid, // SAVE THE VERIFIED JID
-        name: pushName
+        lastMessage: textMsg, timestamp: Date.now(), phone: cleanId, fullJid: remoteJid, name: pushName
       });
 
-      // 2. GOLDEN KEY: Send Real-time Notification for Incoming Messages
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
-        await notifRef.set({
-          title: `رسالة جديدة من ${pushName}`,
-          body: textMsg.substring(0, 50),
-          time: Date.now(),
-          read: false,
-          type: 'chat',
-          chatId: cleanId,
-          fullJid: remoteJid
-        });
+        await notifRef.set({ title: `رسالة جديدة من ${pushName}`, body: textMsg.substring(0, 50), time: Date.now(), read: false, type: 'chat', chatId: cleanId, fullJid: remoteJid });
       }
     }
   });

@@ -378,9 +378,48 @@ export default function WhatsAppChat() {
                           cursor: isSelectingMessage ? 'pointer' : 'default',
                           border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
                           position: 'relative',
-                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                          overflow: 'hidden'
                         }}>
-                          <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
+                          {m.type === 'image' && m.mediaData && (
+                            <img 
+                              src={m.mediaData} alt="Shared" 
+                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
+                            />
+                          )}
+                          {m.type === 'video' && m.mediaData && (
+                            <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                              <video 
+                                src={m.mediaData} 
+                                controls 
+                                style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
+                              />
+                            </div>
+                          )}
+                          {m.type === 'audio' && m.mediaData && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
+                              <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
+                                <MessageCircle size={20} />
+                              </div>
+                              <audio 
+                                src={m.mediaData} 
+                                controls 
+                                style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
+                              />
+                            </div>
+                          )}
+                          {m.type === 'document' && (
+                            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                              <FileText size={24} color="#3b82f6" />
+                              <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
+                            </div>
+                          )}
+                          {(m.type === 'text' || !m.type) && (
+                            <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
+                          )}
+                          {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
+                             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
+                          )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', justifyContent: 'flex-end' }}>
                             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
                               {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
