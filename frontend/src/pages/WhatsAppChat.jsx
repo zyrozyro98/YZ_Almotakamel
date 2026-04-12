@@ -124,7 +124,10 @@ export default function WhatsAppChat() {
     const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId, phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), message: textToSend
+        employeeId, 
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
+        message: textToSend,
+        fullJid: selectedChat.fullJid // Pass the Gold JID if available
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };

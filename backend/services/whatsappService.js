@@ -84,6 +84,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastMessage: textMsg,
         timestamp: Date.now(),
         phone: cleanId,
+        fullJid: remoteJid, // SAVE THE VERIFIED JID
         name: pushName
       });
 
@@ -96,7 +97,8 @@ async function initializeSession(employeeId, onQrGenerated) {
           time: Date.now(),
           read: false,
           type: 'chat',
-          chatId: cleanId
+          chatId: cleanId,
+          fullJid: remoteJid
         });
       }
     }

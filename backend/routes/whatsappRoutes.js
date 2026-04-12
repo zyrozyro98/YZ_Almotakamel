@@ -56,19 +56,29 @@ router.post('/send', async (req, res) => {
 
     // Normalize phone number (International format)
     let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-    
-    // Auto-Correct for Saudi/Yemen
-    if (cleanPhone.startsWith('05') && cleanPhone.length === 10) {
-      cleanPhone = '966' + cleanPhone.slice(1);
-    } else if (cleanPhone.startsWith('5') && cleanPhone.length === 9) {
-      cleanPhone = '966' + cleanPhone;
-    } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
-      cleanPhone = '967' + cleanPhone;
-    }
-    
-    const jid = `${cleanPhone}@s.whatsapp.net`;
     const chatId = cleanPhone.slice(-9);
 
+    let jid = req.body.fullJid; // Priority to verified JID
+    
+    // Safety Fallback: If no JID provided, try to find it in RTDB
+    if (!jid) {
+      try {
+        const chatSnap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
+        jid = chatSnap.val()?.fullJid;
+      } catch(e) {}
+    }
+
+    // Ultimate Fallback: Guess JID if still null
+    if (!jid) {
+      if (cleanPhone.startsWith('05') && cleanPhone.length === 10) {
+        cleanPhone = '966' + cleanPhone.slice(1);
+      } else if (cleanPhone.startsWith('5') && cleanPhone.length === 9) {
+        cleanPhone = '966' + cleanPhone;
+      } else if (cleanPhone.startsWith('7') && cleanPhone.length === 9) {
+        cleanPhone = '967' + cleanPhone;
+      }
+      jid = `${cleanPhone}@s.whatsapp.net`;
+    }
     const result = await sock.sendMessage(jid, { text: message });
     console.log(`[WA SUCCESS] Message sent via session: ${employeeId}`);
     
