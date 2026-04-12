@@ -1,11 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw } from 'lucide-react';
+import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User } from 'lucide-react';
 import axios from 'axios';
 import { db, auth } from '../firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 export default function PhotoSender() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
+  const [employees, setEmployees] = useState([]);
+  const [senderId, setSenderId] = useState('emp1');
+
+  useEffect(() => {
+    if (isAdmin) {
+      const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
+        const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setEmployees(emps);
+      });
+      return () => unsub();
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(user => {
@@ -84,10 +97,11 @@ export default function PhotoSender() {
         try {
           const b64 = await getBase64(file);
           await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
-            employeeId: 'emp1', // We pin to the admin dispatcher account or logic based
+            employeeId: senderId,
             phoneNumber: targetNumber,
             base64Image: b64,
-            caption: messageTemplate
+            caption: messageTemplate,
+            senderName: auth.currentUser?.displayName || 'المرسل الآلي'
           });
           
           setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال الصورة والرسالة بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
@@ -176,6 +190,27 @@ export default function PhotoSender() {
           <h3 style={{ marginBottom: '1rem', color: 'var(--brand-secondary)' }}>إعدادات الإرسال</h3>
 
           <div>
+            <label className="input-label">حساب المرسل (الموظف)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ background: 'rgba(59,130,246,0.1)', padding: '10px', borderRadius: '10px' }}>
+                <User size={20} color="#3b82f6" />
+              </div>
+              <select 
+                className="input-base" 
+                value={senderId} 
+                onChange={(e) => setSenderId(e.target.value)}
+                disabled={isRunning}
+                style={{ flex: 1 }}
+              >
+                <option value="emp1">الحساب الافتراضي (emp1)</option>
+                {employees.filter(e => e.id !== 'emp1').map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
             <label className="input-label">تحديد مجلد الصور محلياً</label>
             <input 
                type="file" 
@@ -258,6 +293,25 @@ export default function PhotoSender() {
                <h2 style={{ margin: '0.5rem 0 0', color: 'var(--warning)' }}>{stats.pending}</h2>
             </div>
           </div>
+
+          {stats.total > 0 && (
+            <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>نسبة الإنجاز</span>
+                <span style={{ fontWeight: 'bold', color: 'var(--brand-secondary)' }}>
+                  {Math.round(((stats.sent + stats.failed) / stats.total) * 100)}%
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ 
+                  height: '100%', 
+                  width: `${((stats.sent + stats.failed) / stats.total) * 100}%`, 
+                  background: 'linear-gradient(90deg, var(--brand-primary), var(--brand-secondary))',
+                  transition: 'width 0.3s ease'
+                }}></div>
+              </div>
+            </div>
+          )}
 
           <div className="glass-panel" style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column' }}>
             <h3 style={{ marginBottom: '1.5rem' }}>السجل الحي للعمليات</h3>
