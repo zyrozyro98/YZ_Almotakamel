@@ -3,8 +3,6 @@ import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, A
 import axios from 'axios';
 import { auth, rtdb } from '../firebase';
 import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db as firestoreDb } from '../firebase';
 
 export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
@@ -14,7 +12,7 @@ export default function WhatsAppConfig() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [targetEmployeeId, setTargetEmployeeId] = useState(null);
-  
+
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
   // 1. GOLDEN KEY: Auth Listener using UID
@@ -24,14 +22,21 @@ export default function WhatsAppConfig() {
         setEmployeeId(user.uid);
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setIsAdmin(adminStatus);
-        if (!targetEmployeeId) setTargetEmployeeId(user.uid);
+        // Only auto-select if NOT admin, admins should select a target
+        if (!adminStatus) setTargetEmployeeId(user.uid);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
       }
     });
     return () => unsubAuth();
-  }, [targetEmployeeId]);
+  }, []);
+
+  // If Admin, fetch employees from Firestore
+  useEffect(() => {
+    if (!isAdmin) return;
+    const { collection, onSnapshot, db } = require('../firebase'); // Import here if needed or use existing
+  }, [isAdmin]);
 
   // 2. Real-time Status using Golden Key
   useEffect(() => {
@@ -64,8 +69,10 @@ export default function WhatsAppConfig() {
   // For Admin: Get all employees from Firestore
   useEffect(() => {
     if (!isAdmin) return;
-    
-    const q = query(collection(firestoreDb, 'employees'), orderBy('name', 'asc'));
+    const { collection, onSnapshot, query, orderBy } = require('firebase/firestore');
+    const { db } = require('../firebase');
+
+    const q = query(collection(db, 'employees'), orderBy('name', 'asc'));
     const unsub = onSnapshot(q, (snapshot) => {
       setEmployees(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -131,17 +138,24 @@ export default function WhatsAppConfig() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '30px' }}>
-         <div style={{ gridColumn: 'span 4' }}>
+        <div style={{ gridColumn: 'span 4' }}>
           <div className="glass-panel" style={{ padding: '40px', textAlign: 'center' }}>
             {isAdmin && (
               <div style={{ marginBottom: '30px', textAlign: 'right' }}>
-                <label className="input-label" style={{ marginBottom: '10px', display: 'block' }}>الموظف المستهدف:</label>
+                <label className="input-label" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldCheck size={16} color="var(--brand-primary)" />
+                  الموظف المستهدف للإدارة:
+                </label>
                 <select 
                   className="input-base" 
                   value={targetEmployeeId || ''} 
-                  onChange={(e) => setTargetEmployeeId(e.target.value)}
-                  style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}
+                  onChange={(e) => {
+                    setTargetEmployeeId(e.target.value);
+                    setWaStatus('checking');
+                  }}
+                  style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}
                 >
+                  <option value="">-- اختر الموظف --</option>
                   {employees.map(emp => (
                     <option key={emp.id} value={emp.id}>{emp.name} {emp.id === employeeId ? '(أنا)' : ''}</option>
                   ))}
@@ -149,16 +163,25 @@ export default function WhatsAppConfig() {
               </div>
             )}
             
-            <div style={{ width: '80px', height: '80px', borderRadius: '25px', background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: waStatus === 'connected' ? '#22c55e' : '#666' }}>
-              {waStatus === 'connected' ? <ShieldCheck size={40} /> : <Smartphone size={40} />}
-            </div>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>الحالة</h2>
-            <div style={{ padding: '6px 20px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '30px', background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: waStatus === 'connected' ? '#4ade80' : '#f87171' }}>
-              {waStatus === 'connected' ? 'متصل' : (waStatus === 'checking' ? 'جاري التحقق...' : 'غير متصل')}
-            </div>
-            <button onClick={initWhatsApp} disabled={loading} className="btn-primary" style={{ width: '100%', padding: '15px' }}>
-              <Zap size={20} /> {waStatus === 'connected' ? 'إعادة ربط الجلسة' : 'ربط جديد'}
-            </button>
+            {!targetEmployeeId && isAdmin ? (
+              <div style={{ padding: '20px', color: 'rgba(255,255,255,0.2)' }}>
+                <AlertTriangle size={40} style={{ marginBottom: '15px', color: 'var(--warning)' }} />
+                <p>يرجى اختيار الموظف أولاً للتحكم في جلسته</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ width: '80px', height: '80px', borderRadius: '25px', background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: waStatus === 'connected' ? '#22c55e' : '#666' }}>
+                  {waStatus === 'connected' ? <ShieldCheck size={40} /> : <Smartphone size={40} />}
+                </div>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>الحالة</h2>
+                <div style={{ padding: '6px 20px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '30px', background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: waStatus === 'connected' ? '#4ade80' : '#f87171' }}>
+                  {waStatus === 'connected' ? 'متصل' : (waStatus === 'checking' ? 'جاري التحقق...' : 'غير متصل')}
+                </div>
+                <button onClick={initWhatsApp} disabled={loading} className="btn-primary" style={{ width: '100%', padding: '15px' }}>
+                  <Zap size={20} /> {waStatus === 'connected' ? 'إعادة ربط الجلسة' : 'ربط جديد وتوليد QR'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 

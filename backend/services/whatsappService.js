@@ -61,7 +61,13 @@ async function initializeSession(employeeId, onQrGenerated) {
       }
     } else if (connection === 'open') {
       qrCache.delete(employeeId);
-      rtdb.ref(`wa_status/${employeeId}`).set({ isConnected: true, qr: null, lastUpdate: Date.now() });
+      console.log(`[WA-${employeeId}] Connected successfully!`);
+      rtdb.ref(`wa_status/${employeeId}`).set({ 
+        isConnected: true, 
+        qr: null, 
+        lastUpdate: Date.now(),
+        phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id 
+      });
     }
   });
 
@@ -154,16 +160,48 @@ function getSession(employeeId) {
 }
 
 async function logout(employeeId) {
+  console.log(`[WA] Logging out: ${employeeId}`);
   const sock = sessions.get(employeeId);
-  if (sock) { try { await sock.logout(); } catch (e) {} sessions.delete(employeeId); }
+  
+  if (sock) { 
+    try { 
+      // Force end current connection
+      sock.ev.removeAllListeners();
+      await sock.logout().catch(() => {}); 
+      sock.ws.close();
+    } catch (e) {} 
+    sessions.delete(employeeId); 
+  }
+
+  qrCache.delete(employeeId);
+  
+  // Clear status in RTDB immediately
+  await rtdb.ref(`wa_status/${employeeId}`).set({ 
+    isConnected: false, 
+    qr: null, 
+    lastUpdate: Date.now(),
+    status: 'logged_out'
+  });
+
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
-  if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+  
+  // Give time for OS to release file locks
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  if (fs.existsSync(sessionPath)) {
+    try {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    } catch (err) {
+      console.error(`[WA] Failed to delete session folder: ${err.message}`);
+    }
+  }
   return { success: true };
 }
 
 function getConnectionStatus(employeeId) {
   const sock = sessions.get(employeeId);
-  return { isConnected: !!(sock && sock.user), qr: qrCache.get(employeeId) || null, employeeId };
+  const isConnected = !!(sock && (sock.user || sock.authState?.creds?.me));
+  return { isConnected, qr: qrCache.get(employeeId) || null, employeeId };
 }
 
 module.exports = { initializeSession, getSession, getConnectionStatus, logout };
