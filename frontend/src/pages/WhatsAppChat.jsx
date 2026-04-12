@@ -128,7 +128,13 @@ export default function WhatsAppChat() {
     return () => unsubMsg();
   }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [messages, selectedChat]);
 
   // Handle URL Selection (from Notification)
   const location = useLocation();
