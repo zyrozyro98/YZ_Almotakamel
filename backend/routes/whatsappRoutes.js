@@ -115,11 +115,20 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
 
   if (!targetJid) {
     let finalPhone = cleanPhone;
+    
+    // Aggressively format phone to WhatsApp canonical format
+    if (finalPhone.startsWith('00')) finalPhone = finalPhone.slice(2);
+    else if (finalPhone.startsWith('+')) finalPhone = finalPhone.slice(1);
+    
+    // After stripping international prefixes, evaluate SA and YE local prefixes
     if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
-      if (finalPhone.startsWith('05') && finalPhone.length === 10) finalPhone = '966' + finalPhone.slice(1);
-      else if (finalPhone.startsWith('5') && finalPhone.length === 9) finalPhone = '966' + finalPhone;
+      // Strip leading zero for local parsing
+      if (finalPhone.startsWith('0')) finalPhone = finalPhone.slice(1);
+      
+      if (finalPhone.startsWith('5') && finalPhone.length === 9) finalPhone = '966' + finalPhone;
       else if (finalPhone.startsWith('7') && finalPhone.length === 9) finalPhone = '967' + finalPhone;
     }
+    
     targetJid = `${finalPhone}@s.whatsapp.net`;
   }
   return targetJid;
