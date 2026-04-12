@@ -1,229 +1,247 @@
-import React, { useState } from 'react';
-import { FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, QrCode, TrendingUp, BarChart3, Clock, MessageSquare, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, 
+  QrCode, TrendingUp, BarChart3, Clock, MessageSquare, 
+  CheckCircle, ShieldCheck, RefreshCw, Send
+} from 'lucide-react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../firebase';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
 
 export default function Reports() {
-  const [selectedEmp, setSelectedEmp] = useState('emp1');
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmp, setSelectedEmp] = useState('');
   const [qrString, setQrString] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [employeeStatuses, setEmployeeStatuses] = useState({});
+  const [platformStats, setPlatformStats] = useState({
+    totalStudents: 0,
+    totalOrders: 0,
+    activeSessions: 0
+  });
 
-  React.useEffect(() => {
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    // 1. Fetch Employees
+    const unsubEmps = onSnapshot(collection(db, 'employees'), (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEmployees(list);
+      if (list.length > 0 && !selectedEmp) setSelectedEmp(list[0].id);
+    });
+
+    // 2. Platform Stats
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      setPlatformStats(prev => ({ ...prev, totalStudents: snap.size }));
+    });
+    
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+      setPlatformStats(prev => ({ ...prev, totalOrders: snap.size }));
+    });
+
+    return () => { unsubEmps(); unsubStudents(); unsubOrders(); };
+  }, []);
+
+  useEffect(() => {
     const fetchStatuses = async () => {
+      if (employees.length === 0) return;
       const statuses = {};
-      const emps = ['emp1', 'emp2', 'emp3'];
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-      
-      for (const emp of emps) {
+      for (const emp of employees) {
+        const eid = emp.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+        if (!eid) continue;
         try {
-          const res = await axios.get(`${BASE_URL}/api/whatsapp/status/${emp}`);
-          statuses[emp] = res.data;
+          const res = await axios.get(`${BASE_URL}/api/whatsapp/status/${eid}`);
+          statuses[emp.id] = res.data;
         } catch (err) {
-          statuses[emp] = { isConnected: false, hasCredentialsSaved: false };
+          statuses[emp.id] = { isConnected: false };
         }
       }
       setEmployeeStatuses(statuses);
+      setPlatformStats(prev => ({
+        ...prev,
+        activeSessions: Object.values(statuses).filter(s => s.isConnected).length
+      }));
     };
     
     fetchStatuses();
-    const interval = setInterval(fetchStatuses, 10000);
+    const interval = setInterval(fetchStatuses, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [employees]);
 
   const handleGenerateQR = async () => {
+    const emp = employees.find(e => e.id === selectedEmp);
+    if (!emp) return;
+    
+    const eid = emp.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
     setIsLoading(true);
     setQrString('');
     try {
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-      const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId: selectedEmp });
-      
+      const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId: eid });
       if (res.data.status === 'qr_generated') setQrString(res.data.qr);
-      else if (res.data.status === 'connected') alert('هذا الحساب مرتبط بالفعل ولا يحتاج إلى مسح باركود جديد.');
+      else if (res.data.status === 'connected') alert('هذا الحساب مرتبط بالفعل.');
     } catch (err) {
-      console.error(err);
-      alert('حدث خطأ أثناء توليد الباركود. تأكد من تشغيل الباك إند.');
+      alert('خطأ في الاتصال بالسيرفر.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleExportExcel = async () => {
+  const handleExportCSV = async () => {
     setIsExporting(true);
     try {
-      const q = query(collection(db, 'students'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      
-      // UTF-8 BOM for Arabic support in Excel
-      let csvContent = "\uFEFF"; 
-      csvContent += "الاسم,رقم الهاتف,الجامعة,التخصص,الحالة الرئيسية,الحالة الفرعية,تاريخ الإضافة\n";
-      
-      snapshot.docs.forEach(doc => {
+      const snap = await getDocs(query(collection(db, 'students'), orderBy('createdAt', 'desc')));
+      let csv = "\uFEFFالاسم,الهاتف,الجامعة,التخصص,تاريخ الإضافة\n";
+      snap.docs.forEach(doc => {
         const d = doc.data();
-        const date = d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString('ar-SA') : 'N/A';
-        const row = `"${d.name || ''}","${d.phone || ''}","${d.university || ''}","${d.major || ''}","${d.mainStatus || ''}","${d.subStatus || ''}","${date}"`;
-        csvContent += row + "\n";
+        const date = d.createdAt ? new Date(d.createdAt.seconds * 1000).toLocaleDateString('ar-SA') : '-';
+        csv += `"${d.name}","${d.phone}","${d.university}","${d.major}","${date}"\n`;
       });
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `تقرير_بيانات_الطلاب_${new Date().toLocaleDateString('en-GB').replace(/\//g,'-')}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error(err);
-      alert('حدث خطأ أثناء سحب البيانات وتصدير التقرير.');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `تقرير_الطلاب_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
     } finally {
       setIsExporting(false);
     }
   };
 
   return (
-    <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h1 style={{ marginBottom: '0.5rem' }}>التقارير المتقدمة والرقابة للحساب (Admin)</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-        تصدير التقارير لتطبيق Excel، المراقبة الحية لأنشطة الموظفين، وأدوات ربط الواتساب الوهمي.
-      </p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-        
-        {/* Export Reports Box */}
-        <div className="glass-panel" style={{ padding: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-            <FileDown size={28} color="var(--brand-secondary)" />
-            <h3 style={{ margin: 0 }}>تصدير قاعدة البيانات (Excel)</h3>
-          </div>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-            اضغط على الزر أدناه لسحب جميع بيانات الطلبات والعملاء بشكل فوري من السيرفر بصيغة Excel (CSV متوافق مع اللغة العربية).
-          </p>
-          <div className="flex gap-4">
-            <button onClick={handleExportExcel} disabled={isExporting} className="btn-primary flex items-center justify-center flex-1 gap-2" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-              <ArrowDownToLine size={18} /> {isExporting ? 'جاري السحب والتصدير...' : 'تحميل كـ Excel / CSV'}
-            </button>
-          </div>
-        </div>
-
-        {/* WhatsApp QR Configuration Box - Admin Controlled */}
-        <div className="glass-panel" style={{ padding: '2rem', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-            <QrCode size={28} color="var(--brand-primary)" />
-            <h3 style={{ margin: 0 }}>إدارة ربط الواتساب (للمسؤول فقط)</h3>
-          </div>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: '1.6' }}>
-            من هنا يقوم <strong>المسؤول (Admin)</strong> بتوليد رمز QR خاص وربط هاتف واتساب مخصص للموظف. 
-            تتم الدردشة عبر غرفة معزولة تماماً لكل موظف وبدون تداخل للبيانات أو الإشعارات.
-          </p>
-          
-          <div className="flex gap-4 items-center" style={{ marginBottom: '1.5rem' }}>
-            <select className="input-base" style={{ flex: 1 }} value={selectedEmp} onChange={(e) => {
-              setSelectedEmp(e.target.value);
-              setQrString('');
-            }}>
-              <option value="emp1">الموظف: محمد عبدالعزيز</option>
-              <option value="emp2">الموظف: سارة الخالد</option>
-              <option value="emp3">الموظف: عبدالله الفهد</option>
-            </select>
-            <button className="btn-primary flex items-center gap-2" onClick={handleGenerateQR} disabled={isLoading}>
-              <QrCode size={18} /> {isLoading ? 'جاري التحميل...' : 'توليد QR للموظف'}
-            </button>
-          </div>
-
-          {/* Connected Status Hint */}
-          {!qrString && !isLoading && (
-            <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--success)', padding: '1rem', borderRadius: '12px', textAlign: 'center', color: 'var(--success)' }}>
-              حالة الربط: يمكنك التحقق من ربط هذا الموظف. في حال لم يكن مرتبطاً اضغط لتوليد الاستجابة.
-            </div>
-          )}
-
-          {/* QR Code Display Container */}
-          {qrString && (
-            <div style={{ 
-              background: '#fff', padding: '1.5rem', borderRadius: '12px', 
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' 
-            }}>
-              <QRCodeSVG value={qrString} size={220} level="H" />
-              <p style={{ margin: 0, color: '#333', fontSize: '0.9rem', fontWeight: 'bold', textAlign: 'center' }}>
-                يرجى مسح هذا الرمز باستخدام "الأجهزة المرتبطة" بالهاتف المخصص للموظف المختار.
-              </p>
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      {/* Platform Activity Overview */}
-      <h3 style={{ marginBottom: '1rem', color: 'var(--brand-secondary)' }}>نظرة عامة على نشاط المنصة اليوم</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
-        <div style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid var(--glass-border)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-           <div style={{ padding: '0.8rem', background: 'rgba(59, 130, 246, 0.2)', borderRadius: '10px', color: 'var(--brand-primary)' }}><MessageSquare size={24} /></div>
-           <div><p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>إجمالي الرسائل (اليوم)</p><h3 style={{ margin: '0.3rem 0 0', fontSize: '1.5rem' }}>1,240</h3></div>
-        </div>
-        <div style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid var(--glass-border)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-           <div style={{ padding: '0.8rem', background: 'rgba(16, 185, 129, 0.2)', borderRadius: '10px', color: 'var(--success)' }}><CheckCircle size={24} /></div>
-           <div><p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>الطلبات المنجزة المكتملة</p><h3 style={{ margin: '0.3rem 0 0', fontSize: '1.5rem' }}>45</h3></div>
-        </div>
-        <div style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid var(--glass-border)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-           <div style={{ padding: '0.8rem', background: 'rgba(239, 68, 68, 0.2)', borderRadius: '10px', color: 'var(--danger)' }}><ShieldAlert size={24} /></div>
-           <div><p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>طلبات معلقة / مشاكل</p><h3 style={{ margin: '0.3rem 0 0', fontSize: '1.5rem' }}>8</h3></div>
-        </div>
-        <div style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid var(--glass-border)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-           <div style={{ padding: '0.8rem', background: 'rgba(168, 85, 247, 0.2)', borderRadius: '10px', color: '#a855f7' }}><Clock size={24} /></div>
-           <div><p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>متوسط سرعة الاستجابة</p><h3 style={{ margin: '0.3rem 0 0', fontSize: '1.5rem' }}>دقيقتان</h3></div>
+    <div className="space-y-8 animate-fade-in-up">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-black text-white mb-2 flex items-center gap-3">
+             <BarChart3 className="text-brand-secondary" /> الرقابة والتقارير العامة
+          </h1>
+          <p className="text-white/50 text-sm font-medium">متابعة أجهزة الموظفين، تصدير البيانات، وتحليل أداء المنصة.</p>
         </div>
       </div>
 
-      {/* Live Monitoring */}
-      <div className="glass-panel" style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-          <ShieldAlert size={28} color="var(--warning)" />
-          <h3 style={{ margin: 0 }}>الرقابة الفورية للموظفين (Live)</h3>
+      {/* Hero Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {[
+          { label: 'إجمالي المسجلين', value: platformStats.totalStudents, icon: <Users />, color: 'var(--brand-primary)' },
+          { label: 'جلسات العمل النشطة', value: platformStats.activeSessions, icon: <Activity />, color: 'var(--success)' },
+          { label: 'طلبات مكتملة', value: platformStats.totalOrders, icon: <CheckCircle />, color: 'var(--info)' },
+          { label: 'رسائل قيد المعالجة', value: '---', icon: <MessageSquare />, color: 'var(--brand-secondary)' },
+        ].map((s, i) => (
+          <div key={i} className="glass-panel p-6 flex items-center gap-5 hover-card">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white" style={{ background: s.color }}>
+              {s.icon}
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-white/30 tracking-widest">{s.label}</p>
+              <h3 className="text-2xl font-black text-white">{s.value}</h3>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Export Section */}
+        <div className="glass-panel p-8">
+          <div className="flex items-center gap-4 mb-6">
+            <FileDown className="text-brand-secondary" size={32} />
+            <h3 className="text-xl font-bold text-white">تصدير قاعدة البيانات</h3>
+          </div>
+          <p className="text-white/40 text-xs mb-8 leading-relaxed">
+            يمكنك تحميل كافة بيانات الطلاب والطلبات المسجلة في النظام بصيغة CSV متوافقة مع برنامج Excel، المخرجات تدعم اللغة العربية بالكامل.
+          </p>
+          <button 
+            onClick={handleExportCSV}
+            disabled={isExporting}
+            className="w-full btn-primary py-4 flex items-center justify-center gap-3 shadow-[0_10px_30px_rgba(59,130,246,0.2)]"
+          >
+            <ArrowDownToLine size={20} /> {isExporting ? 'جاري التحميل...' : 'تحميل التقرير الكامل (Excel)'}
+          </button>
         </div>
-        
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
-          <thead>
-            <tr style={{ background: 'rgba(255,255,255,0.02)', color: 'var(--text-secondary)' }}>
-              <th style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>الموظف</th>
-              <th style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>حالة الاتصال (الواتساب)</th>
-              <th style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>نشاط المحادثات (اليوم)</th>
-              <th style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>الطلبات المعالجة</th>
-              <th style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>إجراءات المراقب</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { id: 'emp1', name: 'محمد عبدالعزيز' },
-              { id: 'emp2', name: 'سارة الخالد' },
-              { id: 'emp3', name: 'عبدالله الفهد' }
-            ].map(emp => (
-              <tr key={emp.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', transition: 'background 0.2s' }} className="hover:bg-slate-800/30">
-                <td style={{ padding: '1rem', fontWeight: 600 }}>{emp.name}</td>
-                <td style={{ padding: '1rem' }}>
-                  {employeeStatuses[emp.id]?.isConnected ? (
-                    <span style={{ color: 'var(--success)', background: 'rgba(16,185,129,0.1)', padding: '4px 10px', borderRadius: '10px', fontSize: '0.85rem' }}>متصل ونشط</span>
-                  ) : (
-                    <span style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.1)', padding: '4px 10px', borderRadius: '10px', fontSize: '0.85rem' }}>غير متصل</span>
-                  )}
-                </td>
-                <td style={{ padding: '1rem', color: employeeStatuses[emp.id]?.isConnected ? 'var(--success)' : 'var(--text-secondary)' }}>
-                  {employeeStatuses[emp.id]?.isConnected ? <Activity size={16} style={{ display: 'inline', marginLeft: '5px' }} /> : '--'} 
-                  {employeeStatuses[emp.id]?.isConnected ? ' محادثة نشطة' : '--'}
-                </td>
-                <td style={{ padding: '1rem' }}>--</td>
-                <td style={{ padding: '1rem' }}>
-                  <button style={{ color: 'var(--brand-secondary)', background: 'rgba(6, 182, 212, 0.1)', padding: '0.4rem 1rem', borderRadius: '8px', border: '1px solid var(--brand-secondary)' }}>تجسس حي (مراقبة)</button>
-                </td>
+
+        {/* WhatsApp QR Management Section */}
+        <div className="glass-panel p-8 border-brand-primary/20 bg-brand-primary/5">
+          <div className="flex items-center gap-4 mb-6">
+            <QrCode className="text-brand-primary" size={32} />
+            <h3 className="text-xl font-bold text-white">إدارة ربط الموظفين</h3>
+          </div>
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <select 
+                className="input-base flex-1 font-bold text-sm"
+                value={selectedEmp}
+                onChange={(e) => { setSelectedEmp(e.target.value); setQrString(''); }}
+              >
+                {employees.map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.name} | @{emp.email?.split('@')[0]}</option>
+                ))}
+              </select>
+              <button onClick={handleGenerateQR} disabled={isLoading} className="btn-primary min-w-[150px]">
+                {isLoading ? '...' : <><QrCode size={18} /> توليد QR</>}
+              </button>
+            </div>
+            
+            {qrString ? (
+              <div className="bg-white p-6 rounded-2xl flex flex-col items-center gap-4 animate-scale-in">
+                 <QRCodeSVG value={qrString} size={200} level="H" />
+                 <p className="text-black font-black text-[10px] text-center">امسح الكود لربط واتساب الموظف المختار</p>
+              </div>
+            ) : (
+              <div className="p-10 border-2 border-dashed border-white/5 rounded-2xl text-center opacity-20">
+                <ShieldCheck size={48} className="mx-auto mb-2" />
+                <p className="text-xs font-bold">جاهز لعملية الربط</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Live Monitoring Table */}
+      <div className="glass-panel overflow-hidden">
+        <div className="p-6 border-b border-white/5 flex items-center justify-between">
+           <h3 className="text-lg font-bold text-white flex items-center gap-3">
+              <Activity className="text-success" /> حالة الربط الفوري (Live)
+           </h3>
+           <button className="p-2 hover:bg-white/5 rounded-xl transition-all text-white/20"><RefreshCw size={18} /></button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-right">
+            <thead>
+              <tr className="bg-white/5 text-[10px] uppercase font-black text-white/30">
+                <th className="p-5">الموظف</th>
+                <th className="p-5">حالة الاتصال</th>
+                <th className="p-5">إصدار Baileys</th>
+                <th className="p-5 text-left">الإجراءات</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {employees.map(emp => {
+                const status = employeeStatuses[emp.id];
+                return (
+                  <tr key={emp.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="p-5 text-sm font-bold text-white">{emp.name}</td>
+                    <td className="p-5">
+                       {status?.isConnected ? (
+                         <span className="badge badge-success"><div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></div> متصل الآن</span>
+                       ) : (
+                         <span className="badge badge-danger">غير متصل</span>
+                       )}
+                    </td>
+                    <td className="p-5 text-[10px] font-mono text-white/20">
+                      {status?.isConnected ? 'v2.3000.1035' : '--'}
+                    </td>
+                    <td className="p-5 text-left">
+                       <button className="btn-secondary py-1.5 px-4 text-[10px] font-black border-brand-secondary/30 text-brand-secondary hover:bg-brand-secondary/10">
+                          <Send size={12} /> تجسس (مراقبة)
+                       </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-
     </div>
   );
 }
