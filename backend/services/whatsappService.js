@@ -28,6 +28,9 @@ async function initializeSession(employeeId, onQrGenerated) {
     sessions.delete(employeeId);
   }
 
+  // Clear QR Cache for a fresh start
+  qrCache.delete(employeeId);
+
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   if (!fs.existsSync(sessionPath)) {
     fs.mkdirSync(sessionPath, { recursive: true });
@@ -48,9 +51,10 @@ async function initializeSession(employeeId, onQrGenerated) {
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }), // Reduce log noise
     browser: ['YZ_Almotakamel', 'Chrome', '114.0.5735.199'], // Custom browser string often bypasses 405
-    connectTimeoutMs: 60000, 
+    connectTimeoutMs: 30000, // Reduced for faster feedback
     defaultQueryTimeoutMs: 0,
     keepAliveIntervalMs: 30000,
+    generateHighQualityQR: true, 
   });
 
   sessions.set(employeeId, sock);
