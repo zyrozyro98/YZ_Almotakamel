@@ -137,13 +137,28 @@ router.post('/send-image', async (req, res) => {
 
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
     
-    if (senderId || senderName) {
-      const chatId = targetJid.split('@')[0].slice(-9);
-      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
-        senderName: senderName,
-        senderId: senderId
-      }).catch(() => {});
-    }
+    const chatId = targetJid.split('@')[0].slice(-9);
+
+    const msgData = {
+      text: caption || "📷 صورة",
+      type: "image",
+      mediaData: base64Image,
+      time: Date.now(),
+      sender: "me",
+      id: result.key.id,
+      senderName: senderName || "نظام",
+      senderId: senderId || "system"
+    };
+
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+      lastMessage: caption || "📷 صورة",
+      timestamp: Date.now(),
+      phone: chatId,
+      fullJid: targetJid,
+      lastSender: "me"
+    }).catch(() => {});
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -167,13 +182,28 @@ router.post('/send-document', async (req, res) => {
       caption: caption || "" 
     });
 
-    if (senderId || senderName) {
-      const chatId = targetJid.split('@')[0].slice(-9);
-      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
-        senderName: senderName,
-        senderId: senderId
-      }).catch(() => {});
-    }
+    const chatId = targetJid.split('@')[0].slice(-9);
+
+    const msgData = {
+      text: caption || "📎 ملف الدورة",
+      type: "document",
+      mediaData: base64File,
+      time: Date.now(),
+      sender: "me",
+      id: result.key.id,
+      senderName: senderName || "نظام",
+      senderId: senderId || "system"
+    };
+
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+      lastMessage: caption || "📎 ملف",
+      timestamp: Date.now(),
+      phone: chatId,
+      fullJid: targetJid,
+      lastSender: "me"
+    }).catch(() => {});
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -197,13 +227,28 @@ router.post('/send-video', async (req, res) => {
             mimetype: 'video/mp4' // Standard for WhatsApp
         });
         
-        if (senderId || senderName) {
-          const chatId = targetJid.split('@')[0].slice(-9);
-          await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
-            senderName: senderName,
-            senderId: senderId
-          }).catch(() => {});
-        }
+        const chatId = targetJid.split('@')[0].slice(-9);
+
+        const msgData = {
+          text: caption || "🎥 مقطع فيديو",
+          type: "video",
+          mediaData: base64Video,
+          time: Date.now(),
+          sender: "me",
+          id: result.key.id,
+          senderName: senderName || "نظام",
+          senderId: senderId || "system"
+        };
+
+        await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+
+        await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+          lastMessage: caption || "🎥 فيديو",
+          timestamp: Date.now(),
+          phone: chatId,
+          fullJid: targetJid,
+          lastSender: "me"
+        }).catch(() => {});
 
         res.json({ success: true });
     } catch (err) {
