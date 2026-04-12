@@ -247,13 +247,24 @@ export default function WhatsAppChat() {
     setIsSending(true);
     try {
       const isImage = attachment.type.startsWith('image/');
-      const endpoint = isImage ? '/api/whatsapp/send-image' : '/api/whatsapp/send-document';
+      const isVideo = attachment.type.startsWith('video/');
+      
+      let endpoint = '/api/whatsapp/send-document';
+      let payloadKey = 'base64File';
+      
+      if (isImage) {
+        endpoint = '/api/whatsapp/send-image';
+        payloadKey = 'base64Image';
+      } else if (isVideo) {
+        endpoint = '/api/whatsapp/send-video';
+        payloadKey = 'base64Video';
+      }
       
       await axios.post(`${BASE_URL}${endpoint}`, {
         employeeId,
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
         fullJid: selectedChat.fullJid,
-        [isImage ? 'base64Image' : 'base64File']: attachment.preview,
+        [payloadKey]: attachment.preview,
         caption: formData.attachmentCaption || '',
         fileName: attachment.file.name
       });
@@ -776,6 +787,8 @@ export default function WhatsAppChat() {
                   <h4 style={{ color: '#fff', margin: '0 0 15px' }}>إرسال مرفق</h4>
                   {attachment.type.startsWith('image/') ? (
                     <img src={attachment.preview} alt="preview" style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '15px', border: '2px solid rgba(255,255,255,0.05)', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} />
+                  ) : attachment.type.startsWith('video/') ? (
+                    <video src={attachment.preview} controls style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '15px', background: '#000', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} />
                   ) : (
                     <div style={{ padding: '30px', background: 'rgba(255,255,255,0.03)', borderRadius: '15px', border: '1px border-dashed rgba(255,255,255,0.1)' }}>
                       <FileText size={48} color="#3b82f6" style={{ margin: '0 auto 10px' }} />

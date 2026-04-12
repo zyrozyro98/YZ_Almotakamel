@@ -152,4 +152,29 @@ router.post('/send-document', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// 3. Send Video
+router.post('/send-video', async (req, res) => {
+    const { employeeId, phoneNumber, fullJid, base64Video, caption } = req.body;
+    if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
+
+    try {
+        const sock = getSession(employeeId);
+        if (!sock) return res.status(404).json({ error: 'Session not found' });
+
+        const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
+        const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
+
+        await sock.sendMessage(targetJid, { 
+            video: buffer, 
+            caption: caption || '',
+            mimetype: 'video/mp4' // Standard for WhatsApp
+        });
+        
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Send Video Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
