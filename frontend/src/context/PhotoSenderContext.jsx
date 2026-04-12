@@ -34,6 +34,11 @@ export const PhotoSenderProvider = ({ children }) => {
   // Refs for background process loop matching React state
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
+  const templateRef = useRef(messageTemplate);
+
+  useEffect(() => {
+    templateRef.current = messageTemplate;
+  }, [messageTemplate]);
 
   // Initialize from Local Storage & IndexedDB
   useEffect(() => {
@@ -128,12 +133,18 @@ export const PhotoSenderProvider = ({ children }) => {
     localStorage.setItem('ps_senderId', senderId);
   }, [currentIndex, isRunning, isPaused, stats, messageTemplate, senderId]);
 
-  // Helper to parse Spintax like {Hello|Hi|Hey}
+  // Helper to parse Spintax like {Hello|Hi|Hey} (Supports nesting)
   const parseSpintax = (text) => {
-    return text.replace(/\{([^{}]+)\}/g, (match, options) => {
-      const choices = options.split('|');
-      return choices[Math.floor(Math.random() * choices.length)];
-    });
+    if (!text) return "";
+    let str = text;
+    const regex = /\{([^{}]+)\}/g;
+    while (regex.test(str)) {
+      str = str.replace(regex, (match, options) => {
+        const choices = options.split('|');
+        return choices[Math.floor(Math.random() * choices.length)];
+      });
+    }
+    return str;
   };
 
   // Main background process function
@@ -200,7 +211,9 @@ export const PhotoSenderProvider = ({ children }) => {
       const b64 = await toBase64(updatedQueue[idx].file);
       const targetNumber = updatedQueue[idx].name.split('.')[0];
       
-      let captionText = localStorage.getItem('ps_template') || messageTemplate;
+      // ALWAYS use the Ref which is the latest actual state
+      let captionText = templateRef.current;
+      
       // APPLY SPINTAX (Randomize greetings/emojis)
       captionText = parseSpintax(captionText);
 

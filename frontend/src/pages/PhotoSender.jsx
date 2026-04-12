@@ -223,6 +223,14 @@ export default function PhotoSender() {
               placeholder="مثال: {مرحباً|أهلاً} بك، نرفق لك صورة الحضور {🌸|✨}"
               onChange={(e) => setMessageTemplate(e.target.value)} disabled={isRunning}
             ></textarea>
+            {messageTemplate.includes('{') && (
+              <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
+                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--success)', fontWeight: 700, marginBottom: '4px' }}>إستعراض العشوائية (مثال ثابت):</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                  {messageTemplate.replace(/\{([^{}]+)\}/g, (m, opt) => opt.split('|')[0])}
+                </p>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
