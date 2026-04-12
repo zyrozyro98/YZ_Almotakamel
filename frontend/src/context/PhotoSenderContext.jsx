@@ -128,11 +128,19 @@ export const PhotoSenderProvider = ({ children }) => {
     localStorage.setItem('ps_senderId', senderId);
   }, [currentIndex, isRunning, isPaused, stats, messageTemplate, senderId]);
 
+  // Helper to parse Spintax like {Hello|Hi|Hey}
+  const parseSpintax = (text) => {
+    return text.replace(/\{([^{}]+)\}/g, (match, options) => {
+      const choices = options.split('|');
+      return choices[Math.floor(Math.random() * choices.length)];
+    });
+  };
+
   // Main background process function
   const processQueueSync = async () => {
-    // Need fresh state references from DB/Refs to avoid stale closures
     let currentIdx = parseInt(localStorage.getItem('ps_currentIndex') || '0');
     let queueObj = await localforage.getItem('filesQueue') || [];
+    let sessionCount = 0;
     
     while (currentIdx < queueObj.length) {
       if (!isRunningRef.current || isPausedRef.current) break;
@@ -146,9 +154,20 @@ export const PhotoSenderProvider = ({ children }) => {
       await sendSingleFile(item, currentIdx, queueObj);
       
       currentIdx++;
+      sessionCount++;
+
+      // 1. Human-like Gaussian Delay between messages (Mean 10s, Std 4s)
+      const nextDelay = getGaussianDelay(10000, 4000);
       
-      // Artificial delay 2-4 seconds for safety
-      await new Promise(res => setTimeout(res, Math.random() * 2000 + 2000));
+      // 2. Periodic Long Breaks (Every 12-18 messages, wait 3-7 minutes)
+      if (sessionCount >= Math.floor(Math.random() * 6 + 12)) {
+        const breakDuration = Math.floor(Math.random() * 240000 + 180000); 
+        console.log(`Taking a human break for ${breakDuration / 1000} seconds...`);
+        sessionCount = 0;
+        await new Promise(res => setTimeout(res, breakDuration));
+      } else {
+        await new Promise(res => setTimeout(res, nextDelay));
+      }
     }
 
     if (currentIdx >= queueObj.length) {
@@ -158,15 +177,37 @@ export const PhotoSenderProvider = ({ children }) => {
     }
   };
 
+  // Helper to generate Gaussian (Normal) Distribution random numbers
+  const getGaussianDelay = (mean, stdev) => {
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random();
+    while(v === 0) v = Math.random();
+    let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    num = num * stdev + mean;
+    return Math.max(3000, num); // Never less than 3s
+  };
+
   const sendSingleFile = async (item, idx, currentQueueObj) => {
     const updatedQueue = [...currentQueueObj];
     updatedQueue[idx] = { ...updatedQueue[idx], status: 'sending', error: null };
     setFilesQueue(updatedQueue); // Update UI optimistic
 
     try {
+      // 3. Human Thinking Time: Delay before starting the send process
+      const thinkingTime = Math.random() * 4000 + 2000;
+      await new Promise(res => setTimeout(res, thinkingTime));
+
       const b64 = await toBase64(updatedQueue[idx].file);
       const targetNumber = updatedQueue[idx].name.split('.')[0];
       
+      let captionText = localStorage.getItem('ps_template') || messageTemplate;
+      // APPLY SPINTAX (Randomize greetings/emojis)
+      captionText = parseSpintax(captionText);
+
+      // 4. Typing simulation: Delay relative to text length (approx 10 chars per second)
+      const typingTime = Math.min(captionText.length * 80, 6000); 
+      await new Promise(res => setTimeout(res, typingTime));
+
       const payloadSender = localStorage.getItem('ps_senderId') || 'emp1';
 
       await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
@@ -266,6 +307,49 @@ export const PhotoSenderProvider = ({ children }) => {
     if (currentIndex > idx) setCurrentIndex(prev => prev - 1);
   };
 
+  const addBroadcastToQueue = async (numbersString, imageFile) => {
+    if (!numbersString || !imageFile) return;
+    
+    // 1. Split and Clean Numbers
+    const lines = numbersString.split(/[\n,;]/);
+    const cleanedSet = new Set();
+    
+    lines.forEach(line => {
+      let num = line.trim().replace(/[^0-9]/g, '');
+      if (!num) return;
+
+      // Handle common prefix issues
+      if (num.startsWith('00')) num = num.substring(2);
+      if (num.startsWith('0') && num.length > 5) num = num.substring(1);
+      
+      // Default to Yemen if 9 digits and no country code
+      if (num.length === 9 && (num.startsWith('77') || num.startsWith('73') || num.startsWith('71') || num.startsWith('70'))) {
+        num = '967' + num;
+      }
+      // Default to Saudi if 9 digits starting with 5
+      else if (num.length === 9 && num.startsWith('5')) {
+        num = '966' + num;
+      }
+
+      if (num.length >= 9) cleanedSet.add(num);
+    });
+
+    const sortedNumbers = Array.from(cleanedSet).sort();
+    const preview = URL.createObjectURL(imageFile);
+
+    const newEntries = sortedNumbers.map(num => ({
+      file: imageFile,
+      name: `${num}.jpg`,
+      preview: preview,
+      status: 'pending',
+      error: null
+    }));
+
+    const updated = [...filesQueue, ...newEntries];
+    setFilesQueue(updated);
+    await localforage.setItem('filesQueue', updated);
+  };
+
   return (
     <PhotoSenderContext.Provider value={{
       filesQueue, currentIndex, isRunning, isPaused, stats,
@@ -273,7 +357,7 @@ export const PhotoSenderProvider = ({ children }) => {
       messageTemplate, setMessageTemplate,
       isAdmin, employees, goldenKey,
       handleStart, handlePause, handleResume, handleStop, clearQueue,
-      addFilesToQueue, removeFileFromQueue
+      addFilesToQueue, removeFileFromQueue, addBroadcastToQueue
     }}>
       {children}
     </PhotoSenderContext.Provider>

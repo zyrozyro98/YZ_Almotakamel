@@ -9,8 +9,12 @@ export default function PhotoSender() {
     messageTemplate, setMessageTemplate,
     isAdmin, employees, goldenKey,
     handleStart, handlePause, handleResume, handleStop, clearQueue,
-    addFilesToQueue, removeFileFromQueue
+    addFilesToQueue, removeFileFromQueue, addBroadcastToQueue
   } = usePhotoSender();
+
+  const [uploadMode, setUploadMode] = useState('folder'); // 'folder' or 'broadcast'
+  const [manualNumbers, setManualNumbers] = useState('');
+  const [broadcastImage, setBroadcastImage] = useState(null);
 
   const fileInputRef = useRef(null);
 
@@ -91,13 +95,28 @@ export default function PhotoSender() {
     <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h1 style={{ marginBottom: '0.5rem' }}>مرسل الصور الآلي المتقدم (WhatsApp)</h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-        يتم الآن عمل حفظ تلقائي للواجهة وتخزين مؤقت للصور. يمكنك الخروج من هذه الصفحة وترك النظام يعمل في الخلفية بسلاسة تامة.
+        تم تفعيل وضع **"الخصوصية والمحاكاة البشرية"**: النظام يستخدم الآن أوقاتاً عشوائية، فترات خمول دورية، وميزة "جاري الكتابة" لضمان أمان حسابك 🛡️.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1fr) 2fr', gap: '2rem', flex: 1 }}>
         {/* Settings Panel */}
-        <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <h3 style={{ marginBottom: '1rem', color: 'var(--brand-secondary)' }}>إعدادات الإرسال</h3>
+        <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '4px', marginBottom: '10px' }}>
+            <button 
+              onClick={() => setUploadMode('folder')}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: uploadMode === 'folder' ? 'var(--brand-primary)' : 'transparent', color: '#fff', fontSize: '0.85rem', fontWeight: 700, transition: '0.3s' }}
+            >
+              تحميل مجلد كامل
+            </button>
+            <button 
+              onClick={() => setUploadMode('broadcast')}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: uploadMode === 'broadcast' ? 'var(--brand-primary)' : 'transparent', color: '#fff', fontSize: '0.85rem', fontWeight: 700, transition: '0.3s' }}
+            >
+              إرسال مخصص لأرقام
+            </button>
+          </div>
+
+          <h3 style={{ marginBottom: '0.5rem', color: 'var(--brand-secondary)', fontSize: '1.1rem' }}>إعدادات الإرسال</h3>
 
           <div>
             <label className="input-label">حساب المرسل (الموظف)</label>
@@ -121,42 +140,87 @@ export default function PhotoSender() {
             </div>
           </div>
 
-          <div>
-            <label className="input-label">تحديد مجلد الصور محلياً</label>
-            <input 
-               type="file" 
-               ref={fileInputRef} 
-               style={{ display: 'none' }} 
-               webkitdirectory="true" 
-               directory="true" 
-               multiple 
-               onChange={handleFolderSelection} 
-            />
-            <div 
-              style={{ 
-                border: '2px dashed var(--glass-border)', padding: '2rem', borderRadius: '12px',
-                textAlign: 'center', cursor: 'pointer',
-                background: totalFiles > 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.02)',
-                borderColor: totalFiles > 0 ? 'var(--success)' : 'var(--glass-border)'
-              }}
-              onClick={() => { if (!isRunning) fileInputRef.current?.click() }}
-            >
-              <ImagePlus size={32} color={totalFiles > 0 ? 'var(--success)' : 'var(--text-secondary)'} style={{ margin: '0 auto 1rem' }} />
-              {totalFiles > 0 ? (
-                <>
-                  <p style={{ color: 'var(--success)', margin: 0, fontWeight: 600 }}>المجلد محفوط في الذاكرة</p>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>المتوفر {totalFiles} صورة.</p>
-                </>
-              ) : (
-                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>اضغط لتحديد المجلد من حاسوبك</p>
-              )}
+          {uploadMode === 'folder' ? (
+            <div>
+              <label className="input-label">تحديد مجلد الصور محلياً</label>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                webkitdirectory="true" 
+                directory="true" 
+                multiple 
+                onChange={handleFolderSelection} 
+              />
+              <div 
+                style={{ 
+                  border: '2px dashed var(--glass-border)', padding: '2rem', borderRadius: '12px',
+                  textAlign: 'center', cursor: 'pointer',
+                  background: totalFiles > 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.02)',
+                  borderColor: totalFiles > 0 ? 'var(--success)' : 'var(--glass-border)'
+                }}
+                onClick={() => { if (!isRunning) fileInputRef.current?.click() }}
+              >
+                <ImagePlus size={32} color={totalFiles > 0 ? 'var(--success)' : 'var(--text-secondary)'} style={{ margin: '0 auto 1rem' }} />
+                {totalFiles > 0 ? (
+                  <>
+                    <p style={{ color: 'var(--success)', margin: 0, fontWeight: 600 }}>المجلد محفوط في الذاكرة</p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>المتوفر {totalFiles} صورة.</p>
+                  </>
+                ) : (
+                  <p style={{ margin: 0, color: 'var(--text-secondary)' }}>اضغط لتحديد المجلد من حاسوبك</p>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label className="input-label">إدخال أرقام الهواتف (رقم في كل سطر)</label>
+                <textarea 
+                  className="input-base" 
+                  placeholder="077xxxxxxx&#10;96773xxxxxx&#10;05xxxxxxx" 
+                  rows={5}
+                  value={manualNumbers}
+                  onChange={(e) => setManualNumbers(e.target.value)}
+                  disabled={isRunning}
+                  style={{ fontSize: '0.85rem' }}
+                />
+              </div>
+              <div>
+                <label className="input-label">تحديد الصورة المراد إرسالها للجميع</label>
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  onChange={(e) => setBroadcastImage(e.target.files[0])}
+                  disabled={isRunning}
+                  className="input-base"
+                  style={{ padding: '8px' }}
+                />
+                {broadcastImage && (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '5px' }}>تم اختيار: {broadcastImage.name}</p>
+                )}
+              </div>
+              <button 
+                onClick={() => {
+                  if(!manualNumbers || !broadcastImage) return alert('يرجى إدخال الأرقام واختيار الصورة');
+                  addBroadcastToQueue(manualNumbers, broadcastImage);
+                  setManualNumbers('');
+                  setBroadcastImage(null);
+                }}
+                className="btn-secondary"
+                style={{ width: '100%', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)' }}
+                disabled={isRunning}
+              >
+                + إضافة هذه القائمة لجدول الإرسال
+              </button>
+            </div>
+          )}
 
           <div>
-            <label className="input-label">رسالة المتابعة (ترسل أسفل الصورة كـ Caption)</label>
+            <label className="input-label">رسالة المتابعة (يدعم {`{أهلاً|مرحباً}`})</label>
             <textarea 
               className="input-base" rows="4" value={messageTemplate}
+              placeholder="مثال: {مرحباً|أهلاً} بك، نرفق لك صورة الحضور {🌸|✨}"
               onChange={(e) => setMessageTemplate(e.target.value)} disabled={isRunning}
             ></textarea>
           </div>

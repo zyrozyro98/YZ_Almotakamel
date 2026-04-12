@@ -144,6 +144,11 @@ router.post('/send-image', async (req, res) => {
     const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
 
+    // Human-like Presence Simulation: Signal 'composing' (typing) before sending media
+    await sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
+    await new Promise(res => setTimeout(res, 2000 + Math.random() * 2000));
+    await sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
+
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
     
     const chatId = targetJid.split('@')[0].slice(-9);
