@@ -9,12 +9,11 @@ export default function DashboardLayout() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  const isAdmin = auth.currentUser?.email === 'yazans95@gmail.com' || auth.currentUser?.email === 'zyrozyro98@gmail.com';
+  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
+
   useEffect(() => {
     if (!auth.currentUser) return;
-    
-    // Use part of email or UID to identify the employee in notifications
-    const employeeId = auth.currentUser.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
-    
     const notifsRef = ref(rtdb, `notifications/${employeeId}`);
     const unsubscribe = onValue(notifsRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -25,16 +24,13 @@ export default function DashboardLayout() {
         setNotifications([]);
       }
     });
-
     return () => unsubscribe();
-  }, [auth.currentUser]);
+  }, [employeeId]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAllAsRead = () => {
     if (!auth.currentUser) return;
-    const employeeId = auth.currentUser.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
-    
     notifications.forEach(n => {
       if (!n.read) {
         update(ref(rtdb, `notifications/${employeeId}/${n.id}`), { read: true });
@@ -42,19 +38,21 @@ export default function DashboardLayout() {
     });
   };
 
-  const navItems = [
-    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} /> },
-    { path: '/students', label: 'الطلاب', icon: <Users size={20} /> },
-    { path: '/employees', label: 'فريق العمل', icon: <Users size={20} /> },
-    { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} /> },
-    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} /> },
-    { path: '/chat', label: 'دردشة الواتساب', icon: <MessageCircle size={20} /> },
-    { path: '/live-monitoring', label: 'الرقابة الحية', icon: <Radio size={20} /> },
-    { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} /> },
-    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} /> },
-    { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} /> },
-    { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} /> },
+  const allNavItems = [
+    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false },
+    { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: false },
+    { path: '/employees', label: 'فريق العمل', icon: <Users size={20} />, adminOnly: true },
+    { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} />, adminOnly: true },
+    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} />, adminOnly: false },
+    { path: '/chat', label: 'دردشة الواتساب', icon: <MessageCircle size={20} />, adminOnly: false },
+    { path: '/live-monitoring', label: 'الرقابة الحية', icon: <Radio size={20} />, adminOnly: true },
+    { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} />, adminOnly: false },
+    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: false },
+    { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: false },
+    { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true },
   ];
+
+  const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
 
   return (
     <div className="flex" style={{ height: '100vh', overflow: 'hidden' }}>
@@ -109,15 +107,17 @@ export default function DashboardLayout() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
               <div style={{ 
                 width: '42px', height: '42px', borderRadius: '12px', 
-                background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))', 
+                background: isAdmin ? 'linear-gradient(135deg, #f59e0b, #ef4444)' : 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))', 
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#fff',
                 boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
-              }}>م</div>
+              }}>{employeeId.substring(0, 2).toUpperCase()}</div>
               <div>
-                <p style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>مراقب النظام</p>
+                <p style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
+                  {isAdmin ? 'المدير العام' : `الموظف: ${employeeId}`}
+                </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--success)', margin: 0, fontWeight: 600 }}>متصل</p>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--success)', margin: 0, fontWeight: 600 }}>نشط الآن</p>
                 </div>
               </div>
             </div>

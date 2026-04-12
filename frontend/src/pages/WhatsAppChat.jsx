@@ -314,6 +314,7 @@ export default function WhatsAppChat() {
 
     const unsubRtdb = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
+      console.log(`[UI] RTDB Data Received for ${chatId}:`, data ? Object.keys(data).length : 0, 'messages');
       if (data) {
         const msgList = Object.entries(data).map(([id, val]) => ({
           id,
@@ -324,6 +325,8 @@ export default function WhatsAppChat() {
       } else {
         setMessages([]);
       }
+    }, (error) => {
+      console.error('[UI] RTDB Subscription Error:', error);
     });
 
     return () => unsubRtdb();
@@ -359,7 +362,12 @@ export default function WhatsAppChat() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+            {/* Debug Banner - Temporary */}
+            <div className="bg-brand-primary/10 p-2 text-center text-xs text-white/50 border-b border-white/5">
+              مزامنة نشطة للموظف: {employeeId} | الرسائل المستلمة: {messages.length}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" style={{ background: 'rgba(0,0,0,0.1)' }}>
           {filteredChats.map(chat => (
             <div
               key={chat.id}
