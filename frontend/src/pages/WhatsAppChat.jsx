@@ -3,7 +3,7 @@ import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
@@ -32,6 +32,8 @@ export default function WhatsAppChat() {
   const [formData, setFormData] = useState({});
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
+  const [attachment, setAttachment] = useState(null); // Current selected file
+  const fileInputRef = useRef(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -136,22 +138,15 @@ export default function WhatsAppChat() {
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
-    const textToSend = message; 
-    setMessage(''); 
-    setShowEmojiPicker(false); 
-    setIsSending(true);
+    const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
         employeeId, 
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
         message: textToSend,
-        fullJid: selectedChat.fullJid 
+        fullJid: selectedChat.fullJid // THE KEY FOR INSTANT DELIVERY
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
-  };
-
-  const addEmoji = (e) => {
-    setMessage(prev => prev + e.native);
   };
 
   // --- Modal Logic ---
@@ -230,6 +225,47 @@ export default function WhatsAppChat() {
       alert('تم إرسال البيانات للطالب بنجاح ✔️');
       setActiveModal(null);
     } catch (err) { alert('فشل الإرسال'); }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setAttachment({
+        file,
+        preview: event.target.result,
+        type: file.type
+      });
+      setActiveModal('attachment');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const sendAttachment = async () => {
+    if (!attachment || isSending) return;
+    setIsSending(true);
+    try {
+      const isImage = attachment.type.startsWith('image/');
+      const endpoint = isImage ? '/api/whatsapp/send-image' : '/api/whatsapp/send-document';
+      
+      await axios.post(`${BASE_URL}${endpoint}`, {
+        employeeId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
+        fullJid: selectedChat.fullJid,
+        [isImage ? 'base64Image' : 'base64File']: attachment.preview,
+        caption: formData.attachmentCaption || '',
+        fileName: attachment.file.name
+      });
+      
+      alert('تم إرسال المرفق بنجاح');
+      setAttachment(null);
+      setActiveModal(null);
+    } catch (err) {
+      alert('فشل إرسال المرفق: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleReceiptSave = async (receiptData) => {
@@ -359,22 +395,37 @@ export default function WhatsAppChat() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div style={{ padding: '20px', background: '#1e293b', position: 'relative' }}>
+              <div style={{ padding: '20px', background: '#1e293b', borderTop: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
                 {showEmojiPicker && (
-                  <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000 }}>
+                  <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000, boxShadow: '0 10px 40px rgba(0,0,0,0.6)', borderRadius: '15px' }}>
                     <Picker 
-                      data={async () => (await fetch('https://cdn.jsdelivr.net/npm/@emoji-mart/data')).json()}
-                      onEmojiSelect={addEmoji} 
+                      data={async () => {
+                        const res = await fetch('https://cdn.jsdelivr.net/npm/@emoji-mart/data');
+                        return res.json();
+                      }}
+                      onEmojiSelect={(emoji) => setMessage(prev => prev + emoji.native)}
                       theme="dark"
-                      set="apple"
+                      set="native"
                       locale="ar"
+                      previewPosition="none"
+                      skinIconsShape="circle"
                     />
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <button 
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
-                    style={{ background: 'none', border: 'none', color: showEmojiPicker ? '#3b82f6' : '#94a3b8', cursor: 'pointer' }}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <Paperclip size={24} />
+                  </button>
+                  <input 
+                    type="file" ref={fileInputRef} style={{ display: 'none' }} 
+                    onChange={handleFileSelect}
+                  />
+                  <button 
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    style={{ background: 'none', border: 'none', color: showEmojiPicker ? '#34d399' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}
                   >
                     <Smile size={24} />
                   </button>
@@ -383,9 +434,11 @@ export default function WhatsAppChat() {
                     onChange={e => setMessage(e.target.value)} 
                     onKeyDown={e => e.key === 'Enter' && handleSend()} 
                     placeholder="اكتب..." 
-                    style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '12px 15px', borderRadius: '15px', color: '#fff', fontSize: '1rem' }} 
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff', fontSize: '0.94rem' }} 
                   />
-                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px 15px' }}><Send size={20} /></button>
+                  <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px' }}>
+                    <Send size={20} />
+                  </button>
                 </div>
               </div>
             </>
@@ -584,6 +637,41 @@ export default function WhatsAppChat() {
                 >
                   <Send size={18} /> إرسال البيانات عبر الواتساب
                 </button>
+              </div>
+            )}
+
+            {activeModal === 'attachment' && attachment && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <h4 style={{ color: '#fff', margin: '0 0 15px' }}>إرسال مرفق</h4>
+                  {attachment.type.startsWith('image/') ? (
+                    <img src={attachment.preview} alt="preview" style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '15px', border: '2px solid rgba(255,255,255,0.05)', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} />
+                  ) : (
+                    <div style={{ padding: '30px', background: 'rgba(255,255,255,0.03)', borderRadius: '15px', border: '1px border-dashed rgba(255,255,255,0.1)' }}>
+                      <FileText size={48} color="#3b82f6" style={{ margin: '0 auto 10px' }} />
+                      <p style={{ color: '#fff', fontSize: '0.9rem', margin: 0 }}>{attachment.file.name}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '8px' }}>شرح توضيحي (Caption)</label>
+                  <textarea 
+                    className="input-base" rows={3} placeholder="اكتب وصفاً لهذا المرفق..."
+                    onChange={e => setFormData({ ...formData, attachmentCaption: e.target.value })}
+                  ></textarea>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => { setAttachment(null); setActiveModal(null); }} className="btn-secondary" style={{ flex: 1, padding: '15px', borderRadius: '15px' }}>إلغاء</button>
+                  <button 
+                    onClick={sendAttachment} className="btn-primary" 
+                    style={{ flex: 2, padding: '15px', borderRadius: '15px', background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}
+                    disabled={isSending}
+                  >
+                    <Send size={18} /> {isSending ? 'جاري الإرسال...' : 'إرسال الآن'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
