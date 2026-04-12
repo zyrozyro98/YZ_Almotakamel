@@ -53,37 +53,37 @@ export default function WhatsAppChat() {
   }, [messages]);
 
   useEffect(() => {
+    if (!employeeId || employeeId === 'emp1') return;
+
     // 1. Fetch Universities and Majors
-    const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
-      setUniversities(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubUniv = onSnapshot(collection(db, 'universities'), (snap) => {
+      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubMaj = onSnapshot(collection(db, 'majors'), (snap) => {
+      setMajors(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const unsubMaj = onSnapshot(collection(db, 'majors'), (snapshot) => {
-      setMajors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // 2. Fetch Students
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // 2. Fetch Students from Firestore
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
-      setStudents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    // 3. Fetch Active Chats from RTDB
+    // 3. Listen to Active Chats from RTDB
     const activeChatsRef = ref(rtdb, `chats/${employeeId}`);
     const unsubActiveChats = onValue(activeChatsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const chats = Object.keys(data).map(phone => ({
-          phone: phone,
-          lastMessage: data[phone].lastMessage || '',
-          lastTimestamp: data[phone].timestamp || 0
+        const list = Object.entries(data).map(([id, val]) => ({
+          phone: id,
+          lastMessage: val.lastMessage,
+          lastTimestamp: val.timestamp,
+          unreadCount: val.unreadCount || 0
         }));
-        setActiveChats(chats);
-      } else {
-        setActiveChats([]);
+        setActiveChats(list);
       }
     });
 
-    // 4. Listen for WhatsApp Status in RTDB
+    // 4. Listen to WhatsApp Connection Status
     const statusRef = ref(rtdb, `status/${employeeId}`);
     const unsubStatus = onValue(statusRef, (snapshot) => {
       const data = snapshot.val();
@@ -94,9 +94,8 @@ export default function WhatsAppChat() {
         } else if (data.qr) {
           setWaStatus('qr_needed');
           setQrCode(data.qr);
-        } else if (waStatus !== 'checking') {
-           // No connection and no QR? maybe re-check
-           checkWhatsAppStatus();
+        } else {
+          setWaStatus('checking');
         }
       }
     });
@@ -105,7 +104,7 @@ export default function WhatsAppChat() {
     checkWhatsAppStatus();
 
     return () => { unsubUniv(); unsubMaj(); unsubStudents(); unsubActiveChats(); unsubStatus(); };
-  }, []);
+  }, [employeeId]);
 
   // Advanced Normalization for matching (last 9 digits)
   const getMatchKey = (phone) => {

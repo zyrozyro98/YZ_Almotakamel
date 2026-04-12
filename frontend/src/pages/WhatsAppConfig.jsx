@@ -13,15 +13,11 @@ export default function WhatsAppConfig() {
 
   useEffect(() => {
     // 1. Initial manual status check
-    if (employeeId) checkStatus();
-    
-    // 2. Setup RTDB listener for real-time updates
+    if (!employeeId || employeeId === 'emp1') return;
+
     const statusRef = ref(rtdb, `status/${employeeId}`);
-    console.log(`[WA] Listening for status updates at: status/${employeeId}`);
-    
-    const unsubStatus = onValue(statusRef, (snapshot) => {
+    const unsub = onValue(statusRef, (snapshot) => {
       const data = snapshot.val();
-      console.log(`[WA] RTDB Updated for ${employeeId}:`, data);
       if (data) {
         if (data.isConnected) {
           setWaStatus('connected');
@@ -29,12 +25,21 @@ export default function WhatsAppConfig() {
         } else if (data.qr) {
           setWaStatus('qr_needed');
           setQrCode(data.qr);
+        } else {
+          setWaStatus('checking');
         }
       }
     }, (error) => {
       console.error(`[WA] RTDB Listener Error for ${employeeId}:`, error);
     });
 
+    return () => unsub();
+  }, [employeeId]);
+
+  useEffect(() => {
+    // 1. Initial manual status check
+    if (employeeId) checkStatus();
+    
     // 3. Fallback polling every 10 seconds just in case listener fails
     const interval = setInterval(() => {
       if (waStatus !== 'connected' && !qrCode) {
