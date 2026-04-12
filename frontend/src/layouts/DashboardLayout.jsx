@@ -8,12 +8,29 @@ export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [employeeId, setEmployeeId] = useState('emp1');
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  const isAdmin = auth.currentUser?.email === 'yazans95@gmail.com' || auth.currentUser?.email === 'zyrozyro98@gmail.com';
-  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
-
+  // 1. Reactive Auth Listener
   useEffect(() => {
-    if (!auth.currentUser) return;
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        const id = user.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setEmployeeId(id);
+        setIsAdmin(adminStatus);
+      } else {
+        setEmployeeId('emp1');
+        setIsAdmin(false);
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
+  // 2. Real-time Notifications Listener
+  useEffect(() => {
+    if (!employeeId || employeeId === 'emp1') return;
+
     const notifsRef = ref(rtdb, `notifications/${employeeId}`);
     const unsubscribe = onValue(notifsRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -24,13 +41,14 @@ export default function DashboardLayout() {
         setNotifications([]);
       }
     });
+
     return () => unsubscribe();
   }, [employeeId]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAllAsRead = () => {
-    if (!auth.currentUser) return;
+    if (employeeId === 'emp1') return;
     notifications.forEach(n => {
       if (!n.read) {
         update(ref(rtdb, `notifications/${employeeId}/${n.id}`), { read: true });
@@ -56,13 +74,8 @@ export default function DashboardLayout() {
 
   return (
     <div className="flex" style={{ height: '100vh', overflow: 'hidden' }}>
-      
-      {/* Mobile Overlay */}
-      {isSidebarOpen && (
-        <div className="mobile-overlay" onClick={() => setIsSidebarOpen(false)}></div>
-      )}
+      {isSidebarOpen && <div className="mobile-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
 
-      {/* Sidebar */}
       <aside className={`glass-panel sidebar-container ${isSidebarOpen ? 'open' : ''}`} style={{ 
         width: 'var(--sidebar-width)', height: '100%', borderRadius: 0,
         borderLeft: 'none', borderRight: '1px solid var(--glass-border)', borderTop: 'none', borderBottom: 'none',
@@ -84,20 +97,18 @@ export default function DashboardLayout() {
             <NavLink
               key={item.path} to={item.path}
               onClick={() => setIsSidebarOpen(false)}
-              className={({ isActive }) => `flex items-center justify-between gap-3`}
               style={({ isActive }) => ({
                 padding: '0.9rem 1.2rem', borderRadius: '14px',
                 color: isActive ? '#fff' : 'var(--text-secondary)',
                 background: isActive ? 'linear-gradient(to left, rgba(59, 130, 246, 0.25), transparent)' : 'transparent',
                 borderRight: isActive ? '4px solid var(--brand-primary)' : '4px solid transparent',
-                fontWeight: isActive ? 600 : 500, transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', textDecoration: 'none'
+                fontWeight: isActive ? 600 : 500, transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', textDecoration: 'none',
+                display: 'flex', alignItems: 'center', gap: '15px'
               })}
             >
-              <div className="flex items-center gap-3">
-                <span style={{ color: 'var(--brand-secondary)', display: 'flex' }}>{item.icon}</span>
-                {item.label}
-              </div>
-              <ChevronLeft size={16} style={{ opacity: 0.3 }} className="hide-on-mobile" />
+              <span style={{ color: 'var(--brand-secondary)', display: 'flex' }}>{item.icon}</span>
+              {item.label}
+              <ChevronLeft size={16} style={{ marginRight: 'auto', opacity: 0.3 }} className="hide-on-mobile" />
             </NavLink>
           ))}
         </nav>
@@ -134,9 +145,7 @@ export default function DashboardLayout() {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Top Header */}
         <header className="glass-panel" style={{ height: 'var(--header-height)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 1.5rem', zIndex: 40, borderBottom: '1px solid var(--glass-border)', borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
           <div className="flex items-center gap-4">
             <button className="show-on-mobile btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px' }} onClick={() => setIsSidebarOpen(true)}>
@@ -146,10 +155,9 @@ export default function DashboardLayout() {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Smart Notifications Bell */}
             <div style={{ position: 'relative' }}>
               <button 
-                onClick={() => { setShowDropdown(!showDropdown); markAllAsRead(); }}
+                onClick={() => { setShowDropdown(!showDropdown); if(!showDropdown) markAllAsRead(); }}
                 className="btn-secondary"
                 style={{ borderRadius: '12px', width: '42px', height: '42px', position: 'relative'}}
               >
@@ -189,7 +197,7 @@ export default function DashboardLayout() {
                         background: n.read ? 'rgba(255,255,255,0.03)' : 'rgba(59, 130, 246, 0.08)', 
                         padding: '1rem', borderRadius: '14px', 
                         borderRight: n.read ? '3px solid transparent' : '3px solid var(--brand-secondary)',
-                        transition: 'all 0.2s'
+                        transition: 'all 0.2s', marginBottom: '8px'
                       }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{n.title}</p>
                         <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</p>
@@ -202,12 +210,10 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        {/* Page Content */}
-        <div className="page-content-padding" style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
           <Outlet />
         </div>
       </main>
-      
     </div>
   );
 }
