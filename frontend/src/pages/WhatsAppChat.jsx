@@ -541,7 +541,10 @@ export default function WhatsAppChat() {
                     type="text" value={message} 
                     onChange={e => setMessage(e.target.value)} 
                     onKeyDown={e => e.key === 'Enter' && handleSend()} 
-                    placeholder="اكتب..." 
+                    placeholder="اكتب رسالتك هنا..." 
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
                     style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: 'none', padding: '10px 15px', borderRadius: '15px', color: '#fff', fontSize: '0.94rem' }} 
                   />
                   <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px' }}>
