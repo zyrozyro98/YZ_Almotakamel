@@ -282,28 +282,74 @@ export default function WhatsAppChat() {
   };
 
   return (
-    <div style={{ position: 'relative', height: '100%', width: '100%', maxWidth: '100vw', overflowX: 'hidden' }}>
+    <div style={{ 
+      position: 'fixed', 
+      top: isMobile ? 0 : '70px', 
+      position: isMobile ? 'fixed' : 'relative',
+      top: isMobile ? 0 : 'auto',
+      left: 0, 
+      right: 0, 
+      bottom: 0, 
+      zIndex: isMobile ? 2000 : 1,
+      height: isMobile ? '100dvh' : 'calc(100vh - 110px)', 
+      background: '#020617',
+      display: 'flex',
+      flexDirection: 'column',
+      width: '100%'
+    }}>
       <div className="whatsapp-container" style={{
-        display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px',
-        overflow: 'hidden', background: '#0f172a', direction: 'rtl', width: '100%'
+        display: 'flex', 
+        flex: 1,
+        borderRadius: isMobile ? '0' : '24px',
+        overflow: 'hidden', 
+        background: '#0f172a', 
+        direction: 'rtl',
+        margin: isMobile ? '0' : '0',
+        boxShadow: isMobile ? 'none' : '0 10px 40px rgba(0,0,0,0.4)',
+        border: isMobile ? 'none' : '1px solid rgba(255,255,255,0.05)'
       }}>
         {/* Sidebar */}
-        <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ width: isMobile ? '100%' : '380px', background: '#1e293b', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '25px', background: 'rgba(0,0,0,0.2)' }}>
-            <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', margin: '0 0 20px' }}>الدردشات</h2>
+        <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ 
+          width: isMobile ? '100%' : '380px', 
+          background: '#1e293b', 
+          display: isMobile && view === 'chat' ? 'none' : 'flex', 
+          flexDirection: 'column',
+          borderLeft: '1px solid rgba(255,255,255,0.05)'
+        }}>
+          <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', margin: 0 }}>الدردشات</h2>
+              {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20}/></button>}
+            </div>
             <input
-              type="text" placeholder="بحث..." className="input-base"
+              type="text" placeholder="بحث عن طالب أو محادثة..." className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ borderRadius: '12px', padding: '10px 15px' }}
             />
           </div>
           <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
             {filteredSidebar.map(item => (
-              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{ padding: '15px 20px', cursor: 'pointer', background: selectedChat?.id === item.id ? 'rgba(34,197,94,0.1)' : 'transparent', borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent' }}>
+              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{ 
+                padding: '12px 20px', 
+                cursor: 'pointer', 
+                background: selectedChat?.id === item.id ? 'rgba(59,130,246,0.1)' : 'transparent', 
+                borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
+                transition: '0.2s'
+              }}>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                  <div style={{ width: '45px', height: '45px', borderRadius: '15px', background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900 }}>{item.name?.substring(0, 1)}</div>
+                  <div style={{ 
+                    width: '48px', height: '48px', borderRadius: '14px', 
+                    background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                    color: '#fff', fontWeight: 900, fontSize: '1.1rem',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
+                  }}>{item.name?.substring(0, 1)}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem' }}>{item.name}</h4>
-                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6' }}>{item.university || 'غير مسجل'}</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                       <h4 style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>{item.name}</h4>
+                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                    </div>
+                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
                   </div>
                 </div>
               </div>
@@ -312,43 +358,57 @@ export default function WhatsAppChat() {
         </div>
 
         {/* Main Chat */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#020617', minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ 
+          flex: 1, 
+          display: isMobile && view === 'list' ? 'none' : 'flex', 
+          flexDirection: 'column', 
+          background: '#020617',
+          minWidth: 0,
+          overflow: 'hidden'
+        }}>
           {selectedChat ? (
             <>
-              {/* Quick Toolbar */}
+              {/* Quick Toolbar (Scrollable on mobile) */}
               <div style={{ 
-                padding: '10px 20px', 
+                padding: '10px 15px', 
                 background: '#1e293b', 
                 display: 'flex', 
-                gap: '10px', 
-                overflowX: 'auto', 
+                gap: '8px', 
+                overflowX: 'auto',
+                whiteSpace: 'nowrap',
                 scrollbarWidth: 'none',
-                msOverflowStyle: 'none'
+                borderBottom: '1px solid rgba(255,255,255,0.05)'
               }}>
-                <button onClick={openAddModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserPlus size={14} /> إضافة</button>
-                <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14} /> تعديل</button>
-                <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14} /> إيصال</button>
-                <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserMinus size={14} /> إنسحاب</button>
-                <button onClick={() => setActiveModal('query')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px', background: 'rgba(168,85,247,0.1)', color: '#a855f7' }}><Key size={14} /> الاستعلام</button>
+                <button onClick={openAddModal} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px' }}><UserPlus size={14} /> إضافة</button>
+                <button onClick={openEditModal} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px' }}><UserCog size={14} /> تعديل</button>
+                <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px' }}><Receipt size={14} /> إيصال</button>
+                <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px' }}><UserMinus size={14} /> إنسحاب</button>
+                <button onClick={() => setActiveModal('query')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px', background: 'rgba(168,85,247,0.1)', color: '#a855f7' }}><Key size={14} /> الاستعلام</button>
               </div>
 
-              <div style={{ padding: '15px 25px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30,41,59,0.5)' }}>
+              <div style={{ 
+                padding: '12px 20px', 
+                borderBottom: '1px solid rgba(255,255,255,0.05)', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                background: 'rgba(30,41,59,0.8)',
+                backdropFilter: 'blur(10px)'
+              }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24}/></button>}
+                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24}/></button>}
                   <div>
-                    <h3 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{selectedChat.name}</h3>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#3b82f6', background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.university || 'غير مسجل'}</span>
-                      {selectedChat.specialization && <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.specialization}</span>}
+                    <h3 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 800 }}>{selectedChat.name}</h3>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'rgba(59,130,246,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
+                      {selectedChat.specialization && <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.specialization}</span>}
                     </div>
                   </div>
                 </div>
-                <Info size={20} style={{ color: '#aaa', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
+                <Info size={18} style={{ color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
               </div>
 
               <div className="custom-scrollbar" style={{ 
-                flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '20px', 
-                display: 'flex', flexDirection: 'column', gap: '8px', 
                 background: '#0f172a', backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', backgroundSize: '24px 24px'
               }}>
                 {messages.map((m, i) => {
