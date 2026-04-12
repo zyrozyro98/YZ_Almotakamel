@@ -1,61 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User } from 'lucide-react';
-import axios from 'axios';
-import { db, auth } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import React, { useRef } from 'react';
+import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User, Trash2 } from 'lucide-react';
+import { usePhotoSender } from '../context/PhotoSenderContext';
 
 export default function PhotoSender() {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [checkingAdmin, setCheckingAdmin] = useState(true);
-  const [employees, setEmployees] = useState([]);
-  const [senderId, setSenderId] = useState('emp1');
-  const [goldenKey, setGoldenKey] = useState(null);
+  const {
+    filesQueue, currentIndex, isRunning, isPaused, stats,
+    senderId, setSenderId,
+    messageTemplate, setMessageTemplate,
+    isAdmin, employees, goldenKey,
+    handleStart, handlePause, handleResume, handleStop, clearQueue,
+    addFilesToQueue, removeFileFromQueue
+  } = usePhotoSender();
 
-  useEffect(() => {
-    if (isAdmin) {
-      const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
-        const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setEmployees(emps);
-      });
-      return () => unsub();
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
-      if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
-        setIsAdmin(adminStatus);
-        setGoldenKey(user.uid);
-        setSenderId(user.uid); // Default to the Golden Key
-      } else {
-        setIsAdmin(false);
-        setSenderId('emp1');
-      }
-      setCheckingAdmin(false);
-    });
-    return () => unsub();
-  }, []);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [messageTemplate, setMessageTemplate] = useState('مرحباً بك، نرسل لك صورة الحضور الخاصة بك. شكراً لحضورك!');
-  
-  const [filesQueue, setFilesQueue] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [logs, setLogs] = useState([]);
-  
-  // Real stats
-  const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0, pending: 0 });
   const fileInputRef = useRef(null);
-
-  // When paused or unpaused, a ref helps async loops know to stop immediately
-  const isRunningRef = useRef(false);
-  const isPausedRef = useRef(false);
-
-  useEffect(() => {
-    isRunningRef.current = isRunning;
-    isPausedRef.current = isPaused;
-  }, [isRunning, isPaused]);
 
   const handleFolderSelection = (e) => {
     const rawFiles = Array.from(e.target.files || []);
@@ -66,111 +23,35 @@ export default function PhotoSender() {
       return;
     }
 
-    setFilesQueue(validImages);
-    setStats({ total: validImages.length, sent: 0, failed: 0, pending: validImages.length });
-    setCurrentIndex(0);
-    setLogs([]);
-    setIsRunning(false);
-    setIsPaused(false);
-  };
+    // Convert to queue format with preview
+    const newQueue = validImages.map(file => ({
+      file,
+      name: file.name,
+      preview: URL.createObjectURL(file), // Generate preview explicitly
+      status: 'pending',
+      error: null
+    }));
 
-  const getBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
-
-  const processQueue = async (startIndex) => {
-    let current = startIndex;
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-
-    while (current < filesQueue.length) {
-      if (!isRunningRef.current || isPausedRef.current) return;
-
-      const file = filesQueue[current];
-      // File name normally matches "050123... .jpg" - extract numbers only
-      const targetNumber = file.name.replace(/[^0-9]/g, '');
-
-      if (!targetNumber || targetNumber.length < 9) {
-        setLogs(prev => [{ type: 'error', num: file.name, msg: 'اسم الملف لا يحتوي على رقم هاتف صالح.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-        setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-      } else {
-        try {
-          const b64 = await getBase64(file);
-          await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
-            employeeId: senderId,
-            phoneNumber: targetNumber,
-            base64Image: b64,
-            caption: messageTemplate,
-            senderName: auth.currentUser?.displayName || 'المرسل الآلي',
-            senderId: auth.currentUser?.uid || 'system'
-          });
-          
-          setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال الصورة والرسالة بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          setStats(prev => ({ ...prev, sent: prev.sent + 1, pending: prev.pending - 1 }));
-        } catch (err) {
-          console.error(err);
-          const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
-          setLogs(prev => [{ type: 'error', num: targetNumber, msg: `فشل الإرسال (${errorMsg})`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-        }
-      }
-
-      current++;
-      setCurrentIndex(current);
-
-      // Delay to avoid WhatsApp Anti-Spam Ban (Wait 3 seconds)
-      if (current < filesQueue.length && isRunningRef.current && !isPausedRef.current) {
-        await new Promise(r => setTimeout(r, 3000));
-      }
-    }
-
-    if (current >= filesQueue.length) {
-      alert('اكتملت المهمة الجماعية!');
-      setIsRunning(false);
-      setIsPaused(false);
-    }
-  };
-
-  const handleStart = () => {
-    if (filesQueue.length === 0) { alert('يجب إضافة المجلد أولاً.'); return; }
-    if (currentIndex >= filesQueue.length) { alert('المهمة مكتملة، استخدم زر إعادة التهيئة للبدء من جديد.'); return; }
-    
-    setIsRunning(true);
-    setIsPaused(false);
-    isRunningRef.current = true;
-    isPausedRef.current = false;
-    processQueue(currentIndex);
-  };
-
-  const handlePause = () => {
-    setIsPaused(true);
-    isPausedRef.current = true;
-  };
-
-  const handleResume = () => {
-    setIsPaused(false);
-    isPausedRef.current = false;
-    processQueue(currentIndex);
+    // If queue is empty, replace, otherwise append
+    if (filesQueue.length === 0) clearQueue(); 
+    addFilesToQueue(newQueue);
   };
 
   const handleReset = () => {
-    if (window.confirm('هل أنت متأكد من تصفير وإلغاء العملية بالكامل؟')) {
-      setIsRunning(false);
-      setIsPaused(false);
-      isRunningRef.current = false;
-      isPausedRef.current = false;
-      setFilesQueue([]);
-      setLogs([]);
-      setCurrentIndex(0);
-      setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
+    if (window.confirm('هل أنت متأكد من إلغاء العملية بالكامل وتفريغ المجلد من الذاكرة؟')) {
+      clearQueue();
     }
   };
 
-  if (checkingAdmin) {
+  // Helper stats deriving from the filesQueue precisely
+  const totalFiles = filesQueue.length;
+  // stats object in context tracks success/failed, but let's calculate fresh from queue
+  const successCount = filesQueue.filter(f => f.status === 'success').length;
+  const failedCount = filesQueue.filter(f => f.status === 'failed').length;
+  const pendingCount = filesQueue.filter(f => f.status === 'pending').length;
+
+  // We don't have checkingAdmin in context explicitly, but if employees array is populated or goldenKey is set, we are ready
+  if (goldenKey === null && isAdmin === false) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
         <RefreshCw size={40} className="animate-spin" />
@@ -190,14 +71,31 @@ export default function PhotoSender() {
     );
   }
 
+  // Derive logs from filesQueue state
+  // Convert processed ones into log objects
+  const derivedLogs = filesQueue
+    .map((f, i) => {
+      if (f.status === 'success') {
+        const targetNumber = f.name.replace(/[^0-9]/g, '');
+        return { index: i, type: 'success', num: targetNumber, msg: 'تم الإرسال بنجاح', time: '' };
+      } else if (f.status === 'failed') {
+        const targetNumber = f.name.replace(/[^0-9]/g, '');
+        return { index: i, type: 'error', num: targetNumber, msg: f.error || 'فشل غير معروف', time: '' };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .reverse(); // Newest first
+
   return (
     <div className="animate-fade-in-up" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h1 style={{ marginBottom: '0.5rem' }}>مرسل الصور الآلي المتقدم (WhatsApp)</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-        تحديد مجلد الصور (أسماء الصور تطابق رقم هاتف المتدرب) لإرسالها آلياً لكل رقم باستخدام حساب الإدارة.
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+        يتم الآن عمل حفظ تلقائي للواجهة وتخزين مؤقت للصور. يمكنك الخروج من هذه الصفحة وترك النظام يعمل في الخلفية بسلاسة تامة.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1fr) 2fr', gap: '2rem', flex: 1 }}>
+        {/* Settings Panel */}
         <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <h3 style={{ marginBottom: '1rem', color: 'var(--brand-secondary)' }}>إعدادات الإرسال</h3>
 
@@ -238,16 +136,16 @@ export default function PhotoSender() {
               style={{ 
                 border: '2px dashed var(--glass-border)', padding: '2rem', borderRadius: '12px',
                 textAlign: 'center', cursor: 'pointer',
-                background: filesQueue.length > 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.02)',
-                borderColor: filesQueue.length > 0 ? 'var(--success)' : 'var(--glass-border)'
+                background: totalFiles > 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.02)',
+                borderColor: totalFiles > 0 ? 'var(--success)' : 'var(--glass-border)'
               }}
               onClick={() => { if (!isRunning) fileInputRef.current?.click() }}
             >
-              <ImagePlus size={32} color={filesQueue.length > 0 ? 'var(--success)' : 'var(--text-secondary)'} style={{ margin: '0 auto 1rem' }} />
-              {filesQueue.length > 0 ? (
+              <ImagePlus size={32} color={totalFiles > 0 ? 'var(--success)' : 'var(--text-secondary)'} style={{ margin: '0 auto 1rem' }} />
+              {totalFiles > 0 ? (
                 <>
-                  <p style={{ color: 'var(--success)', margin: 0, fontWeight: 600 }}>تم تحديد المجلد بنجاح</p>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>عُثر على {filesQueue.length} صورة.</p>
+                  <p style={{ color: 'var(--success)', margin: 0, fontWeight: 600 }}>المجلد محفوط في الذاكرة</p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>المتوفر {totalFiles} صورة.</p>
                 </>
               ) : (
                 <p style={{ margin: 0, color: 'var(--text-secondary)' }}>اضغط لتحديد المجلد من حاسوبك</p>
@@ -266,7 +164,7 @@ export default function PhotoSender() {
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {!isRunning ? (
               <button className="btn-primary" onClick={handleStart} style={{ padding: '1rem', fontSize: '1.1rem' }}>
-                <Play size={20} fill="#fff" /> البدء بالإرسال المباشر
+                <Play size={20} fill="#fff" /> البدء بالإرسال بالخلفية
               </button>
             ) : (
               <div style={{ display: 'flex', gap: '1rem' }}>
@@ -279,46 +177,57 @@ export default function PhotoSender() {
                     <Pause size={20} fill="#fff" /> إيقاف مؤقت
                   </button>
                 )}
-                <button onClick={handleReset} style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)', padding: '0 1.5rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={handleStop} style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)', padding: '0 1.5rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="إيقاف كامل">
                   <RotateCcw size={20} />
                 </button>
               </div>
             )}
+            
+            {totalFiles > 0 && !isRunning && (
+              <button 
+                onClick={handleReset} 
+                className="btn-secondary" 
+                style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--danger)' }}
+              >
+                تفريغ الذاكرة (إلغاء العملية كلياً)
+              </button>
+            )}
           </div>
         </div>
 
+        {/* Stats & Logs Panel */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
             <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>الإجمالي</p>
-               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--text-primary)' }}>{stats.total}</h2>
+               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--text-primary)' }}>{totalFiles}</h2>
             </div>
             <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>تم الإرسال</p>
-               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--success)' }}>{stats.sent}</h2>
+               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--success)' }}>{successCount}</h2>
             </div>
             <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>فشل</p>
-               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--danger)' }}>{stats.failed}</h2>
+               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--danger)' }}>{failedCount}</h2>
             </div>
             <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>الانتظار</p>
-               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--warning)' }}>{stats.pending}</h2>
+               <h2 style={{ margin: '0.5rem 0 0', color: 'var(--warning)' }}>{pendingCount}</h2>
             </div>
           </div>
 
-          {stats.total > 0 && (
+          {totalFiles > 0 && (
             <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>نسبة الإنجاز</span>
+                <span style={{ color: 'var(--text-secondary)' }}>نسبة الإنجاز (يتم الحفظ بالخلفية)</span>
                 <span style={{ fontWeight: 'bold', color: 'var(--brand-secondary)' }}>
-                  {Math.round(((stats.sent + stats.failed) / stats.total) * 100)}%
+                  {Math.round(((successCount + failedCount) / totalFiles) * 100)}%
                 </span>
               </div>
               <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
                 <div style={{ 
                   height: '100%', 
-                  width: `${((stats.sent + stats.failed) / stats.total) * 100}%`, 
+                  width: `${((successCount + failedCount) / totalFiles) * 100}%`, 
                   background: 'linear-gradient(90deg, var(--brand-primary), var(--brand-secondary))',
                   transition: 'width 0.3s ease'
                 }}></div>
@@ -327,14 +236,14 @@ export default function PhotoSender() {
           )}
 
           <div className="glass-panel" style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ marginBottom: '1.5rem' }}>السجل الحي للعمليات</h3>
+            <h3 style={{ marginBottom: '1.5rem' }}>السجل المعالج</h3>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-               {logs.length > 0 ? logs.map((log, i) => (
-                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', marginBottom: '0.5rem', background: log.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderLeft: `3px solid ${log.type === 'error' ? 'var(--danger)' : 'var(--success)'}` }}>
+               {derivedLogs.length > 0 ? derivedLogs.map((log) => (
+                 <div key={log.index} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', marginBottom: '0.5rem', background: log.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderLeft: `3px solid ${log.type === 'error' ? 'var(--danger)' : 'var(--success)'}` }}>
                     {log.type === 'error' ? <AlertTriangle size={18} color="var(--danger)" /> : <Send size={18} color="var(--success)" />}
                     <div>
                       <p style={{ margin: 0, fontWeight: 600, color: log.type === 'error' ? 'var(--danger)' : 'var(--text-primary)' }}>{log.num}</p>
-                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{log.time} - {log.msg}</p>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{log.msg}</p>
                     </div>
                  </div>
                )) : (

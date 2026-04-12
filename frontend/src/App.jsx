@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { PhotoSenderProvider } from './context/PhotoSenderContext';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase'; // Ensure auth is exported from firebase.js
 import Login from './pages/Login';
@@ -38,26 +39,28 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={currentUser ? <Navigate to="/dashboard" /> : <Login />} />
-        
-        <Route path="/" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardHome />} />
-          <Route path="students" element={<Students />} />
-          <Route path="universities" element={<Universities />} />
-          <Route path="orders" element={<Orders />} />
-          <Route path="chat" element={<WhatsAppChat />} />
-          <Route path="receipts" element={<Receipts />} />
-          <Route path="photosender" element={<PhotoSender />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="whatsapp-config" element={<WhatsAppConfig />} />
-          <Route path="live-monitoring" element={<LiveMonitoring />} />
-          <Route path="employees" element={<Employees />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <PhotoSenderProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={currentUser ? <Navigate to="/dashboard" /> : <Login />} />
+          
+          <Route path="/" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardHome />} />
+            <Route path="students" element={<Students />} />
+            <Route path="universities" element={<Universities />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="chat" element={<WhatsAppChat />} />
+            <Route path="receipts" element={<Receipts />} />
+            <Route path="photosender" element={<PhotoSender />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="whatsapp-config" element={<WhatsAppConfig />} />
+            <Route path="live-monitoring" element={<LiveMonitoring />} />
+            <Route path="employees" element={<Employees />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </PhotoSenderProvider>
   );
 }
 
