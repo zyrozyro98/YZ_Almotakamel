@@ -8,8 +8,19 @@ export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
   const [qrCode, setQrCode] = useState(null);
   const [loading, setLoading] = useState(false);
-  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
+  const [employeeId, setEmployeeId] = useState('emp1');
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        setEmployeeId(user.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, ''));
+      } else {
+        setEmployeeId('emp1');
+      }
+    });
+    return () => unsubAuth();
+  }, []);
 
   useEffect(() => {
     // 1. Initial manual status check

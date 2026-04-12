@@ -8,8 +8,21 @@ import { ref, onValue, push, set, serverTimestamp as rtdbTimestamp } from 'fireb
 
 export default function WhatsAppChat() {
   const [selectedChat, setSelectedChat] = useState(null);
-  const employeeId = auth.currentUser?.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'emp1';
+  const [employeeId, setEmployeeId] = useState('emp1');
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        const id = user.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+        console.log('[AUTH] Logged in as:', id);
+        setEmployeeId(id);
+      } else {
+        setEmployeeId('emp1');
+      }
+    });
+    return () => unsubAuth();
+  }, []);
 
   const [message, setMessage] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
