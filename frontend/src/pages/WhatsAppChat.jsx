@@ -145,8 +145,12 @@ export default function WhatsAppChat() {
   };
 
   const openEditModal = () => {
-    if (!selectedChat?.isStudent) return alert('هذا الطالب غير مسجل في النظام حالياً');
-    setFormData({ ...selectedChat });
+    // Live Search in students list for match
+    const student = students.find(s => getMatchKey(s.phone) === getMatchKey(selectedChat?.phone));
+    
+    if (!student) return alert('هذا الطالب غير مسجل في النظام حالياً. يرجى إضافته أولاً.');
+    
+    setFormData({ ...student });
     setActiveModal('edit');
   };
 
