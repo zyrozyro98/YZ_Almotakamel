@@ -167,7 +167,7 @@ async function initializeSession(employeeId, onQrGenerated) {
       };
 
       try {
-        const chatRef = rtdb.ref(`chats/${currentEmployeeId}/${chatId}`);
+        const chatRef = rtdb.ref(`v2_chats/${currentEmployeeId}/${chatId}`);
         await chatRef.child('messages').push(messagePayload);
         await chatRef.update({
           lastMessage: textMsg || (msgType === 'image' ? 'photo' : 'file'),
