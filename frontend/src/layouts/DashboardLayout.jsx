@@ -219,7 +219,9 @@ export default function DashboardLayout() {
                           cursor: 'pointer'
                         }}
                       >
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{n.title}</p>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                          {isAdmin ? n.title : n.title.replace(/\d{6,}/g, 'طالب مجهول')}
+                        </p>
                         <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</p>
                       </div>
                     ))

@@ -171,7 +171,7 @@ export default function WhatsAppChat() {
       if (!exists) {
         list.push({
           id: chat.phone,
-          name: chat.name || `مجهول: ${chat.phone}`,
+          name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
           phone: chat.phone,
           fullJid: chat.fullJid, // CARRY THE JID
           isUnknown: true,
@@ -195,7 +195,7 @@ export default function WhatsAppChat() {
     const q = searchQuery.toLowerCase();
     const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
     
-    if (sidebarTab === 'chats') {
+    if (sidebarTab === 'chats' || !isAdmin) {
       return matchesSearch && item.timestamp > 0;
     } else {
       return matchesSearch && !item.isUnknown;
@@ -400,7 +400,7 @@ export default function WhatsAppChat() {
               {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20}/></button>}
             </div>
             <input
-              type="text" placeholder="بحث عن طالب..." className="input-base"
+              type="text" placeholder={isAdmin ? "بحث عن طالب أو محادثة..." : "بحث في محادثاتي..."} className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: '10px' }}
             />
