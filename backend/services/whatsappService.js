@@ -136,37 +136,48 @@ async function initializeSession(employeeId, onQrGenerated) {
       
       console.log(`[WA-${employeeId}][${isMe ? 'SENT' : 'RECV'}] ${remoteJid}: [${msgType}] ${textMsg}`);
       
-      // Save message to Firebase for Frontend Sync
-      // Use last 9 digits for chatId to ensure perfect matching across different formats
+      // Identify which employee this session belongs to (if not already in scope)
+      let currentEmployeeId = employeeId; 
+      if (!currentEmployeeId) {
+        for (const [id, s] of sessions.entries()) {
+          if (s === sock) {
+            currentEmployeeId = id;
+            break;
+          }
+        }
+      }
+
+      if (!currentEmployeeId) {
+        console.error('[WA WARNING] Could not identify employee for session upsert');
+        return;
+      }
+
+      // 2. Save message to RTDB
       const fullPhone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
       const chatId = fullPhone.slice(-9); 
       
       const messagePayload = {
         text: textMsg || '',
         type: msgType,
-        url: url,
+        url: url || null,
         time: new Date().toISOString(),
         sender: isMe ? 'me' : 'them',
         remoteJid: remoteJid,
-        id: msg.key.id || Date.now().toString()
+        id: msg.key.id
       };
 
       try {
-        const chatPath = `chats/${employeeId}/${chatId}`;
-        const chatRef = rtdb.ref(chatPath);
-        
-        // 1. Push the message
+        const chatRef = rtdb.ref(`chats/${currentEmployeeId}/${chatId}`);
         await chatRef.child('messages').push(messagePayload);
-        
-        // 2. Update chat metadata for sidebar
         await chatRef.update({
-          lastMessage: textMsg || '',
+          lastMessage: textMsg || (msgType === 'image' ? 'photo' : 'file'),
           timestamp: Date.now(),
           phone: chatId,
           name: isMe ? 'أنا' : (msg.pushName || chatId)
         });
-      } catch (err) {
-        console.error(`[WA-${employeeId}] Firebase Sync error for ${chatId}:`, err.message);
+        console.log(`[WA-${currentEmployeeId}] SUCCESS: Message saved to RTDB for chat: ${chatId}`);
+      } catch (dbErr) {
+        console.error(`[WA-${currentEmployeeId}] RTDB SAVE ERROR:`, dbErr.message);
       }
     }
   });
