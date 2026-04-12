@@ -405,20 +405,22 @@ export default function WhatsAppChat() {
               style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: '10px' }}
             />
             
-            <div style={{ display: 'flex', gap: '5px', marginBottom: isAdmin ? '10px' : '0', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '10px' }}>
-              <button 
-                onClick={() => setSidebarTab('chats')} 
-                style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'chats' ? '#3b82f6' : 'transparent', color: sidebarTab === 'chats' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
-              >
-                الدردشات النشطة
-              </button>
-              <button 
-                onClick={() => setSidebarTab('directory')} 
-                style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'directory' ? '#3b82f6' : 'transparent', color: sidebarTab === 'directory' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
-              >
-                دليل الطلاب
-              </button>
-            </div>
+            {isAdmin && (
+              <div style={{ display: 'flex', gap: '5px', marginBottom: '10px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '10px' }}>
+                <button 
+                  onClick={() => setSidebarTab('chats')} 
+                  style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'chats' ? '#3b82f6' : 'transparent', color: sidebarTab === 'chats' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
+                >
+                  الدردشات النشطة
+                </button>
+                <button 
+                  onClick={() => setSidebarTab('directory')} 
+                  style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'directory' ? '#3b82f6' : 'transparent', color: sidebarTab === 'directory' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
+                >
+                  دليل الطلاب
+                </button>
+              </div>
+            )}
 
             {isAdmin && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', borderRadius: '15px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
