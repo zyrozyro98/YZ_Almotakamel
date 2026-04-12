@@ -73,7 +73,6 @@ router.post('/send', async (req, res) => {
     console.log(`[WA SUCCESS] Message sent via session: ${employeeId}`);
     
     // PERFORM DB UPDATE IN BACKGROUND - DON'T WAIT
-    const chatId = cleanPhone;
     const messagePayload = {
       text: message,
       type: 'text',
