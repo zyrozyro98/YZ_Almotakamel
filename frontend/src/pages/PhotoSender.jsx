@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User, Trash2 } from 'lucide-react';
 import { usePhotoSender } from '../context/PhotoSenderContext';
 
