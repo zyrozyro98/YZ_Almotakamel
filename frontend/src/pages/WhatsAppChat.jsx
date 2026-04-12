@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
-  UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList
+  UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
+  Eye, EyeOff, ShieldCheck, Key
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
@@ -30,7 +31,8 @@ export default function WhatsAppChat() {
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
   const [formData, setFormData] = useState({});
   const [selectedMessage, setSelectedMessage] = useState(null);
-  const [isSelectingMessage, setIsSelectingMessage] = useState(false); // NEW Selection Mode
+  const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
+  const [showMaskedData, setShowMaskedData] = useState(false); // Toggle for privacy view
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -172,26 +174,45 @@ export default function WhatsAppChat() {
     e.preventDefault();
     try {
       const studentRef = doc(db, 'students', selectedChat.id);
-      const { phone, platformUser, platformPass, ...safeUpdate } = formData;
+      const { id, createdAt, createdBy, phone, ...safeUpdate } = formData;
       await updateDoc(studentRef, safeUpdate);
       alert('تم تحديث البيانات بنجاح');
       setActiveModal(null);
     } catch (err) { alert('خطأ في التحديث'); }
   };
 
-  const handleWithdrawalRequest = async (reason) => {
+  const handleWithdrawalRequest = async (reason, details = '') => {
     try {
       await addDoc(collection(db, 'orders'), {
         studentId: selectedChat.id,
         studentName: selectedChat.name,
         type: 'withdrawal',
         reason,
+        details,
         status: 'pending',
         createdAt: Timestamp.now()
       });
       alert('تم إرسال طلب الانسحاب للإدارة');
       setActiveModal(null);
     } catch (err) { alert('فشل إرسال الطلب'); }
+  };
+
+  const sendCredentialsToStudent = async () => {
+    if (!selectedChat?.platformUser || !selectedChat?.platformPass) return alert('بيانات المنصة لهذا الطالب غير مكتملة.');
+    if (!window.confirm(`هل أنت متأكد من إرسال بيانات المنصة للطالب ${selectedChat.name}؟`)) return;
+
+    const msgText = `*مرحباً ${selectedChat.name}* 👋\n\nإليك بيانات الدخول الخاصة بك للمنصة التعليمية:\n\n👤 *اسم المستخدم:* ${selectedChat.platformUser}\n🔐 *كلمة المرور:* ${selectedChat.platformPass}\n\nيرجى الاحتفاظ بها وعدم مشاركتها مع أي شخص آخر. بالتوفيق! 🌸`;
+    
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/send`, {
+        employeeId, 
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
+        message: msgText,
+        fullJid: selectedChat.fullJid
+      });
+      alert('تم إرسال البيانات للطالب بنجاح ✔️');
+      setActiveModal(null);
+    } catch (err) { alert('فشل الإرسال'); }
   };
 
   const handleReceiptSave = async (receiptData) => {
@@ -247,14 +268,21 @@ export default function WhatsAppChat() {
                 <button onClick={openEditModal} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserCog size={14} /> تعديل</button>
                 <button onClick={() => setActiveModal('receipt')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><Receipt size={14} /> إيصال</button>
                 <button onClick={() => setActiveModal('withdraw')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px' }}><UserMinus size={14} /> إنسحاب</button>
+                <button onClick={() => setActiveModal('query')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.75rem', gap: '5px', background: 'rgba(168,85,247,0.1)', color: '#a855f7' }}><Key size={14} /> الاستعلام</button>
               </div>
 
-              <div style={{ padding: '15px 25px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '15px 25px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(30,41,59,0.5)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24} /></button>}
-                  <h3 style={{ margin: 0, color: '#fff' }}>{selectedChat.name}</h3>
+                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff' }}><ArrowRight size={24}/></button>}
+                  <div>
+                    <h3 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{selectedChat.name}</h3>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#3b82f6', background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.university || 'غير مسجل'}</span>
+                      {selectedChat.specialization && <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.specialization}</span>}
+                    </div>
+                  </div>
                 </div>
-                <Info size={20} style={{ color: '#3b82f6', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
+                <Info size={20} style={{ color: '#aaa', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
               </div>
 
               <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '15px' : '30px', display: 'flex', flexDirection: 'column', gap: '15px', background: '#020617' }}>
@@ -347,18 +375,16 @@ export default function WhatsAppChat() {
                   </div>
                 </div>
 
-                {activeModal === 'add' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <div>
-                      <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة</label>
-                      <input type="text" className="input-base" value={formData.platformUser} onChange={e => setFormData({ ...formData, platformUser: e.target.value })} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة</label>
-                      <input type="password" placeholder="****" className="input-base" onChange={e => setFormData({ ...formData, platformPass: e.target.value })} />
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة</label>
+                    <input type="text" className="input-base" value={formData.platformUser || ''} onChange={e => setFormData({ ...formData, platformUser: e.target.value })} />
                   </div>
-                )}
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة</label>
+                    <input type="text" className="input-base" placeholder="****" value={formData.platformPass || ''} onChange={e => setFormData({ ...formData, platformPass: e.target.value })} />
+                  </div>
+                </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
@@ -430,13 +456,82 @@ export default function WhatsAppChat() {
             )}
 
             {activeModal === 'withdraw' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '10px' }}>يرجى اختيار سبب طلب الانسحاب للطالب {selectedChat.name}:</p>
-                {['عدم موافقة جهة العمل', 'الطالب لا يرد', 'مشترك مع شخص آخر', 'سوء الخدمة', 'أسباب أخرى'].map(reason => (
-                  <button key={reason} onClick={() => handleWithdrawalRequest(reason)} className="btn-secondary" style={{ padding: '15px', textAlign: 'right', borderRadius: '12px', justifyContent: 'flex-start' }}>
-                    {reason}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>اختر سبب الانسحاب للطالب {selectedChat.name}:</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  {['عدم موافقة جهة العمل', 'الطالب لا يرد', 'مشترك مع شخص آخر', 'سوء الخدمة', 'أسباب أخرى'].map(reason => (
+                    <button 
+                      key={reason} 
+                      onClick={() => setFormData({ ...formData, withdrawalReason: reason })} 
+                      className="btn-secondary" 
+                      style={{ 
+                        padding: '12px', textAlign: 'center', borderRadius: '12px', fontSize: '0.8rem',
+                        border: formData.withdrawalReason === reason ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.05)',
+                        background: formData.withdrawalReason === reason ? 'rgba(59,130,246,0.1)' : 'transparent'
+                      }}
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
+                
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '8px' }}>تفاصيل إضافية (اختياري)</label>
+                  <textarea 
+                    className="input-base" rows={4} 
+                    placeholder="اكتب أي ملاحظات إضافية هنا..." 
+                    onChange={e => setFormData({ ...formData, withdrawalDetails: e.target.value })}
+                  ></textarea>
+                </div>
+
+                <button 
+                  onClick={() => handleWithdrawalRequest(formData.withdrawalReason, formData.withdrawalDetails)} 
+                  className="btn-primary" 
+                  disabled={!formData.withdrawalReason}
+                  style={{ padding: '15px', borderRadius: '15px', marginTop: '10px' }}
+                >
+                  إرسال الطلب للإدارة
+                </button>
+              </div>
+            )}
+
+            {activeModal === 'query' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                  <ShieldCheck size={48} color="#a855f7" style={{ margin: '0 auto 10px' }} />
+                  <h4 style={{ color: '#fff', margin: 0 }}>بيانات الوصول للمنصة</h4>
+                  <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>يتم عرض البيانات بشكل مشفر للحفاظ على الخصوصية</p>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '15px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>إسم المستخدم</span>
+                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>{showMaskedData ? selectedChat.platformUser : '••••••••'}</p>
+                    </div>
+                    <button onClick={() => setShowMaskedData(!showMaskedData)} style={{ background: 'none', border: 'none', color: '#a855f7' }}>
+                      {showMaskedData ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>كلمة المرور</span>
+                      <p style={{ margin: 0, color: '#fff', fontWeight: 600 }}>{showMaskedData ? selectedChat.platformPass : '••••••••'}</p>
+                    </div>
+                    <button onClick={() => setShowMaskedData(!showMaskedData)} style={{ background: 'none', border: 'none', color: '#a855f7' }}>
+                      {showMaskedData ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={sendCredentialsToStudent}
+                  className="btn-primary" 
+                  style={{ padding: '15px', borderRadius: '15px', background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
+                >
+                  <Send size={18} /> إرسال البيانات عبر الواتساب
+                </button>
               </div>
             )}
           </div>
