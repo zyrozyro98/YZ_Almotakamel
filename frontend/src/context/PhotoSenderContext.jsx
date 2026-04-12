@@ -22,7 +22,9 @@ export const PhotoSenderProvider = ({ children }) => {
   const [isPaused, setIsPaused] = useState(false);
   
   const [senderId, setSenderId] = useState('emp1');
-  const [messageTemplate, setMessageTemplate] = useState('مرحباً {name}\nنرفق لكم صورة الحضور الخاصة بكم.');
+  const [messageVariants, setMessageVariants] = useState(['', '', '']); // 3 easy templates
+  const [useRotation, setUseRotation] = useState(false); // NEW: Load Balancing
+  const [rotationSelectedIds, setRotationSelectedIds] = useState([]); // SELECTED for rotation
   
   const [stats, setStats] = useState({ success: 0, failed: 0 });
   const [isAdmin, setIsAdmin] = useState(false);
@@ -34,11 +36,11 @@ export const PhotoSenderProvider = ({ children }) => {
   // Refs for background process loop matching React state
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
-  const templateRef = useRef(messageTemplate);
+  const variantsRef = useRef(messageVariants);
 
   useEffect(() => {
-    templateRef.current = messageTemplate;
-  }, [messageTemplate]);
+    variantsRef.current = messageVariants;
+  }, [messageVariants]);
 
   // Initialize from Local Storage & IndexedDB
   useEffect(() => {
@@ -71,8 +73,16 @@ export const PhotoSenderProvider = ({ children }) => {
         const lsStats = localStorage.getItem('ps_stats');
         if (lsStats) setStats(JSON.parse(lsStats));
 
-        const lsTemplate = localStorage.getItem('ps_template');
-        if (lsTemplate) setMessageTemplate(lsTemplate);
+        const lsVariants = localStorage.getItem('ps_variants');
+        if (lsVariants) {
+          setMessageVariants(JSON.parse(lsVariants));
+        } else {
+          // Default template
+          setMessageVariants(['نرفق لكم صورة الحضور الخاصة بكم.', '', '']);
+        }
+
+        const lsRotationIds = localStorage.getItem('ps_rotationIds');
+        if (lsRotationIds) setRotationSelectedIds(JSON.parse(lsRotationIds));
 
         const lsSenderId = localStorage.getItem('ps_senderId');
         if (lsSenderId) setSenderId(lsSenderId);
@@ -129,9 +139,11 @@ export const PhotoSenderProvider = ({ children }) => {
     localStorage.setItem('ps_isRunning', isRunning.toString());
     localStorage.setItem('ps_isPaused', isPaused.toString());
     localStorage.setItem('ps_stats', JSON.stringify(stats));
-    localStorage.setItem('ps_template', messageTemplate);
+    localStorage.setItem('ps_variants', JSON.stringify(messageVariants));
     localStorage.setItem('ps_senderId', senderId);
-  }, [currentIndex, isRunning, isPaused, stats, messageTemplate, senderId]);
+    localStorage.setItem('ps_useRotation', useRotation.toString());
+    localStorage.setItem('ps_rotationIds', JSON.stringify(rotationSelectedIds));
+  }, [currentIndex, isRunning, isPaused, stats, messageVariants, senderId, useRotation, rotationSelectedIds]);
 
   // Helper to parse Spintax like {Hello|Hi|Hey} (Supports nesting)
   const parseSpintax = (text) => {
@@ -167,11 +179,11 @@ export const PhotoSenderProvider = ({ children }) => {
       currentIdx++;
       sessionCount++;
 
-      // 1. Human-like Gaussian Delay between messages (Mean 10s, Std 4s)
-      const nextDelay = getGaussianDelay(10000, 4000);
+      // 1. Human-like Gaussian Delay - Increased randomness for rotation
+      const nextDelay = getGaussianDelay(14000, 6000); 
       
-      // 2. Periodic Long Breaks (Every 12-18 messages, wait 3-7 minutes)
-      if (sessionCount >= Math.floor(Math.random() * 6 + 12)) {
+      // 2. Periodic Long Breaks (Randomized interval)
+      if (sessionCount >= Math.floor(Math.random() * 8 + 10)) {
         const breakDuration = Math.floor(Math.random() * 240000 + 180000); 
         console.log(`Taking a human break for ${breakDuration / 1000} seconds...`);
         sessionCount = 0;
@@ -204,30 +216,46 @@ export const PhotoSenderProvider = ({ children }) => {
     setFilesQueue(updatedQueue); // Update UI optimistic
 
     try {
-      // 3. Human Thinking Time: Delay before starting the send process
+      // 3. Human Thinking Time
       const thinkingTime = Math.random() * 4000 + 2000;
       await new Promise(res => setTimeout(res, thinkingTime));
 
       const b64 = await toBase64(updatedQueue[idx].file);
       const targetNumber = updatedQueue[idx].name.split('.')[0];
       
-      // ALWAYS use the Ref which is the latest actual state
-      let captionText = templateRef.current;
+      const availableVariants = variantsRef.current.filter(v => v && v.trim() !== '');
+      let captionText = availableVariants.length > 0 
+        ? availableVariants[Math.floor(Math.random() * availableVariants.length)] 
+        : 'نرفق لكم صورة الحضور الخاصة بكم.';
       
-      // APPLY SPINTAX (Randomize greetings/emojis)
-      captionText = parseSpintax(captionText);
+      // ROTATION LOGIC: Pick sender
+      let payloadSender = localStorage.getItem('ps_senderId') || 'emp1';
+      const isRotationOn = localStorage.getItem('ps_useRotation') === 'true';
 
-      // 4. Typing simulation: Delay relative to text length (approx 10 chars per second)
+      if (isRotationOn) {
+        try {
+          const statusRes = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
+          const allConnected = statusRes.data.filter(s => s.status === 'connected');
+          
+          // Filter only those selected by user
+          const selectedRotationList = JSON.parse(localStorage.getItem('ps_rotationIds') || '[]');
+          const availableAndSelected = allConnected.filter(s => selectedRotationList.includes(s.employeeId));
+          
+          if (availableAndSelected.length > 0) {
+             payloadSender = availableAndSelected[Math.floor(Math.random() * availableAndSelected.length)].employeeId;
+             console.log(`Rotating sender among selected: Using ${payloadSender}`);
+          }
+        } catch (e) { console.error('Rotation failed, using default', e); }
+      }
+      
       const typingTime = Math.min(captionText.length * 80, 6000); 
       await new Promise(res => setTimeout(res, typingTime));
-
-      const payloadSender = localStorage.getItem('ps_senderId') || 'emp1';
 
       await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
         employeeId: payloadSender,
         phoneNumber: targetNumber,
         base64Image: b64,
-        caption: localStorage.getItem('ps_template') || messageTemplate,
+        caption: captionText,
         senderName: auth.currentUser?.displayName || 'المرسل الآلي',
         senderId: auth.currentUser?.uid || 'system'
       });
@@ -367,7 +395,9 @@ export const PhotoSenderProvider = ({ children }) => {
     <PhotoSenderContext.Provider value={{
       filesQueue, currentIndex, isRunning, isPaused, stats,
       senderId, setSenderId,
-      messageTemplate, setMessageTemplate,
+      messageVariants, setMessageVariants,
+      useRotation, setUseRotation,
+      rotationSelectedIds, setRotationSelectedIds,
       isAdmin, employees, goldenKey,
       handleStart, handlePause, handleResume, handleStop, clearQueue,
       addFilesToQueue, removeFileFromQueue, addBroadcastToQueue

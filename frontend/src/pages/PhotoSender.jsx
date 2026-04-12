@@ -6,7 +6,9 @@ export default function PhotoSender() {
   const {
     filesQueue, currentIndex, isRunning, isPaused, stats,
     senderId, setSenderId,
-    messageTemplate, setMessageTemplate,
+    messageVariants, setMessageVariants,
+    useRotation, setUseRotation,
+    rotationSelectedIds, setRotationSelectedIds,
     isAdmin, employees, goldenKey,
     handleStart, handlePause, handleResume, handleStop, clearQueue,
     addFilesToQueue, removeFileFromQueue, addBroadcastToQueue
@@ -119,7 +121,35 @@ export default function PhotoSender() {
           <h3 style={{ marginBottom: '0.5rem', color: 'var(--brand-secondary)', fontSize: '1.1rem' }}>إعدادات الإرسال</h3>
 
           <div>
-            <label className="input-label">حساب المرسل (الموظف)</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label className="input-label" style={{ margin: 0 }}>حساب المرسل (الموظف)</label>
+              <div 
+                onClick={() => setUseRotation(!useRotation)}
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: '20px', 
+                  background: useRotation ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${useRotation ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.1)'}`,
+                  transition: '0.3s'
+                }}
+              >
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: useRotation ? 'var(--success)' : 'var(--text-secondary)' }}>
+                  {useRotation ? 'ميزة المداورة تعمل' : 'تفعيل المداورة'}
+                </span>
+                <div style={{ 
+                  width: '32px', height: '18px', borderRadius: '10px', 
+                  background: useRotation ? 'var(--success)' : 'rgba(255,255,255,0.2)',
+                  position: 'relative', transition: '0.3s'
+                }}>
+                  <div style={{ 
+                    width: '14px', height: '14px', borderRadius: '50%', background: '#fff',
+                    position: 'absolute', top: '2px', left: useRotation ? '15px' : '2px', 
+                    transition: '0.3s'
+                  }}></div>
+                </div>
+              </div>
+            </div>
+            
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ background: 'rgba(59,130,246,0.1)', padding: '10px', borderRadius: '10px' }}>
                 <User size={20} color="#3b82f6" />
@@ -128,8 +158,8 @@ export default function PhotoSender() {
                 className="input-base" 
                 value={senderId} 
                 onChange={(e) => setSenderId(e.target.value)}
-                disabled={isRunning}
-                style={{ flex: 1 }}
+                disabled={isRunning || useRotation}
+                style={{ flex: 1, opacity: useRotation ? 0.5 : 1 }}
               >
                 <option value={goldenKey}>المفتاح الذهبي (إرسال من حسابي)</option>
                 <option value="emp1">الحساب الافتراضي (emp1)</option>
@@ -138,6 +168,45 @@ export default function PhotoSender() {
                 ))}
               </select>
             </div>
+            {useRotation && (
+              <div style={{ marginTop: '15px', padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <p style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 0 10px', color: 'var(--brand-secondary)' }}>اختر الموظفين للمداورة بينهم:</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '150px', overflowY: 'auto', paddingRight: '5px' }}>
+                  {/* Option for Golden Key */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '5px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={rotationSelectedIds.includes(goldenKey)}
+                      onChange={(e) => {
+                        if (e.target.checked) setRotationSelectedIds([...rotationSelectedIds, goldenKey]);
+                        else setRotationSelectedIds(rotationSelectedIds.filter(id => id !== goldenKey));
+                      }}
+                      style={{ transform: 'scale(1.2)' }}
+                    />
+                    <span style={{ fontSize: '0.85rem' }}>المفتاح الذهبي (أنا)</span>
+                  </label>
+                  
+                  {/* Rest of connected employees */}
+                  {employees.map(emp => (
+                    <label key={emp.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '5px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={rotationSelectedIds.includes(emp.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setRotationSelectedIds([...rotationSelectedIds, emp.id]);
+                          else setRotationSelectedIds(rotationSelectedIds.filter(id => id !== emp.id));
+                        }}
+                        style={{ transform: 'scale(1.2)' }}
+                      />
+                      <span style={{ fontSize: '0.85rem' }}>{emp.name} ({emp.id})</span>
+                    </label>
+                  ))}
+                </div>
+                {rotationSelectedIds.length === 0 && (
+                  <p style={{ fontSize: '0.7rem', color: 'var(--danger)', marginTop: '8px', fontWeight: 700 }}>⚠️ يرجى اختيار موظف واحد على الأقل للمداورة.</p>
+                )}
+              </div>
+            )}
           </div>
 
           {uploadMode === 'folder' ? (
@@ -217,20 +286,33 @@ export default function PhotoSender() {
           )}
 
           <div>
-            <label className="input-label">رسالة المتابعة (يدعم {`{أهلاً|مرحباً}`})</label>
-            <textarea 
-              className="input-base" rows="4" value={messageTemplate}
-              placeholder="مثال: {مرحباً|أهلاً} بك، نرفق لك صورة الحضور {🌸|✨}"
-              onChange={(e) => setMessageTemplate(e.target.value)} disabled={isRunning}
-            ></textarea>
-            {messageTemplate.includes('{') && (
-              <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
-                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--success)', fontWeight: 700, marginBottom: '4px' }}>إستعراض العشوائية (مثال ثابت):</p>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                  {messageTemplate.replace(/\{([^{}]+)\}/g, (m, opt) => opt.split('|')[0])}
-                </p>
-              </div>
-            )}
+            <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              نماذج الرسائل المتغيرة (للتنويع البشري)
+              <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>تلقائي</span>
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[0, 1, 2].map(idx => (
+                <div key={idx} style={{ position: 'relative' }}>
+                  <textarea 
+                    className="input-base" 
+                    rows="2" 
+                    value={messageVariants[idx]}
+                    placeholder={`النموذج ${idx + 1} ${idx > 0 ? '(اختياري)' : ''}`}
+                    onChange={(e) => {
+                      const newVars = [...messageVariants];
+                      newVars[idx] = e.target.value;
+                      setMessageVariants(newVars);
+                    }} 
+                    disabled={isRunning}
+                    style={{ fontSize: '0.85rem', paddingLeft: '35px' }}
+                  ></textarea>
+                  <span style={{ position: 'absolute', left: '10px', top: '10px', fontSize: '0.7rem', opacity: 0.3, fontWeight: 800 }}>{idx + 1}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+              * سيقوم النظام باختيار واحد من هذه النماذج عشوائياً لكل طالب لضمان عدم تطابق الرسائل وتجنب الحظر.
+            </p>
           </div>
 
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
