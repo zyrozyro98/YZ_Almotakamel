@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw, 
-  Info, AlertCircle, Smile
+  Info, AlertCircle, Smile, ChevronRight, ArrowRight, Phone, MessageSquare
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
@@ -22,7 +22,17 @@ export default function WhatsAppChat() {
   const [showDetails, setShowDetails] = useState(false);
   const messagesEndRef = useRef(null);
   
+  // Responsive State
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [view, setView] = useState('list'); // 'list' or 'chat'
+
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
@@ -35,12 +45,12 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
     const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data(), isStudent: true })));
     });
     const activeRef = ref(rtdb, `chats/${employeeId}`);
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
+      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val, isUnknown: true })));
       else setActiveChats([]);
     });
     return () => { unsubStudents(); unsubActive(); };
@@ -63,15 +73,43 @@ export default function WhatsAppChat() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
-  const sidebarList = students.map(s => {
-    const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(s.phone));
-    return { ...s, lastMessage: active?.lastMessage || 'لا توجد محادثات', timestamp: active?.timestamp || 0 };
-  }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  
+  // Combine Students and Unknown Active Chats
+  const combinedList = () => {
+    const list = [...students];
+    activeChats.forEach(chat => {
+      const exists = students.find(s => getMatchKey(s.phone) === getMatchKey(chat.phone));
+      if (!exists) {
+        list.push({
+          id: chat.phone,
+          name: chat.name || `رقم: ${chat.phone}`,
+          phone: chat.phone,
+          isUnknown: true,
+          lastMessage: chat.lastMessage,
+          timestamp: chat.timestamp
+        });
+      }
+    });
 
-  const filteredSidebar = sidebarList.filter(item => {
+    return list.map(item => {
+      const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
+      return {
+        ...item,
+        lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
+        timestamp: active?.timestamp || item.timestamp || 0
+      };
+    }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  };
+
+  const filteredSidebar = combinedList().filter(item => {
     const q = searchQuery.toLowerCase();
     return item.name?.toLowerCase().includes(q) || item.phone?.includes(q);
   });
+
+  const selectChat = (chat) => {
+    setSelectedChat(chat);
+    if (isMobile) setView('chat');
+  };
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
@@ -84,127 +122,158 @@ export default function WhatsAppChat() {
   };
 
   return (
-    <div className="glass-panel" style={{ display: 'flex', height: 'calc(100vh - 120px)', borderRadius: '24px', overflow: 'hidden', border: 'none', background: '#0f172a', direction: 'rtl' }}>
+    <div className="whatsapp-container" style={{ 
+      display: 'flex', height: 'calc(100vh - 120px)', borderRadius: isMobile ? '0' : '30px', 
+      overflow: 'hidden', background: '#0f172a', direction: 'rtl',
+      boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+      position: isMobile ? 'fixed' : 'relative',
+      top: isMobile ? '0' : 'auto', left: 0, right: 0, bottom: 0, zIndex: 1000
+    }}>
       
-      {/* Sidebar */}
-      <div style={{ width: '350px', borderLeft: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', background: '#1e293b' }}>
-        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', marginBottom: '15px' }}>المحادثات</h2>
-          <input 
-            type="text" placeholder="بحث..." 
-            style={{ width: '100%', padding: '10px 15px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', outline: 'none' }}
-            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      {/* Sidebar - Visible on Desktop or when View is 'list' on Mobile */}
+      <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ 
+        width: isMobile ? '100%' : '380px', borderLeft: '1px solid rgba(255,255,255,0.05)', 
+        display: 'flex', flexDirection: 'column', background: '#1e293b', transition: '0.3s'
+      }}>
+        <div style={{ padding: '25px', background: 'rgba(0,0,0,0.2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', margin: 0 }}>المحادثات</h2>
+            {isMobile && <button className="btn-secondary" onClick={() => window.location.reload()}><RefreshCw size={18}/></button>}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Search style={{ position: 'absolute', right: '12px', top: '12px', color: 'rgba(255,255,255,0.2)' }} size={18} />
+            <input 
+              type="text" placeholder="بحث عن طالب أو رقم..." 
+              style={{ width: '100%', padding: '12px 45px 12px 15px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '15px', color: '#fff', outline: 'none' }}
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
+
         <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
-          {filteredSidebar.map(item => {
-            const isActive = selectedChat?.id === item.id;
-            return (
+          {filteredSidebar.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', opacity: 0.2 }}>
+              <MessageSquare size={50} style={{ margin: '0 auto 15px' }} />
+              <p>لا توجد محادثات نشطة</p>
+            </div>
+          ) : (
+            filteredSidebar.map(item => (
               <div 
-                key={item.id} onClick={() => setSelectedChat(item)}
-                style={{ padding: '15px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', background: isActive ? 'rgba(59, 130, 246, 0.2)' : 'transparent', borderRight: isActive ? '4px solid #3b82f6' : '4px solid transparent', transition: '0.2s' }}
+                key={item.id} onClick={() => selectChat(item)}
+                style={{ 
+                  padding: '18px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '15px', 
+                  background: selectedChat?.id === item.id ? 'rgba(59, 130, 246, 0.15)' : 'transparent', 
+                  borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
+                  transition: '0.2s', borderBottom: '1px solid rgba(255,255,255,0.02)'
+                }}
               >
-                <div style={{ width: '45px', height: '45px', borderRadius: '12px', background: 'linear-gradient(135deg, #3b82f6, #2dd4bf)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#fff' }}>{item.name?.substring(0, 1)}</div>
+                <div style={{ 
+                  width: '50px', height: '50px', borderRadius: '16px', 
+                  background: item.isUnknown ? 'linear-gradient(135deg, #64748b, #475569)' : 'linear-gradient(135deg, #3b82f6, #06b6d4)', 
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#fff' 
+                }}>
+                  {item.name?.substring(0, 1)}
+                </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#fff' }}>{item.name}</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>{item.name}</h4>
                     {item.timestamp > 0 && <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>{new Date(item.timestamp).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>}
                   </div>
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.lastMessage}</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: selectedChat?.id === item.id ? '#3b82f6' : 'rgba(255,255,255,0.3)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {item.isUnknown && <span style={{ fontSize: '9px', background: '#475569', padding: '1px 5px', borderRadius: '4px', marginLeft: '5px' }}>جديد</span>}
+                    {item.lastMessage}
+                  </p>
                 </div>
               </div>
-            );
-          })}
+            ))
+          )}
         </div>
       </div>
 
-      {/* Main Chat */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#020617' }}>
+      {/* Main Chat Area - Visible on Desktop or when View is 'chat' on Mobile */}
+      <div className={`chat-area ${isMobile && view === 'list' ? 'hidden' : 'visible'}`} style={{ 
+        flex: 1, display: 'flex', flexDirection: 'column', background: '#020617', 
+        width: isMobile ? '100%' : 'auto', transition: '0.3s'
+      }}>
         {selectedChat ? (
           <>
-            <div style={{ padding: '15px 25px', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}><User size={22} /></div>
+            <div style={{ padding: isMobile ? '15px' : '20px 35px', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                {isMobile && <button style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }} onClick={() => setView('list')}><ArrowRight size={24} /></button>}
+                <div style={{ width: '45px', height: '45px', borderRadius: '12px', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}><User size={24} /></div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#fff' }}>{selectedChat.name}</h3>
-                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6' }}>{selectedChat.phone}</p>
+                  <h3 style={{ margin: 0, fontSize: isMobile ? '0.95rem' : '1.1rem', fontWeight: 800, color: '#fff' }}>{selectedChat.name}</h3>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6', fontWeight: 700 }}>{selectedChat.phone}</p>
                 </div>
               </div>
-              <button onClick={() => setShowDetails(!showDetails)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}><Info size={20} /></button>
+              <div style={{ display: 'flex', gap: '15px' }}>
+                {!isMobile && <RefreshCw size={20} style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => window.location.reload()} />}
+                <button onClick={() => setShowDetails(!showDetails)} style={{ background: 'none', border: 'none', color: '#3b82f6' }}><Info size={20} /></button>
+              </div>
             </div>
 
-            <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px', background: '#020617' }}>
-              {messages.length === 0 ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.1 }}><MessageCircle size={80} color="#fff" /></div>
-              ) : (
-                messages.map((msg, idx) => {
-                  const isMe = msg.sender === 'me';
-                  return (
-                    <div key={msg.id || idx} style={{ 
-                      display: 'flex', 
-                      justifyContent: isMe ? 'flex-start' : 'flex-end', // In RTL, flex-start is RIGHT
-                      width: '100%', 
-                      padding: '0 5px'
+            <div className="custom-scrollbar" style={{ 
+              flex: 1, overflowY: 'auto', padding: isMobile ? '15px' : '30px', 
+              display: 'flex', flexDirection: 'column', gap: '15px', 
+              background: 'radial-gradient(circle at center, #0f172a 0%, #020617 100%)' 
+            }}>
+              {messages.map((msg, idx) => {
+                const isMe = msg.sender === 'me';
+                return (
+                  <div key={msg.id || idx} style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%' }}>
+                    <div style={{ 
+                      maxWidth: '85%', width: 'fit-content', padding: '12px 18px', borderRadius: '22px', 
+                      background: isMe ? '#059669' : '#1e293b', color: '#fff',
+                      borderTopRightRadius: isMe ? '4px' : '22px', borderTopLeftRadius: isMe ? '22px' : '4px',
+                      boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative'
                     }}>
-                      <div style={{ 
-                        maxWidth: '70%', 
-                        width: 'auto', // Important: Don't stretch
-                        minWidth: '100px',
-                        padding: '12px 16px', 
-                        borderRadius: '18px', 
-                        background: isMe ? '#059669' : '#334155', // Me: Emerald Green, Them: Slate
-                        color: '#fff',
-                        borderTopRightRadius: isMe ? '4px' : '18px',
-                        borderTopLeftRadius: isMe ? '18px' : '4px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                        textAlign: 'right'
-                      }}>
-                        <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '5px', fontSize: '10px', color: 'rgba(255,255,255,0.5)', justifyContent: 'flex-start' }}>
-                          {msg.time ? new Date(msg.time).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : ''}
-                          {isMe && <CheckCheck size={12} />}
-                        </div>
+                      <p style={{ margin: 0, fontSize: isMobile ? '0.9rem' : '1rem', lineHeight: 1.6 }}>{msg.text}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '6px', fontSize: '9px', color: 'rgba(255,255,255,0.5)', justifyContent: 'flex-start' }}>
+                        {msg.time ? new Date(msg.time).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : ''}
+                        {isMe && <CheckCheck size={12} />}
                       </div>
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
 
-            <div style={{ padding: '20px', background: '#1e293b' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '5px 15px', borderRadius: '15px' }}>
-                <Smile size={22} style={{ color: 'rgba(255,255,255,0.2)', cursor: 'pointer' }} onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
+            <div style={{ padding: isMobile ? '15px' : '25px 35px', background: '#1e293b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.05)', padding: '8px 15px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                {!isMobile && <Smile size={24} style={{ color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => setShowEmojiPicker(!showEmojiPicker)} />}
                 <input 
-                  type="text" placeholder="اكتب رسالة..."
-                  style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', padding: '10px 0' }}
+                  type="text" placeholder="اكتب..." 
+                  style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', padding: '10px 0', fontSize: isMobile ? '0.9rem' : '1rem' }}
                   value={message} onChange={(e) => setMessage(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                 />
-                <button onClick={handleSend} disabled={isSending || !message.trim()} style={{ background: '#3b82f6', color: '#fff', border: 'none', width: '40px', height: '40px', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {isSending ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
+                <button 
+                  onClick={handleSend} disabled={isSending || !message.trim()} 
+                  style={{ background: '#3b82f6', color: '#fff', border: 'none', width: '45px', height: '45px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  {isSending ? <RefreshCw size={20} className="animate-spin" /> : <Send size={20} />}
                 </button>
               </div>
-              {showEmojiPicker && (
-                <div style={{ position: 'absolute', bottom: '90px', right: '30px', zIndex: 100 }}>
-                  <Picker data={async () => (await import('@emoji-mart/data')).default} onEmojiSelect={(e) => setMessage(p => p + e.native)} theme="dark" />
-                </div>
-              )}
             </div>
           </>
         ) : (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.1 }}><MessageCircle size={100} color="#fff" /></div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }}>
+            <div style={{ width: '120px', height: '120px', borderRadius: '40px', background: 'rgba(59,130,246,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '30px' }}>
+              <MessageSquare size={60} color="#3b82f6" style={{ opacity: 0.3 }} />
+            </div>
+            <h2 style={{ color: '#fff', fontSize: '1.8rem', fontWeight: 900 }}>حدد محادثة للبدء</h2>
+            <p style={{ color: 'rgba(255,255,255,0.2)', maxWidth: '300px', marginTop: '10px' }}>اختر طالباً من القائمة اليمنى أو راقب الرسائل الجديدة من أرقام غير مسجلة.</p>
+          </div>
         )}
       </div>
 
-      {showDetails && selectedChat && (
-        <div style={{ width: '300px', background: '#1e293b', padding: '30px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '25px', background: 'linear-gradient(135deg, #3b82f6, #2dd4bf)', margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 900, color: '#fff' }}>{selectedChat.name?.substring(0, 1)}</div>
-            <h4 style={{ color: '#fff', margin: 0 }}>{selectedChat.name}</h4>
-          </div>
-        </div>
-      )}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media (max-width: 767px) {
+          .sidebar.hidden { display: none; }
+          .chat-area.hidden { display: none; }
+        }
+      `}} />
     </div>
   );
 }
