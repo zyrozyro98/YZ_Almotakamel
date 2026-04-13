@@ -27,47 +27,60 @@ export default function LiveMonitoring() {
   }, []);
 
   useEffect(() => {
-    // Listen to ALL chats for real-time monitoring
-    const chatsRef = ref(rtdb, 'chats');
-    
-    const unsubscribe = onValue(chatsRef, (snapshot) => {
+    const unsub = onSnapshot(collection(firestoreDb, 'employees'), (snap) => {
+      const map = {};
+      snap.docs.forEach(doc => {
+        map[doc.id] = doc.data().name;
+      });
+      setEmployeesMap(map);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    // 1. Listen to chat_list for totals
+    const chatListRef = ref(rtdb, 'chat_list');
+    const unsubList = onValue(chatListRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      let totalChats = 0;
+      const employees = new Set();
+      Object.entries(data).forEach(([empId, empChats]) => {
+        employees.add(empId);
+        totalChats += Object.keys(empChats).length;
+      });
+      setStats(prev => ({ ...prev, activeEmployees: employees.size, activeChats: totalChats }));
+    });
+
+    // 2. Listen to RECENT messages across ALL employees for the live feed
+    // Note: In a large system, we'd use a dedicated 'global_feed' node.
+    // For now, we listen to current active employees.
+    const messagesRef = ref(rtdb, 'messages');
+    const unsubMessages = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
       const allMessages = [];
-      let totalChats = 0;
-      const employees = new Set();
-
       Object.entries(data).forEach(([empId, empChats]) => {
-        employees.add(empId);
-        Object.entries(empChats).forEach(([chatId, chatData]) => {
-          totalChats++;
-          if (chatData.messages) {
-            Object.entries(chatData.messages).forEach(([msgId, msg]) => {
-              allMessages.push({
-                id: msgId,
-                employeeId: empId,
-                chatId: chatId,
-                ...msg,
-                timestamp: msg.time ? new Date(msg.time).getTime() : 0
-              });
+        Object.entries(empChats).forEach(([chatId, msgs]) => {
+          Object.values(msgs).forEach(msg => {
+            allMessages.push({
+              id: msg.id,
+              employeeId: empId,
+              chatId: chatId,
+              ...msg,
+              timestamp: msg.time || 0
             });
-          }
+          });
         });
       });
 
-      // Sort by time descending and take last 50
       const sorted = allMessages.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
       setLiveMessages(sorted);
-
-      setStats({
-        totalToday: allMessages.length,
-        activeEmployees: employees.size,
-        activeChats: totalChats
-      });
+      setStats(prev => ({ ...prev, totalToday: allMessages.length }));
     });
 
-    return () => unsubscribe();
+    return () => { unsubList(); unsubMessages(); };
   }, []);
 
   const filteredMessages = liveMessages.filter(m => {

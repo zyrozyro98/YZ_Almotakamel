@@ -88,6 +88,14 @@ router.post('/send', async (req, res) => {
         timestamp: Date.now(),
         lastSender: 'me'
       }).catch(() => {});
+
+      // UNIFIED GLOBAL FEED
+      await rtdb.ref(`unified_messages/${chatId}/${result.key.id}`).update({
+        text: message, id: result.key.id, time: Date.now(), sender: 'me', employeeId
+      });
+      await rtdb.ref(`unified_chat_list/${chatId}`).update({
+        lastMessage: message.substring(0, 100), timestamp: Date.now(), lastSender: 'me', lastEmployeeId: employeeId
+      });
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
@@ -183,6 +191,12 @@ router.post('/send-image', async (req, res) => {
       fullJid: targetJid,
       lastSender: "me"
     }).catch(() => {});
+
+    // UNIFIED GLOBAL FEED
+    await rtdb.ref(`unified_messages/${chatId}/${result.key.id}`).update({ ...msgData, employeeId });
+    await rtdb.ref(`unified_chat_list/${chatId}`).update({
+      lastMessage: caption || "📷 صورة", timestamp: Date.now(), lastSender: "me", lastEmployeeId: employeeId
+    });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
