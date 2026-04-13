@@ -116,54 +116,6 @@ export default function WhatsAppChat() {
     return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
-  useEffect(() => {
-    if (!selectedChat || !employeeId) return;
-    const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
-    const unsubMsg = onValue(messagesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
-        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
-      } else setMessages([]);
-    });
-    return () => unsubMsg();
-  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    }
-  }, [messages, selectedChat]);
-
-  // Handle URL Selection (from Notification)
-  const location = useLocation();
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const selectId = params.get('select');
-    if (selectId && combinedList.length > 0) {
-      const target = combinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
-      if (target) {
-        setSelectedChat(target);
-        if (isMobile) setView('chat');
-      }
-    }
-  }, [location.search, combinedList, getMatchKey, isMobile]);
-
-  const formatMessageDate = (timestamp) => {
-    const d = new Date(timestamp);
-    const now = new Date();
-    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'اليوم';
-    if (diffDays === 1) return 'أمس';
-    if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
-    return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
-  };
-
   const getMatchKey = useCallback((p) => String(p || '').replace(/[^0-9]/g, '').slice(-9), []);
 
   const combinedList = useMemo(() => {
@@ -218,6 +170,54 @@ export default function WhatsAppChat() {
       }
     });
   }, [combinedList, searchQuery, sidebarTab, isAdmin]);
+
+  useEffect(() => {
+    if (!selectedChat || !employeeId) return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
+    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
+    const unsubMsg = onValue(messagesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
+        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
+      } else setMessages([]);
+    });
+    return () => unsubMsg();
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [messages, selectedChat]);
+
+  // Handle URL Selection (from Notification)
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const selectId = params.get('select');
+    if (selectId && combinedList.length > 0) {
+      const target = combinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+      if (target) {
+        setSelectedChat(target);
+        if (isMobile) setView('chat');
+      }
+    }
+  }, [location.search, combinedList, getMatchKey, isMobile]);
+
+  const formatMessageDate = (timestamp) => {
+    const d = new Date(timestamp);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'اليوم';
+    if (diffDays === 1) return 'أمس';
+    if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
+    return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
