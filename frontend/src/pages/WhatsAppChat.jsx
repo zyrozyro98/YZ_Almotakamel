@@ -142,14 +142,14 @@ export default function WhatsAppChat() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const selectId = params.get('select');
-    if (selectId && combinedList().length > 0) {
-      const target = combinedList().find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+    if (selectId && memoizedCombinedList.length > 0) {
+      const target = memoizedCombinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
       if (target) {
         setSelectedChat(target);
         if (isMobile) setView('chat');
       }
     }
-  }, [location.search, students, activeChats]);
+  }, [location.search, memoizedCombinedList, isMobile]);
 
   const formatMessageDate = (timestamp) => {
     const d = new Date(timestamp);
@@ -164,43 +164,60 @@ export default function WhatsAppChat() {
 
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
 
-  const combinedList = () => {
-    const list = [...students];
+  // Memoized Combined List for Performance
+  const memoizedCombinedList = React.useMemo(() => {
+    // 1. Create a map of students for fast lookup
+    const studentMap = new Map();
+    students.forEach(s => {
+      studentMap.set(getMatchKey(s.phone), { ...s });
+    });
+
+    // 2. Merge active chats into the map or create new entries
     activeChats.forEach(chat => {
-      const exists = students.find(s => getMatchKey(s.phone) === getMatchKey(chat.phone));
-      if (!exists) {
-        list.push({
+      const key = getMatchKey(chat.phone);
+      const existing = studentMap.get(key);
+
+      if (existing) {
+        // Update existing student with chat info
+        studentMap.set(key, {
+          ...existing,
+          fullJid: chat.fullJid || existing.fullJid,
+          lastMessage: chat.lastMessage || existing.lastMessage || 'لا توجد رسائل',
+          timestamp: chat.timestamp || existing.timestamp || 0
+        });
+      } else {
+        // Add unknown student from active chat
+        studentMap.set(key, {
           id: chat.phone,
           name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
           phone: chat.phone,
-          fullJid: chat.fullJid, // CARRY THE JID
+          fullJid: chat.fullJid,
           isUnknown: true,
-          lastMessage: chat.lastMessage,
-          timestamp: chat.timestamp
+          lastMessage: chat.lastMessage || 'لا توجد رسائل',
+          timestamp: chat.timestamp || 0
         });
       }
     });
-    return list.map(item => {
-      const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
-      return {
-        ...item,
-        fullJid: active?.fullJid || item.fullJid, // ATTACH JID IF AVAILABLE
-        lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
-        timestamp: active?.timestamp || item.timestamp || 0
-      };
-    }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  };
 
-  const filteredSidebar = combinedList().filter(item => {
+    // 3. Convert map back to array and sort
+    return Array.from(studentMap.values())
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }, [students, activeChats, isAdmin]);
+
+  const filteredSidebar = React.useMemo(() => {
     const q = searchQuery.toLowerCase();
-    const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
-    
-    if (sidebarTab === 'chats' || !isAdmin) {
-      return matchesSearch && item.timestamp > 0;
-    } else {
-      return matchesSearch && !item.isUnknown;
-    }
-  });
+    return memoizedCombinedList.filter(item => {
+      const matchesSearch = item.name?.toLowerCase().includes(q) || 
+                           item.phone?.includes(q) || 
+                           item.university?.toLowerCase().includes(q);
+      
+      if (sidebarTab === 'chats' || !isAdmin) {
+        return matchesSearch && item.timestamp > 0;
+      } else {
+        return matchesSearch && !item.isUnknown;
+      }
+    });
+  }, [memoizedCombinedList, searchQuery, sidebarTab, isAdmin]);
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
