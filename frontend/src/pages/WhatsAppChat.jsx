@@ -39,7 +39,7 @@ export default function WhatsAppChat() {
   const [showUser, setShowUser] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
-  const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
+  const [isSelectingMessage, setIsSelectingMessage] = useState(false);
   const [attachment, setAttachment] = useState(null); // Current selected file
   const fileInputRef = useRef(null);
 
@@ -72,7 +72,7 @@ export default function WhatsAppChat() {
     const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
       const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setEmployees(emps);
-      
+
       // If we are an admin and viewing ourselves, auto-pick the first real employee if available
       if (viewingEmployeeId === employeeId && emps.length > 0) {
         const firstOther = emps.find(e => e.id !== employeeId);
@@ -151,17 +151,6 @@ export default function WhatsAppChat() {
     }
   }, [location.search, memoizedCombinedList, isMobile]);
 
-  const formatMessageDate = (timestamp) => {
-    const d = new Date(timestamp);
-    const now = new Date();
-    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'اليوم';
-    if (diffDays === 1) return 'أمس';
-    if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
-    return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
-  };
-
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
 
   // Memoized Combined List for Performance
@@ -207,10 +196,10 @@ export default function WhatsAppChat() {
   const filteredSidebar = React.useMemo(() => {
     const q = searchQuery.toLowerCase();
     return memoizedCombinedList.filter(item => {
-      const matchesSearch = item.name?.toLowerCase().includes(q) || 
-                           item.phone?.includes(q) || 
-                           item.university?.toLowerCase().includes(q);
-      
+      const matchesSearch = item.name?.toLowerCase().includes(q) ||
+        item.phone?.includes(q) ||
+        item.university?.toLowerCase().includes(q);
+
       if (sidebarTab === 'chats' || !isAdmin) {
         return matchesSearch && item.timestamp > 0;
       } else {
@@ -219,14 +208,25 @@ export default function WhatsAppChat() {
     });
   }, [memoizedCombinedList, searchQuery, sidebarTab, isAdmin]);
 
+  const formatMessageDate = (timestamp) => {
+    const d = new Date(timestamp);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'اليوم';
+    if (diffDays === 1) return 'أمس';
+    if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
+    return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId: targetId, 
-        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
+        employeeId: targetId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
         message: textToSend,
         fullJid: selectedChat.fullJid,
         senderId: employeeId,
@@ -248,9 +248,9 @@ export default function WhatsAppChat() {
   const openEditModal = () => {
     // Live Search in students list for match
     const student = students.find(s => getMatchKey(s.phone) === getMatchKey(selectedChat?.phone));
-    
+
     if (!student) return alert('هذا الطالب غير مسجل في النظام حالياً. يرجى إضافته أولاً.');
-    
+
     setFormData({ ...student });
     setActiveModal('edit');
   };
@@ -300,12 +300,12 @@ export default function WhatsAppChat() {
     if (!window.confirm(`هل أنت متأكد من إرسال بيانات المنصة للطالب ${selectedChat.name}؟`)) return;
 
     const msgText = `*مرحباً ${selectedChat.name}* 👋\n\nإليك بيانات الدخول الخاصة بك للمنصة التعليمية:\n\n👤 *اسم المستخدم:* ${selectedChat.platformUser}\n🔐 *كلمة المرور:* ${selectedChat.platformPass}\n\nيرجى الاحتفاظ بها وعدم مشاركتها مع أي شخص آخر. بالتوفيق! 🌸`;
-    
+
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId: targetId, 
-        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''), 
+        employeeId: targetId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
         message: msgText,
         fullJid: selectedChat.fullJid,
         senderId: employeeId,
@@ -337,10 +337,10 @@ export default function WhatsAppChat() {
     try {
       const isImage = attachment.type.startsWith('image/');
       const isVideo = attachment.type.startsWith('video/');
-      
+
       let endpoint = '/api/whatsapp/send-document';
       let payloadKey = 'base64File';
-      
+
       if (isImage) {
         endpoint = '/api/whatsapp/send-image';
         payloadKey = 'base64Image';
@@ -348,7 +348,7 @@ export default function WhatsAppChat() {
         endpoint = '/api/whatsapp/send-video';
         payloadKey = 'base64Video';
       }
-      
+
       await axios.post(`${BASE_URL}${endpoint}`, {
         employeeId: isAdmin ? viewingEmployeeId : employeeId,
         phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
@@ -359,7 +359,7 @@ export default function WhatsAppChat() {
         senderId: employeeId,
         senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
       });
-      
+
       alert('تم إرسال المرفق بنجاح');
       setAttachment(null);
       setActiveModal(null);
@@ -384,8 +384,8 @@ export default function WhatsAppChat() {
   };
 
   return (
-    <div style={{ 
-      height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)', 
+    <div style={{
+      height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)',
       background: '#020617',
       display: 'flex',
       flexDirection: 'column',
@@ -397,41 +397,41 @@ export default function WhatsAppChat() {
       position: 'relative'
     }}>
       <div className="whatsapp-container" style={{
-        display: 'flex', 
+        display: 'flex',
         flex: 1,
-        overflow: 'hidden', 
-        background: '#0f172a', 
+        overflow: 'hidden',
+        background: '#0f172a',
         direction: 'rtl'
       }}>
         {/* Sidebar */}
-        <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{ 
-          width: isMobile ? '100%' : '380px', 
-          background: '#1e293b', 
-          display: isMobile && view === 'chat' ? 'none' : 'flex', 
+        <div className={`sidebar ${isMobile && view === 'chat' ? 'hidden' : 'visible'}`} style={{
+          width: isMobile ? '100%' : '380px',
+          background: '#1e293b',
+          display: isMobile && view === 'chat' ? 'none' : 'flex',
           flexDirection: 'column',
           borderLeft: '1px solid rgba(255,255,255,0.05)'
         }}>
           <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', margin: 0 }}>الدردشات</h2>
-              {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20}/></button>}
+              {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20} /></button>}
             </div>
             <input
               type="text" placeholder={isAdmin ? "بحث عن طالب أو محادثة..." : "بحث في محادثاتي..."} className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               style={{ borderRadius: '12px', padding: '10px 15px', marginBottom: '10px' }}
             />
-            
+
             {isAdmin && (
               <div style={{ display: 'flex', gap: '5px', marginBottom: '10px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '10px' }}>
-                <button 
-                  onClick={() => setSidebarTab('chats')} 
+                <button
+                  onClick={() => setSidebarTab('chats')}
                   style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'chats' ? '#3b82f6' : 'transparent', color: sidebarTab === 'chats' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
                 >
                   الدردشات النشطة
                 </button>
-                <button 
-                  onClick={() => setSidebarTab('directory')} 
+                <button
+                  onClick={() => setSidebarTab('directory')}
                   style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '8px', background: sidebarTab === 'directory' ? '#3b82f6' : 'transparent', color: sidebarTab === 'directory' ? '#fff' : '#94a3b8', fontSize: '0.8rem', fontWeight: 600, transition: '0.2s' }}
                 >
                   دليل الطلاب
@@ -442,8 +442,8 @@ export default function WhatsAppChat() {
             {isAdmin && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '10px', borderRadius: '15px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <label style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 800, paddingRight: '5px' }}>📈 إدارة رقابة الموظفين:</label>
-                <select 
-                  className="input-base" 
+                <select
+                  className="input-base"
                   style={{ padding: '8px', fontSize: '0.85rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)' }}
                   value={viewingEmployeeId || ''}
                   onChange={(e) => setViewingEmployeeId(e.target.value)}
@@ -461,25 +461,25 @@ export default function WhatsAppChat() {
           </div>
           <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
             {filteredSidebar.map(item => (
-              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{ 
-                padding: '12px 20px', 
-                cursor: 'pointer', 
-                background: selectedChat?.id === item.id ? 'rgba(59,130,246,0.1)' : 'transparent', 
+              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{
+                padding: '12px 20px',
+                cursor: 'pointer',
+                background: selectedChat?.id === item.id ? 'rgba(59,130,246,0.1)' : 'transparent',
                 borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
                 transition: '0.2s'
               }}>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                  <div style={{ 
-                    width: '48px', height: '48px', borderRadius: '14px', 
-                    background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', 
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                  <div style={{
+                    width: '48px', height: '48px', borderRadius: '14px',
+                    background: 'linear-gradient(135deg, #3b82f6, #06b6d4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: '#fff', fontWeight: 900, fontSize: '1.1rem',
                     boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
                   }}>{item.name?.substring(0, 1)}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                       <h4 style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>{item.name}</h4>
-                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                      <h4 style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>{item.name}</h4>
+                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
                     <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
                   </div>
@@ -490,10 +490,10 @@ export default function WhatsAppChat() {
         </div>
 
         {/* Main Chat */}
-        <div style={{ 
-          flex: 1, 
-          display: isMobile && view === 'list' ? 'none' : 'flex', 
-          flexDirection: 'column', 
+        <div style={{
+          flex: 1,
+          display: isMobile && view === 'list' ? 'none' : 'flex',
+          flexDirection: 'column',
           background: '#020617',
           minWidth: 0,
           overflow: 'hidden'
@@ -501,11 +501,11 @@ export default function WhatsAppChat() {
           {selectedChat ? (
             <>
               {/* Quick Toolbar (Scrollable on mobile) */}
-              <div style={{ 
-                padding: '10px 15px', 
-                background: '#1e293b', 
-                display: 'flex', 
-                gap: '8px', 
+              <div style={{
+                padding: '10px 15px',
+                background: '#1e293b',
+                display: 'flex',
+                gap: '8px',
                 overflowX: 'auto',
                 whiteSpace: 'nowrap',
                 scrollbarWidth: 'none',
@@ -518,17 +518,17 @@ export default function WhatsAppChat() {
                 <button onClick={() => setActiveModal('query')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.7rem', gap: '5px', borderRadius: '10px', background: 'rgba(168,85,247,0.1)', color: '#a855f7' }}><Key size={14} /> الاستعلام</button>
               </div>
 
-              <div style={{ 
-                padding: '12px 20px', 
-                borderBottom: '1px solid rgba(255,255,255,0.05)', 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center', 
+              <div style={{
+                padding: '12px 20px',
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 background: 'rgba(30,41,59,0.8)',
                 backdropFilter: 'blur(10px)'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24}/></button>}
+                  {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24} /></button>}
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 800 }}>{selectedChat.name}</h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px' }}>
@@ -540,22 +540,22 @@ export default function WhatsAppChat() {
                 <Info size={18} style={{ color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
               </div>
 
-              <div className="custom-scrollbar" style={{ 
-                flex: 1, 
-                overflowY: 'auto', 
-                padding: isMobile ? '12px' : '20px', 
-                display: 'flex', 
-                flexDirection: 'column', 
-                gap: '8px', 
-                background: '#0f172a', 
-                backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', 
+              <div className="custom-scrollbar" style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: isMobile ? '12px' : '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                background: '#0f172a',
+                backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)',
                 backgroundSize: '24px 24px'
               }}>
                 {messages.map((m, i) => {
                   const isMe = m.sender === 'me';
                   const isPicked = selectedMessage?.id === m.id;
                   const messageDate = formatMessageDate(m.time || Date.now());
-                  const prevMessageDate = i > 0 ? formatMessageDate(messages[i-1].time || Date.now()) : null;
+                  const prevMessageDate = i > 0 ? formatMessageDate(messages[i - 1].time || Date.now()) : null;
                   const showDateSeparator = messageDate !== prevMessageDate;
 
                   return (
@@ -565,9 +565,9 @@ export default function WhatsAppChat() {
                           <span style={{ background: 'rgba(30,41,59,0.8)', color: 'rgba(255,255,255,0.6)', padding: '4px 12px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 600 }}>{messageDate}</span>
                         </div>
                       )}
-                      
-                      <div 
-                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }} 
+
+                      <div
+                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }}
                         onClick={() => {
                           if (isSelectingMessage) {
                             setSelectedMessage(m);
@@ -576,11 +576,11 @@ export default function WhatsAppChat() {
                           }
                         }}
                       >
-                        <div style={{ 
-                          maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px', 
-                          background: isMe ? '#065f46' : '#1e293b', 
+                        <div style={{
+                          maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px',
+                          background: isMe ? '#065f46' : '#1e293b',
                           color: '#fff',
-                          borderTopRightRadius: isMe ? '2px' : '12px', 
+                          borderTopRightRadius: isMe ? '2px' : '12px',
                           borderTopLeftRadius: isMe ? '12px' : '2px',
                           boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
                           cursor: isSelectingMessage ? 'pointer' : 'default',
@@ -590,16 +590,16 @@ export default function WhatsAppChat() {
                           overflow: 'hidden'
                         }}>
                           {m.type === 'image' && m.mediaData && (
-                            <img 
-                              src={m.mediaData} alt="Shared" 
-                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
+                            <img
+                              src={m.mediaData} alt="Shared"
+                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }}
                             />
                           )}
                           {m.type === 'video' && m.mediaData && (
                             <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
-                              <video 
-                                src={m.mediaData} 
-                                controls 
+                              <video
+                                src={m.mediaData}
+                                controls
                                 style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
                               />
                             </div>
@@ -609,9 +609,9 @@ export default function WhatsAppChat() {
                               <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
                                 <MessageCircle size={20} />
                               </div>
-                              <audio 
-                                src={m.mediaData} 
-                                controls 
+                              <audio
+                                src={m.mediaData}
+                                controls
                                 style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
                               />
                             </div>
@@ -626,7 +626,7 @@ export default function WhatsAppChat() {
                             <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
                           )}
                           {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
-                             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
+                            <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', justifyContent: 'flex-end', borderTop: isMe && m.senderName ? '1px solid rgba(255,255,255,0.1)' : 'none', paddingTop: isMe && m.senderName ? '4px' : '0' }}>
                             {isMe && m.senderName && (
@@ -650,7 +650,7 @@ export default function WhatsAppChat() {
               <div style={{ padding: '20px', background: '#1e293b', borderTop: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
                 {showEmojiPicker && (
                   <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000, boxShadow: '0 10px 40px rgba(0,0,0,0.6)', borderRadius: '15px' }}>
-                    <Picker 
+                    <Picker
                       data={async () => {
                         const res = await fetch('https://cdn.jsdelivr.net/npm/@emoji-mart/data');
                         return res.json();
@@ -665,50 +665,50 @@ export default function WhatsAppChat() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <button 
+                  <button
                     onClick={() => fileInputRef.current?.click()}
                     style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                   >
                     <Paperclip size={24} />
                   </button>
-                  <input 
-                    type="file" ref={fileInputRef} style={{ display: 'none' }} 
+                  <input
+                    type="file" ref={fileInputRef} style={{ display: 'none' }}
                     onChange={handleFileSelect}
                   />
-                  <button 
+                  <button
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                     style={{ background: 'none', border: 'none', color: showEmojiPicker ? '#34d399' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}
                   >
                     <Smile size={24} />
                   </button>
-                  <textarea 
-                    value={message} 
-                    onChange={e => setMessage(e.target.value)} 
+                  <textarea
+                    value={message}
+                    onChange={e => setMessage(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
                         e.preventDefault();
                         handleSend();
                       }
-                    }} 
-                    placeholder="اكتب رسالتك هنا..." 
+                    }}
+                    placeholder="اكتب رسالتك هنا..."
                     rows={1}
                     autoComplete="off"
                     autoCorrect="off"
                     autoCapitalize="off"
                     spellCheck="false"
-                    style={{ 
-                      flex: 1, 
-                      background: 'rgba(255,255,255,0.05)', 
-                      border: 'none', 
-                      padding: '12px 15px', 
-                      borderRadius: '15px', 
-                      color: '#fff', 
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255,255,255,0.05)',
+                      border: 'none',
+                      padding: '12px 15px',
+                      borderRadius: '15px',
+                      color: '#fff',
                       fontSize: '0.94rem',
                       resize: 'none',
                       fontFamily: 'inherit',
                       outline: 'none',
                       lineHeight: '1.4'
-                    }} 
+                    }}
                   />
                   <button onClick={handleSend} className="btn-primary" style={{ borderRadius: '12px', padding: '10px' }}>
                     <Send size={20} />
@@ -753,11 +753,11 @@ export default function WhatsAppChat() {
                   </div>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>التخصص</label>
-                    <select 
-                      className="input-base" 
+                    <select
+                      className="input-base"
                       style={{ background: '#0f172a' }}
-                      value={formData.specialization} 
-                      onChange={e => setFormData({ ...formData, specialization: e.target.value })} 
+                      value={formData.specialization}
+                      onChange={e => setFormData({ ...formData, specialization: e.target.value })}
                       required
                     >
                       <option value="">اختر التخصص</option>
@@ -771,21 +771,21 @@ export default function WhatsAppChat() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>يوزر المنصة (مخفي للأمان)</label>
-                    <input 
-                      type="password" 
-                      className="input-base" 
-                      value={formData.platformUser || ''} 
-                      onChange={e => setFormData({ ...formData, platformUser: e.target.value })} 
+                    <input
+                      type="password"
+                      className="input-base"
+                      value={formData.platformUser || ''}
+                      onChange={e => setFormData({ ...formData, platformUser: e.target.value })}
                     />
                   </div>
                   <div>
                     <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>باسورد المنصة (مخفي للأمان)</label>
-                    <input 
-                      type="password" 
-                      className="input-base" 
-                      placeholder="••••••••" 
-                      value={formData.platformPass || ''} 
-                      onChange={e => setFormData({ ...formData, platformPass: e.target.value })} 
+                    <input
+                      type="password"
+                      className="input-base"
+                      placeholder="••••••••"
+                      value={formData.platformPass || ''}
+                      onChange={e => setFormData({ ...formData, platformPass: e.target.value })}
                     />
                   </div>
                 </div>
@@ -819,8 +819,8 @@ export default function WhatsAppChat() {
                     {selectedMessage ? `الرسالة المختارة: ${selectedMessage.text.substring(0, 40)}...` : 'لم يتم تحديد رسالة من الدردشة بعد'}
                   </p>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => { setActiveModal(null); setIsSelectingMessage(true); }}
                   className="btn-secondary" style={{ padding: '15px', borderRadius: '15px', background: '#3b82f61a', color: '#3b82f6' }}
                 >
@@ -828,7 +828,7 @@ export default function WhatsAppChat() {
                 </button>
 
                 {selectedMessage && (
-                  <button 
+                  <button
                     onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
                     className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
                   >
@@ -837,7 +837,7 @@ export default function WhatsAppChat() {
                 )}
 
                 <div style={{ textAlign: 'center', opacity: 0.3, fontSize: '0.8rem' }}>أو أدخل النص يدوياً</div>
-             <button
+                <button
                   onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
                   className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
                   disabled={!selectedMessage}
@@ -864,11 +864,11 @@ export default function WhatsAppChat() {
                 <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>اختر سبب الانسحاب للطالب {selectedChat.name}:</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   {['عدم موافقة جهة العمل', 'الطالب لا يرد', 'مشترك مع شخص آخر', 'سوء الخدمة', 'أسباب أخرى'].map(reason => (
-                    <button 
-                      key={reason} 
-                      onClick={() => setFormData({ ...formData, withdrawalReason: reason })} 
-                      className="btn-secondary" 
-                      style={{ 
+                    <button
+                      key={reason}
+                      onClick={() => setFormData({ ...formData, withdrawalReason: reason })}
+                      className="btn-secondary"
+                      style={{
                         padding: '12px', textAlign: 'center', borderRadius: '12px', fontSize: '0.8rem',
                         border: formData.withdrawalReason === reason ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.05)',
                         background: formData.withdrawalReason === reason ? 'rgba(59,130,246,0.1)' : 'transparent'
@@ -878,19 +878,19 @@ export default function WhatsAppChat() {
                     </button>
                   ))}
                 </div>
-                
+
                 <div style={{ marginTop: '10px' }}>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '8px' }}>تفاصيل إضافية (اختياري)</label>
-                  <textarea 
-                    className="input-base" rows={4} 
-                    placeholder="اكتب أي ملاحظات إضافية هنا..." 
+                  <textarea
+                    className="input-base" rows={4}
+                    placeholder="اكتب أي ملاحظات إضافية هنا..."
                     onChange={e => setFormData({ ...formData, withdrawalDetails: e.target.value })}
                   ></textarea>
                 </div>
 
-                <button 
-                  onClick={() => handleWithdrawalRequest(formData.withdrawalReason, formData.withdrawalDetails)} 
-                  className="btn-primary" 
+                <button
+                  onClick={() => handleWithdrawalRequest(formData.withdrawalReason, formData.withdrawalDetails)}
+                  className="btn-primary"
                   disabled={!formData.withdrawalReason}
                   style={{ padding: '15px', borderRadius: '15px', marginTop: '10px' }}
                 >
@@ -923,9 +923,9 @@ export default function WhatsAppChat() {
                   </div>
                 </div>
 
-                <button 
+                <button
                   onClick={sendCredentialsToStudent}
-                  className="btn-primary" 
+                  className="btn-primary"
                   style={{ padding: '15px', borderRadius: '15px', background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
                 >
                   <Send size={18} /> إرسال البيانات عبر الواتساب
@@ -951,7 +951,7 @@ export default function WhatsAppChat() {
 
                 <div>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '8px' }}>شرح توضيحي (Caption)</label>
-                  <textarea 
+                  <textarea
                     className="input-base" rows={3} placeholder="اكتب وصفاً لهذا المرفق..."
                     onChange={e => setFormData({ ...formData, attachmentCaption: e.target.value })}
                   ></textarea>
@@ -959,8 +959,8 @@ export default function WhatsAppChat() {
 
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button onClick={() => { setAttachment(null); setActiveModal(null); }} className="btn-secondary" style={{ flex: 1, padding: '15px', borderRadius: '15px' }}>إلغاء</button>
-                  <button 
-                    onClick={sendAttachment} className="btn-primary" 
+                  <button
+                    onClick={sendAttachment} className="btn-primary"
                     style={{ flex: 2, padding: '15px', borderRadius: '15px', background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}
                     disabled={isSending}
                   >
