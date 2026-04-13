@@ -49,7 +49,7 @@ router.post('/send', async (req, res) => {
     if (!targetJid) {
       // Try to find verified JID from RTDB
       try {
-        const snap = await rtdb.ref(`chat_list/${employeeId}/${chatId}`).once('value');
+        const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
         targetJid = snap.val()?.fullJid;
       } catch(e) {}
     }
@@ -77,17 +77,10 @@ router.post('/send', async (req, res) => {
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
       const chatId = targetJid.split('@')[0].slice(-9);
-      await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update({
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
       }).catch(e => console.error('Failed to update sender info:', e.message));
-      
-      // Also update last message in list
-      await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
-        lastMessage: message.substring(0, 100),
-        timestamp: Date.now(),
-        lastSender: 'me'
-      }).catch(() => {});
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
@@ -115,7 +108,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
 
   if (!targetJid) {
     try {
-      const snap = await rtdb.ref(`chat_list/${employeeId}/${chatId}`).once('value');
+      const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
       targetJid = snap.val()?.fullJid;
     } catch(e) {}
   }
@@ -163,7 +156,7 @@ router.post('/send-image', async (req, res) => {
     const msgData = {
       text: caption || "📷 صورة",
       type: "image",
-      hasMedia: true,
+      mediaData: base64Image,
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -171,12 +164,9 @@ router.post('/send-image', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    // Store media content separately
-    await rtdb.ref(`media_content/${employeeId}/${result.key.id}`).set({ base64: base64Image, type: 'image' });
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
 
-    await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
-
-    await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: chatId,
@@ -209,9 +199,9 @@ router.post('/send-document', async (req, res) => {
     const chatId = targetJid.split('@')[0].slice(-9);
 
     const msgData = {
-      text: caption || "📎 ملف",
+      text: caption || "📎 ملف الدورة",
       type: "document",
-      hasMedia: true,
+      mediaData: base64File,
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -219,14 +209,9 @@ router.post('/send-document', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    // Store media content separately
-    await rtdb.ref(`media_content/${employeeId}/${result.key.id}`).set({ 
-       base64: base64File, type: 'document', fileName: fileName || 'file' 
-    });
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
 
-    await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
-
-    await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
       lastMessage: caption || "📎 ملف",
       timestamp: Date.now(),
       phone: chatId,
@@ -269,9 +254,9 @@ router.post('/send-video', async (req, res) => {
           senderId: senderId || "system"
         };
 
-        await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
+        await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
 
-        await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({
+        await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
           lastMessage: caption || "🎥 فيديو",
           timestamp: Date.now(),
           phone: chatId,
@@ -309,9 +294,9 @@ router.post('/delete', async (req, res) => {
       } 
     });
 
-    // Mark as deleted in RTDB
+    // Mark as deleted in RTDB for admin visibility
     const cleanId = targetJid.split('@')[0].slice(-9);
-    await rtdb.ref(`messages/${employeeId}/${cleanId}/${messageId}`).update({
+    await rtdb.ref(`chats/${employeeId}/${cleanId}/messages/${messageId}`).update({
       isDeleted: true,
       deletedAt: Date.now()
     });
@@ -321,44 +306,6 @@ router.post('/delete', async (req, res) => {
     console.error('[WA DELETE ERROR]', error.message);
     res.status(500).json({ error: error.message });
   }
-});
-
-// GET MEDIA CONTENT ON DEMAND
-router.get('/get-media/:employeeId/:messageId', async (req, res) => {
-  const { employeeId, messageId } = req.params;
-  try {
-    const snap = await rtdb.ref(`media_content/${employeeId}/${messageId}`).once('value');
-    if (!snap.exists()) return res.status(404).json({ error: 'Media not found or expired' });
-    res.json(snap.val());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// MIGRATION: Sync old chats to new chat_list
-router.post('/sync-existing', async (req, res) => {
-  const { employeeId } = req.body;
-  if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
-  try {
-    const snap = await rtdb.ref(`chats/${employeeId}`).once('value');
-    const oldChats = snap.val();
-    if (!oldChats) return res.json({ message: 'No old chats found' });
-
-    const updates = {};
-    Object.entries(oldChats).forEach(([chatId, data]) => {
-      updates[`chat_list/${employeeId}/${chatId}`] = {
-        name: data.name || data.phone || chatId,
-        phone: data.phone || chatId,
-        fullJid: data.fullJid || `${data.phone || chatId}@s.whatsapp.net`,
-        lastMessage: data.lastMessage?.substring(0, 100) || "محادثة قديمة",
-        timestamp: data.timestamp || Date.now(),
-        lastSender: data.lastSender || 'them'
-      };
-    });
-    
-    await rtdb.ref().update(updates);
-    res.json({ success: true, count: Object.keys(updates).length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/status-all', async (req, res) => {

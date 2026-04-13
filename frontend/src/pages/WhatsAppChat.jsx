@@ -1,28 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key, Paperclip, Trash2, Image as ImageIcon
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue, query, limitToLast, orderByKey } from 'firebase/database';
-import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query as fsQuery, where, Timestamp } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
-import { useWhatsApp } from '../context/WhatsAppContext';
 
 export default function WhatsAppChat() {
-  const { 
-    employeeId, isAdmin, activeChats, students, universities, majors, employees, 
-    viewingEmployeeId, setViewingEmployeeId, isLoading 
-  } = useWhatsApp();
-
+  const [employeeId, setEmployeeId] = useState('emp1');
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [activeChats, setActiveChats] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [universities, setUniversities] = useState([]);
+  const [majors, setMajors] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -38,15 +40,10 @@ export default function WhatsAppChat() {
   const [showPass, setShowPass] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
-  const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
-  
-  const [attachment, setAttachment] = useState(null); 
+  const [attachment, setAttachment] = useState(null); // Current selected file
   const fileInputRef = useRef(null);
   
-  // Pagination & Lazy Loading
-  const [messageLimit, setMessageLimit] = useState(10);
-  const [hasMore, setHasMore] = useState(true);
-  const [mediaLoading, setMediaLoading] = useState({}); // { [msgId]: boolean }
+  const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -56,30 +53,83 @@ export default function WhatsAppChat() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // All background listeners moved to WhatsAppContext.jsx for performance and state persistence.
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        setEmployeeId(user.uid);
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+        if (!viewingEmployeeId) setViewingEmployeeId(user.uid);
+      } else {
+        setEmployeeId('emp1');
+        setIsAdmin(false);
+      }
+    });
+    return () => unsubAuth();
+  }, [viewingEmployeeId]);
+
+  // Fetch all employees if admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
+      const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEmployees(emps);
+      
+      // If we are an admin and viewing ourselves, auto-pick the first real employee if available
+      if (viewingEmployeeId === employeeId && emps.length > 0) {
+        const firstOther = emps.find(e => e.id !== employeeId);
+        if (firstOther) setViewingEmployeeId(firstOther.id);
+      }
+    });
+    return () => unsub();
+  }, [isAdmin, employeeId, viewingEmployeeId]);
+
+  useEffect(() => {
+    if (!employeeId || employeeId === 'emp1') return;
+
+    // Listen to Students
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // Listen to Universities for dropdowns
+    const unsubUnivs = onSnapshot(collection(db, 'universities'), (snap) => {
+      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // Listen to Global Majors
+    const unsubMajors = onSnapshot(collection(db, 'majors'), (snap) => {
+      setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
+    });
+
+    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId) return;
+
+    const activeRef = ref(rtdb, `chats/${targetId}`);
+    const unsubActive = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
+      else setActiveChats([]);
+    });
+
+    return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
+  }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    
-    // PAGINATION: Only fetch the last N messages
-    const messagesRef = query(ref(rtdb, `messages/${targetId}/${cleanId}`), limitToLast(messageLimit));
-    
+    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
-        const sorted = list.sort((a, b) => (a.time || 0) - (b.time || 0));
-        setMessages(sorted);
-        setHasMore(sorted.length >= messageLimit);
-      } else {
-        setMessages([]);
-        setHasMore(false);
-      }
+        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
+      } else setMessages([]);
     });
     return () => unsubMsg();
-  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin, messageLimit]);
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -94,14 +144,14 @@ export default function WhatsAppChat() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const selectId = params.get('select');
-    if (selectId && combinedList().length > 0) {
-      const target = combinedList().find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+    if (selectId && combinedList.length > 0) {
+      const target = combinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
       if (target) {
         setSelectedChat(target);
         if (isMobile) setView('chat');
       }
     }
-  }, [location.search, students, activeChats]);
+  }, [location.search, combinedList, getMatchKey, isMobile]);
 
   const formatMessageDate = (timestamp) => {
     const d = new Date(timestamp);
@@ -114,45 +164,60 @@ export default function WhatsAppChat() {
     return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
+  const getMatchKey = useCallback((p) => String(p || '').replace(/[^0-9]/g, '').slice(-9), []);
 
-  const combinedList = () => {
-    const list = [...students];
+  const combinedList = useMemo(() => {
+    const studentMap = new Map();
+    students.forEach(s => {
+      const key = getMatchKey(s.phone);
+      if (key) studentMap.set(key, { ...s, matchKey: key });
+    });
+
+    const result = Array.from(studentMap.values());
+    const seenKeys = new Set(studentMap.keys());
+
     activeChats.forEach(chat => {
-      const exists = students.find(s => getMatchKey(s.phone) === getMatchKey(chat.phone));
-      if (!exists) {
-        list.push({
+      const key = getMatchKey(chat.phone);
+      if (key && !seenKeys.has(key)) {
+        result.push({
           id: chat.phone,
           name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
           phone: chat.phone,
-          fullJid: chat.fullJid, // CARRY THE JID
+          matchKey: key,
+          fullJid: chat.fullJid,
           isUnknown: true,
           lastMessage: chat.lastMessage,
           timestamp: chat.timestamp
         });
+        seenKeys.add(key);
       }
     });
-    return list.map(item => {
-      const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
+
+    const activeMap = new Map();
+    activeChats.forEach(c => activeMap.set(getMatchKey(c.phone), c));
+
+    return result.map(item => {
+      const active = activeMap.get(item.matchKey);
       return {
         ...item,
-        fullJid: active?.fullJid || item.fullJid, // ATTACH JID IF AVAILABLE
+        fullJid: active?.fullJid || item.fullJid,
         lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
         timestamp: active?.timestamp || item.timestamp || 0
       };
     }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  };
+  }, [students, activeChats, isAdmin, getMatchKey]);
 
-  const filteredSidebar = combinedList().filter(item => {
+  const filteredSidebar = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
-    
-    if (sidebarTab === 'chats' || !isAdmin) {
-      return matchesSearch && item.timestamp > 0;
-    } else {
-      return matchesSearch && !item.isUnknown;
-    }
-  });
+    return combinedList.filter(item => {
+      const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
+      if (sidebarTab === 'chats' || !isAdmin) {
+        return matchesSearch && item.timestamp > 0;
+      } else {
+        return matchesSearch && !item.isUnknown;
+      }
+    });
+  }, [combinedList, searchQuery, sidebarTab, isAdmin]);
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
@@ -335,85 +400,6 @@ export default function WhatsAppChat() {
     }
   };
 
-  const loadMoreMessages = () => {
-    setMessageLimit(prev => prev + 10);
-  };
-
-  const loadMedia = async (msgId, callback) => {
-    if (mediaLoading[msgId]) return;
-    setMediaLoading(prev => ({ ...prev, [msgId]: true }));
-    try {
-      const targetId = isAdmin ? viewingEmployeeId : employeeId;
-      const res = await axios.get(`${BASE_URL}/api/whatsapp/get-media/${targetId}/${msgId}`);
-      if (callback) callback(res.data.base64);
-    } catch (err) {
-      console.error('Failed to load media', err);
-    } finally {
-      setMediaLoading(prev => ({ ...prev, [msgId]: false }));
-    }
-  };
-
-  // Lazy Media Component
-  const MediaPlaceholder = ({ msg, onLoaded }) => {
-    const [localData, setLocalData] = useState(msg.mediaData || null);
-    const isLoading = mediaLoading[msg.id];
-
-    // AUTO-LOAD LOGIC for Voice Recordings
-    useEffect(() => {
-      if (msg.type === 'audio' && !localData) {
-        // Find index of this audio among all audio messages
-        const audios = messages.filter(m => m.type === 'audio');
-        const audioIdx = audios.findIndex(m => m.id === msg.id);
-        const isRecentAudio = audioIdx >= audios.length - 3;
-
-        if (!isAdmin && isRecentAudio) {
-          loadMedia(msg.id, setLocalData);
-        }
-      }
-    }, []);
-
-    if (localData) {
-      if (msg.type === 'image') return <img src={localData} alt="Loaded" style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} />;
-      if (msg.type === 'video') return <video src={localData} controls style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000', borderRadius: '8px', marginBottom: '8px' }} />;
-      if (msg.type === 'audio') return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
-          <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
-            <MessageCircle size={20} />
-          </div>
-          <audio src={localData} controls style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }} />
-        </div>
-      );
-      if (msg.type === 'document') return (
-        <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-          <FileText size={24} color="#3b82f6" />
-          <span style={{ fontSize: '0.8rem' }}>{msg.text}</span>
-          <a href={localData} download={msg.fileName || 'file'} style={{ marginRight: 'auto', background: '#3b82f6', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem' }}>حفظ</a>
-        </div>
-      );
-    }
-
-    return (
-      <div 
-        onClick={() => loadMedia(msg.id, setLocalData)}
-        style={{ 
-          background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', 
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
-          cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.1)', marginBottom: '8px'
-        }}
-      >
-        {isLoading ? <RefreshCw size={24} className="animate-spin" /> : (
-          <>
-            {msg.type === 'image' && <ImageIcon size={30} opacity={0.5} />}
-            {msg.type === 'video' && <Zap size={30} opacity={0.5} />}
-            {msg.type === 'audio' && <MessageCircle size={30} opacity={0.5} />}
-            {msg.type === 'document' && <FileText size={30} opacity={0.5} />}
-            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>نقر للتحميل {msg.type === 'audio' ? 'السمعي' : 'المرئي'}</span>
-          </>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div style={{ 
       height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)', 
@@ -582,19 +568,6 @@ export default function WhatsAppChat() {
                 backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', 
                 backgroundSize: '24px 24px'
               }}>
-                {hasMore && (
-                  <button 
-                    onClick={loadMoreMessages}
-                    style={{ 
-                      alignSelf: 'center', padding: '8px 20px', borderRadius: '20px', 
-                      background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)',
-                      fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', marginBottom: '15px' 
-                    }}
-                  >
-                    تنزيل الرسائل السابقة ⬆️
-                  </button>
-                )}
-
                 {messages.map((m, i) => {
                   const isMe = m.sender === 'me';
                   const isPicked = selectedMessage?.id === m.id;
@@ -656,12 +629,43 @@ export default function WhatsAppChat() {
                             </div>
                           ) : (
                             <>
-                              {m.hasMedia && <MediaPlaceholder msg={m} />}
-                              
+                              {m.type === 'image' && m.mediaData && (
+                                <img 
+                                  src={m.mediaData} alt="Shared" 
+                                  style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
+                                />
+                              )}
+                              {m.type === 'video' && m.mediaData && (
+                                <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                                  <video 
+                                    src={m.mediaData} 
+                                    controls 
+                                    style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
+                                  />
+                                </div>
+                              )}
+                              {m.type === 'audio' && m.mediaData && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
+                                  <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
+                                    <MessageCircle size={20} />
+                                  </div>
+                                  <audio 
+                                    src={m.mediaData} 
+                                    controls 
+                                    style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
+                                  />
+                                </div>
+                              )}
+                              {m.type === 'document' && (
+                                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                  <FileText size={24} color="#3b82f6" />
+                                  <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
+                                </div>
+                              )}
                               {(m.type === 'text' || !m.type) && (
                                 <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
                               )}
-                              {m.type !== 'text' && m.type && m.text && !m.text.includes('[') && (
+                              {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
                                  <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
                               )}
                             </>

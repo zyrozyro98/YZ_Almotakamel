@@ -119,32 +119,23 @@ async function initializeSession(employeeId, onQrGenerated) {
                          .replace(/(🔐 \*كلمة المرور:\* ).+/, '$1[بيانات مخفية للأمان]');
       }
 
-      // 1. Store heavy message data in a separate node ONLY if requested
-      const msgRef = rtdb.ref(`messages/${employeeId}/${cleanId}/${msg.key.id}`);
-      const baseMsg = {
+      const cleanId = remoteJid.split('@')[0].slice(-9);
+
+      const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
+      const msgData = {
         text: textMsg,
         type: mediaType,
-        hasMedia: mediaType !== 'text',
+        mediaData: mediaData,
         time: Date.now(),
         sender: isMe ? 'me' : 'them',
         id: msg.key.id
       };
 
-      if (mediaType !== 'text' && mediaData) {
-        // Store the heavy base64 in a dedicated media storage node
-        await rtdb.ref(`media_content/${employeeId}/${msg.key.id}`).set({
-          base64: mediaData,
-          type: mediaType,
-          fileName: msg.message.documentMessage?.fileName || 'file'
-        });
-        // We don't include mediaData in the main message stream anymore!
-      }
-
-      await msgRef.update(baseMsg);
-
-      // 2. Store lightweight metadata in chat_list (NO MEDIA DATA HERE)
-      await rtdb.ref(`chat_list/${employeeId}/${cleanId}`).update({
-        lastMessage: textMsg.substring(0, 100), // Only first 100 chars
+      // Use update with message ID to avoid duplicates and allow API to set sender info
+      await chatRef.child('messages').child(msg.key.id).update(msgData);
+      
+      await chatRef.update({
+        lastMessage: textMsg, 
         timestamp: Date.now(), 
         phone: cleanId, 
         fullJid: remoteJid, 

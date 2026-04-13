@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { PhotoSenderProvider } from './context/PhotoSenderContext';
-import { WhatsAppProvider } from './context/WhatsAppContext';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase'; // Ensure auth is exported from firebase.js
 import Login from './pages/Login';
@@ -41,9 +40,8 @@ function App() {
 
   return (
     <PhotoSenderProvider>
-      <WhatsAppProvider>
-        <BrowserRouter>
-          <Routes>
+      <BrowserRouter>
+        <Routes>
           <Route path="/login" element={currentUser ? <Navigate to="/dashboard" /> : <Login />} />
           
           <Route path="/" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
@@ -62,9 +60,8 @@ function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-    </WhatsAppProvider>
-  </PhotoSenderProvider>
-);
+    </PhotoSenderProvider>
+  );
 }
 
 export default App;
