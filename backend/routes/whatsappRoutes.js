@@ -271,43 +271,7 @@ router.post('/send-video', async (req, res) => {
     }
 });
 
-// Delete/Revoke Message
-router.post('/delete', async (req, res) => {
-  const { employeeId, phoneNumber, messageId, fromMe, fullJid } = req.body;
-  
-  if (!employeeId || !messageId || (!phoneNumber && !fullJid)) {
-    return res.status(400).json({ error: 'Missing parameters for deletion.' });
-  }
-
-  try {
-    const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) return res.status(401).json({ error: 'Session not connected' });
-
-    const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
-    
-    // Revoke message on WhatsApp
-    await sock.sendMessage(targetJid, { 
-      delete: { 
-        remoteJid: targetJid, 
-        fromMe: fromMe === true || fromMe === 'true', 
-        id: messageId 
-      } 
-    });
-
-    // Mark as deleted in RTDB for admin visibility
-    const cleanId = targetJid.split('@')[0].slice(-9);
-    await rtdb.ref(`chats/${employeeId}/${cleanId}/messages/${messageId}`).update({
-      isDeleted: true,
-      deletedAt: Date.now()
-    });
-
-    res.json({ success: true, message: 'Message revoked' });
-  } catch (error) {
-    console.error('[WA DELETE ERROR]', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
+// Admin Route: Get ALL session statuses
 router.get('/status-all', async (req, res) => {
   try {
     const sessionsPath = path.join(__dirname, '..', 'sessions');

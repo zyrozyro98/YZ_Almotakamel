@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
@@ -42,8 +42,6 @@ export default function WhatsAppChat() {
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
   const [attachment, setAttachment] = useState(null); // Current selected file
   const fileInputRef = useRef(null);
-  
-  const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -116,61 +114,6 @@ export default function WhatsAppChat() {
     return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
-  const getMatchKey = useCallback((p) => String(p || '').replace(/[^0-9]/g, '').slice(-9), []);
-
-  const combinedList = useMemo(() => {
-    const studentMap = new Map();
-    students.forEach(s => {
-      const key = getMatchKey(s.phone);
-      if (key) studentMap.set(key, { ...s, matchKey: key });
-    });
-
-    const result = Array.from(studentMap.values());
-    const seenKeys = new Set(studentMap.keys());
-
-    activeChats.forEach(chat => {
-      const key = getMatchKey(chat.phone);
-      if (key && !seenKeys.has(key)) {
-        result.push({
-          id: chat.phone,
-          name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
-          phone: chat.phone,
-          matchKey: key,
-          fullJid: chat.fullJid,
-          isUnknown: true,
-          lastMessage: chat.lastMessage,
-          timestamp: chat.timestamp
-        });
-        seenKeys.add(key);
-      }
-    });
-
-    const activeMap = new Map();
-    activeChats.forEach(c => activeMap.set(getMatchKey(c.phone), c));
-
-    return result.map(item => {
-      const active = activeMap.get(item.matchKey);
-      return {
-        ...item,
-        fullJid: active?.fullJid || item.fullJid,
-        lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
-        timestamp: active?.timestamp || item.timestamp || 0
-      };
-    }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  }, [students, activeChats, isAdmin, getMatchKey]);
-
-  const filteredSidebar = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return combinedList.filter(item => {
-      const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
-      if (sidebarTab === 'chats' || !isAdmin) {
-        return matchesSearch && item.timestamp > 0;
-      } else {
-        return matchesSearch && !item.isUnknown;
-      }
-    });
-  }, [combinedList, searchQuery, sidebarTab, isAdmin]);
-
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
@@ -199,14 +142,14 @@ export default function WhatsAppChat() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const selectId = params.get('select');
-    if (selectId && combinedList.length > 0) {
-      const target = combinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+    if (selectId && combinedList().length > 0) {
+      const target = combinedList().find(c => getMatchKey(c.phone) === getMatchKey(selectId));
       if (target) {
         setSelectedChat(target);
         if (isMobile) setView('chat');
       }
     }
-  }, [location.search, combinedList, getMatchKey, isMobile]);
+  }, [location.search, students, activeChats]);
 
   const formatMessageDate = (timestamp) => {
     const d = new Date(timestamp);
@@ -218,6 +161,46 @@ export default function WhatsAppChat() {
     if (diffDays < 7) return d.toLocaleDateString('ar-SA', { weekday: 'long' });
     return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric' });
   };
+
+  const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
+
+  const combinedList = () => {
+    const list = [...students];
+    activeChats.forEach(chat => {
+      const exists = students.find(s => getMatchKey(s.phone) === getMatchKey(chat.phone));
+      if (!exists) {
+        list.push({
+          id: chat.phone,
+          name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
+          phone: chat.phone,
+          fullJid: chat.fullJid, // CARRY THE JID
+          isUnknown: true,
+          lastMessage: chat.lastMessage,
+          timestamp: chat.timestamp
+        });
+      }
+    });
+    return list.map(item => {
+      const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
+      return {
+        ...item,
+        fullJid: active?.fullJid || item.fullJid, // ATTACH JID IF AVAILABLE
+        lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
+        timestamp: active?.timestamp || item.timestamp || 0
+      };
+    }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  };
+
+  const filteredSidebar = combinedList().filter(item => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = item.name?.toLowerCase().includes(q) || item.phone?.includes(q) || item.university?.toLowerCase().includes(q);
+    
+    if (sidebarTab === 'chats' || !isAdmin) {
+      return matchesSearch && item.timestamp > 0;
+    } else {
+      return matchesSearch && !item.isUnknown;
+    }
+  });
 
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
@@ -381,23 +364,6 @@ export default function WhatsAppChat() {
       alert('تم حفظ الإيصال بنجاح');
       setActiveModal(null);
     } catch (err) { alert('خطأ في حفظ الإيصال'); }
-  };
-
-  const handleDeleteMessage = async (msg) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذه الرسالة لدى الجميع؟')) return;
-    try {
-      const targetId = isAdmin ? viewingEmployeeId : employeeId;
-      await axios.post(`${BASE_URL}/api/whatsapp/delete`, {
-        employeeId: targetId,
-        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
-        fullJid: selectedChat.fullJid,
-        messageId: msg.id,
-        fromMe: msg.sender === 'me'
-      });
-      setActiveMessageId(null);
-    } catch (err) {
-      alert('فشل الحذف: ' + (err.response?.data?.error || err.message));
-    }
   };
 
   return (
@@ -584,93 +550,67 @@ export default function WhatsAppChat() {
                       )}
                       
                       <div 
-                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px', position: 'relative' }} 
+                        style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }} 
                         onClick={() => {
                           if (isSelectingMessage) {
                             setSelectedMessage(m);
                             setIsSelectingMessage(false);
                             setActiveModal('receipt');
-                          } else if (m.sender === 'me' && !m.isDeleted) {
-                            setActiveMessageId(activeMessageId === m.id ? null : m.id);
                           }
                         }}
                       >
-                        {/* Delete Button Overlay */}
-                        {activeMessageId === m.id && !m.isDeleted && (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteMessage(m); }}
-                            style={{ 
-                              position: 'absolute', [isMe ? 'right' : 'left']: '-45px', top: '50%', transform: 'translateY(-50%)',
-                              background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '50%', padding: '10px',
-                              boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)', transition: '0.2s', zIndex: 10
-                            }}
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-
                         <div style={{ 
                           maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px', 
-                          background: m.isDeleted ? (isAdmin ? 'rgba(30,41,59,0.5)' : 'transparent') : (isMe ? '#065f46' : '#1e293b'), 
-                          color: m.isDeleted ? 'rgba(255,255,255,0.3)' : '#fff',
-                          border: m.isDeleted ? '1px dashed rgba(255,255,255,0.1)' : 'none',
+                          background: isMe ? '#065f46' : '#1e293b', 
+                          color: '#fff',
                           borderTopRightRadius: isMe ? '2px' : '12px', 
                           borderTopLeftRadius: isMe ? '12px' : '2px',
-                          boxShadow: m.isDeleted ? 'none' : '0 2px 5px rgba(0,0,0,0.1)',
-                          cursor: (isSelectingMessage || (isMe && !m.isDeleted)) ? 'pointer' : 'default',
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                          cursor: isSelectingMessage ? 'pointer' : 'default',
+                          border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
                           position: 'relative',
                           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                           overflow: 'hidden'
                         }}>
-                          {m.isDeleted ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontStyle: 'italic', fontSize: '0.8rem' }}>
-                              <Trash2 size={14} />
-                              {isAdmin ? `رسالة ملغاة: ${m.text || 'محتوى مجهول'}` : 'تم حذف هذه الرسالة'}
-                            </div>
-                          ) : (
-                            <>
-                              {m.type === 'image' && m.mediaData && (
-                                <img 
-                                  src={m.mediaData} alt="Shared" 
-                                  style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
-                                />
-                              )}
-                              {m.type === 'video' && m.mediaData && (
-                                <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
-                                  <video 
-                                    src={m.mediaData} 
-                                    controls 
-                                    style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
-                                  />
-                                </div>
-                              )}
-                              {m.type === 'audio' && m.mediaData && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
-                                  <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
-                                    <MessageCircle size={20} />
-                                  </div>
-                                  <audio 
-                                    src={m.mediaData} 
-                                    controls 
-                                    style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
-                                  />
-                                </div>
-                              )}
-                              {m.type === 'document' && (
-                                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                                  <FileText size={24} color="#3b82f6" />
-                                  <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
-                                </div>
-                              )}
-                              {(m.type === 'text' || !m.type) && (
-                                <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
-                              )}
-                              {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
-                                 <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
-                              )}
-                            </>
+                          {m.type === 'image' && m.mediaData && (
+                            <img 
+                              src={m.mediaData} alt="Shared" 
+                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
+                            />
                           )}
-                          
+                          {m.type === 'video' && m.mediaData && (
+                            <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                              <video 
+                                src={m.mediaData} 
+                                controls 
+                                style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
+                              />
+                            </div>
+                          )}
+                          {m.type === 'audio' && m.mediaData && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
+                              <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
+                                <MessageCircle size={20} />
+                              </div>
+                              <audio 
+                                src={m.mediaData} 
+                                controls 
+                                style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
+                              />
+                            </div>
+                          )}
+                          {m.type === 'document' && (
+                            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                              <FileText size={24} color="#3b82f6" />
+                              <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
+                            </div>
+                          )}
+                          {(m.type === 'text' || !m.type) && (
+                            <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
+                          )}
+                          {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
+                             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
+                          )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', justifyContent: 'flex-end', borderTop: isMe && m.senderName ? '1px solid rgba(255,255,255,0.1)' : 'none', paddingTop: isMe && m.senderName ? '4px' : '0' }}>
                             {isMe && m.senderName && (
                               <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, marginRight: 'auto' }}>
@@ -680,7 +620,7 @@ export default function WhatsAppChat() {
                             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
                               {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                             </span>
-                            {isMe && !m.isDeleted && <CheckCheck size={14} style={{ color: '#34d399' }} />}
+                            {isMe && <CheckCheck size={14} style={{ color: '#34d399' }} />}
                           </div>
                         </div>
                       </div>
