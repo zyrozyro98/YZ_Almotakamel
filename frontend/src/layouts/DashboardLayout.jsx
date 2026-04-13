@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio } from 'lucide-react';
 import { rtdb, auth } from '../firebase';
 import { ref, onValue, update } from 'firebase/database';
@@ -10,7 +10,6 @@ export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
-  const navigate = useNavigate();
 
   // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
@@ -67,8 +66,8 @@ export default function DashboardLayout() {
       update(ref(rtdb, `notifications/${employeeId}/${n.id}`), { read: true });
     }
 
-    // 2. Navigate to chat with the target chatId INSTANTLY
-    navigate(`/chat?select=${notif.chatId}`);
+    // 2. Navigate to chat with the target chatId
+    window.location.href = `/chat?select=${notif.chatId}`;
     setShowDropdown(false);
   };
 
