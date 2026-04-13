@@ -335,6 +335,32 @@ router.get('/get-media/:employeeId/:messageId', async (req, res) => {
   }
 });
 
+// MIGRATION: Sync old chats to new chat_list
+router.post('/sync-existing', async (req, res) => {
+  const { employeeId } = req.body;
+  if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+  try {
+    const snap = await rtdb.ref(`chats/${employeeId}`).once('value');
+    const oldChats = snap.val();
+    if (!oldChats) return res.json({ message: 'No old chats found' });
+
+    const updates = {};
+    Object.entries(oldChats).forEach(([chatId, data]) => {
+      updates[`chat_list/${employeeId}/${chatId}`] = {
+        name: data.name || data.phone || chatId,
+        phone: data.phone || chatId,
+        fullJid: data.fullJid || `${data.phone || chatId}@s.whatsapp.net`,
+        lastMessage: data.lastMessage?.substring(0, 100) || "محادثة قديمة",
+        timestamp: data.timestamp || Date.now(),
+        lastSender: data.lastSender || 'them'
+      };
+    });
+    
+    await rtdb.ref().update(updates);
+    res.json({ success: true, count: Object.keys(updates).length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/status-all', async (req, res) => {
   try {
     const sessionsPath = path.join(__dirname, '..', 'sessions');

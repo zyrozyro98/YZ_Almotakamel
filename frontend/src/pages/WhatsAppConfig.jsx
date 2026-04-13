@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle } from 'lucide-react';
+import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle, Database } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
@@ -117,6 +117,18 @@ export default function WhatsAppConfig() {
     } catch (err) { console.error('Logout failed:', err); } finally { setLoading(false); }
   };
 
+  const handleSyncAll = async () => {
+    if (!window.confirm('سيقوم هذا بتحديث ملخصات كافة الدردشات لزيادة سرعة النظام للجميع. هل تود الاستمرار؟')) return;
+    setLoading(true);
+    try {
+      const activeTarget = isAdmin ? targetEmployeeId : employeeId;
+      await axios.post(`${BASE_URL}/api/whatsapp/sync-existing`, { employeeId: activeTarget });
+      alert('تمت مزامنة البيانات بنجاح! سيلاحظ الجميع الآن سرعة فورية في تحميل القوائم.');
+    } catch (err) { 
+      alert('فشل المزامنة: ' + err.message);
+    } finally { setLoading(false); }
+  };
+
   if (loading && waStatus === 'checking') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
@@ -194,6 +206,17 @@ export default function WhatsAppConfig() {
                 <button onClick={initWhatsApp} disabled={loading} className="btn-primary" style={{ width: '100%', padding: '15px' }}>
                   <Zap size={20} /> {waStatus === 'connected' ? 'إعادة ربط الجلسة' : 'ربط جديد وتوليد QR'}
                 </button>
+
+                {isAdmin && (
+                  <button 
+                    onClick={handleSyncAll} 
+                    disabled={loading} 
+                    className="btn-secondary" 
+                    style={{ width: '100%', marginTop: '15px', color: 'var(--brand-primary)', borderColor: 'rgba(59,130,246,0.3)' }}
+                  >
+                    <Database size={18} /> مزامنة القوائم القديمة
+                  </button>
+                )}
               </>
             )}
           </div>
