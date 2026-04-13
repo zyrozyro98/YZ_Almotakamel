@@ -142,35 +142,15 @@ async function initializeSession(employeeId, onQrGenerated) {
 
       await msgRef.update(baseMsg);
 
-      // 3. Unified Global Feed for Admins
-      await rtdb.ref(`unified_messages/${cleanId}/${msg.key.id}`).update({
-        ...baseMsg,
-        employeeId: employeeId
-      });
-
-      await rtdb.ref(`unified_chat_list/${cleanId}`).update({
-        lastMessage: textMsg.substring(0, 100),
-        timestamp: Date.now(),
-        name: pushName,
-        lastEmployeeId: employeeId,
-        lastSender: isMe ? 'me' : 'them'
-      });
-
       // 2. Store lightweight metadata in chat_list (NO MEDIA DATA HERE)
-      const chatListRef = rtdb.ref(`chat_list/${employeeId}/${cleanId}`);
-      await chatListRef.update({
-        lastMessage: textMsg.substring(0, 100), 
+      await rtdb.ref(`chat_list/${employeeId}/${cleanId}`).update({
+        lastMessage: textMsg.substring(0, 100), // Only first 100 chars
         timestamp: Date.now(), 
         phone: cleanId, 
         fullJid: remoteJid, 
         name: pushName,
         lastSender: isMe ? 'me' : 'them'
       });
-
-      if (!isMe) {
-        // Increment unread count for incoming messages
-        await chatListRef.child('unreadCount').transaction((count) => (count || 0) + 1);
-      }
 
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
