@@ -61,7 +61,9 @@ export default function WhatsAppChat() {
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
     
     // PAGINATION: Only fetch the last N messages
-    const messagesRef = query(ref(rtdb, `messages/${targetId}/${cleanId}`), limitToLast(messageLimit));
+    // ADMIN FIX: If admin, fetch from UNIFIED node to see ALL messages (including Photo Sender rotation)
+    const messagesPath = isAdmin ? `unified_messages/${cleanId}` : `messages/${targetId}/${cleanId}`;
+    const messagesRef = query(ref(rtdb, messagesPath), limitToLast(messageLimit));
     
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
