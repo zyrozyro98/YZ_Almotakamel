@@ -3,6 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio } from 'lucide-react';
 import { rtdb, auth } from '../firebase';
 import { ref, onValue, update } from 'firebase/database';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
@@ -13,7 +14,7 @@ export default function DashboardLayout() {
 
   // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(user => {
+    const unsubAuth = onAuthStateChanged(auth, user => {
       if (user) {
         // GOLDEN KEY: Use auth.uid instead of email parts
         const id = user.uid;

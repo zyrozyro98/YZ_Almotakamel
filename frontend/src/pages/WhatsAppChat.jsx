@@ -9,6 +9,7 @@ import {
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
+import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
 
@@ -52,7 +53,7 @@ export default function WhatsAppChat() {
   }, []);
 
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(user => {
+    const unsubAuth = onAuthStateChanged(auth, user => {
       if (user) {
         setEmployeeId(user.uid);
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
@@ -137,20 +138,6 @@ export default function WhatsAppChat() {
     }
   }, [messages, selectedChat]);
 
-  // Handle URL Selection (from Notification)
-  const location = useLocation();
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const selectId = params.get('select');
-    if (selectId && memoizedCombinedList.length > 0) {
-      const target = memoizedCombinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
-      if (target) {
-        setSelectedChat(target);
-        if (isMobile) setView('chat');
-      }
-    }
-  }, [location.search, memoizedCombinedList, isMobile]);
-
   const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
 
   // Memoized Combined List for Performance
@@ -192,6 +179,20 @@ export default function WhatsAppChat() {
     return Array.from(studentMap.values())
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }, [students, activeChats, isAdmin]);
+
+  // Handle URL Selection (from Notification)
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const selectId = params.get('select');
+    if (selectId && memoizedCombinedList.length > 0) {
+      const target = memoizedCombinedList.find(c => getMatchKey(c.phone) === getMatchKey(selectId));
+      if (target) {
+        setSelectedChat(target);
+        if (isMobile) setView('chat');
+      }
+    }
+  }, [location.search, memoizedCombinedList, isMobile]);
 
   const filteredSidebar = React.useMemo(() => {
     const q = searchQuery.toLowerCase();

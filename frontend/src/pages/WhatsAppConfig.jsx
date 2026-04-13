@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onValue } from 'firebase/database';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
@@ -18,7 +19,7 @@ export default function WhatsAppConfig() {
 
   // 1. GOLDEN KEY: Auth Listener using UID
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(user => {
+    const unsubAuth = onAuthStateChanged(auth, user => {
       if (user) {
         setEmployeeId(user.uid);
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';

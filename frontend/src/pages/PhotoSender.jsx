@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User } from 'lucide-react';
 import axios from 'axios';
 import { db, auth } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot } from 'firebase/firestore';
 
 export default function PhotoSender() {
@@ -22,7 +23,7 @@ export default function PhotoSender() {
   }, [isAdmin]);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
+    const unsub = onAuthStateChanged(auth, user => {
       if (user) {
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setIsAdmin(adminStatus);
