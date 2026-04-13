@@ -40,6 +40,9 @@ export default function WhatsAppChat() {
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
   const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
   
+  const [attachment, setAttachment] = useState(null); // Missing state
+  const fileInputRef = useRef(null); // Missing ref
+  
   // Pagination & Lazy Loading
   const [messageLimit, setMessageLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
