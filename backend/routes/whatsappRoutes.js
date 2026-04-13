@@ -335,6 +335,17 @@ router.get('/get-media/:employeeId/:messageId', async (req, res) => {
   }
 });
 
+router.post('/mark-read', async (req, res) => {
+  const { employeeId, phoneNumber, fullJid } = req.body;
+  const chatId = fullJid ? fullJid.split('@')[0].slice(-9) : phoneNumber.slice(-9);
+  try {
+    await rtdb.ref(`chat_list/${employeeId}/${chatId}`).update({ unreadCount: 0 });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/status-all', async (req, res) => {
   try {
     const sessionsPath = path.join(__dirname, '..', 'sessions');

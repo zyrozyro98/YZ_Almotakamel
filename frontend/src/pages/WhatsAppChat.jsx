@@ -94,8 +94,7 @@ export default function WhatsAppChat() {
     if (selectId && combinedList().length > 0) {
       const target = combinedList().find(c => getMatchKey(c.phone) === getMatchKey(selectId));
       if (target) {
-        setSelectedChat(target);
-        if (isMobile) setView('chat');
+        handleSelectChat(target);
       }
     }
   }, [location.search, students, activeChats]);
@@ -122,10 +121,11 @@ export default function WhatsAppChat() {
           id: chat.phone,
           name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
           phone: chat.phone,
-          fullJid: chat.fullJid, // CARRY THE JID
+          fullJid: chat.fullJid,
           isUnknown: true,
           lastMessage: chat.lastMessage,
-          timestamp: chat.timestamp
+          timestamp: chat.timestamp,
+          unreadCount: chat.unreadCount || 0
         });
       }
     });
@@ -133,11 +133,27 @@ export default function WhatsAppChat() {
       const active = activeChats.find(c => getMatchKey(c.phone) === getMatchKey(item.phone));
       return {
         ...item,
-        fullJid: active?.fullJid || item.fullJid, // ATTACH JID IF AVAILABLE
+        fullJid: active?.fullJid || item.fullJid,
         lastMessage: active?.lastMessage || item.lastMessage || 'لا توجد رسائل',
-        timestamp: active?.timestamp || item.timestamp || 0
+        timestamp: active?.timestamp || item.timestamp || 0,
+        unreadCount: active?.unreadCount || item.unreadCount || 0
       };
     }).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  };
+
+  const handleSelectChat = (chat) => {
+    setSelectedChat(chat);
+    setView('chat');
+
+    // Reset unread count on selection
+    if (chat.unreadCount > 0) {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      axios.post(`${BASE_URL}/api/whatsapp/mark-read`, {
+        employeeId: targetId,
+        fullJid: chat.fullJid,
+        phoneNumber: chat.phone
+      }).catch(err => console.error('Failed to mark read', err));
+    }
   };
 
   const filteredSidebar = combinedList().filter(item => {
@@ -178,11 +194,8 @@ export default function WhatsAppChat() {
   };
 
   const openEditModal = () => {
-    // Live Search in students list for match
     const student = students.find(s => getMatchKey(s.phone) === getMatchKey(selectedChat?.phone));
-    
     if (!student) return alert('هذا الطالب غير مسجل في النظام حالياً. يرجى إضافته أولاً.');
-    
     setFormData({ ...student });
     setActiveModal('edit');
   };
@@ -355,10 +368,8 @@ export default function WhatsAppChat() {
     const [localData, setLocalData] = useState(msg.mediaData || null);
     const isLoading = mediaLoading[msg.id];
 
-    // AUTO-LOAD LOGIC for Voice Recordings
     useEffect(() => {
       if (msg.type === 'audio' && !localData) {
-        // Find index of this audio among all audio messages
         const audios = messages.filter(m => m.type === 'audio');
         const audioIdx = audios.findIndex(m => m.id === msg.id);
         const isRecentAudio = audioIdx >= audios.length - 3;
@@ -488,12 +499,12 @@ export default function WhatsAppChat() {
             )}
           </div>
           <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
-            {filteredSidebar.map(item => (
-              <div key={item.id} onClick={() => { setSelectedChat(item); if (isMobile) setView('chat'); }} style={{ 
+            {filteredSidebar.map(chat => (
+              <div key={chat.id} onClick={() => handleSelectChat(chat)} style={{ 
                 padding: '12px 20px', 
                 cursor: 'pointer', 
-                background: selectedChat?.id === item.id ? 'rgba(59,130,246,0.1)' : 'transparent', 
-                borderRight: selectedChat?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
+                background: selectedChat?.id === chat.id ? 'rgba(59,130,246,0.1)' : 'transparent', 
+                borderRight: selectedChat?.id === chat.id ? '4px solid #3b82f6' : '4px solid transparent',
                 transition: '0.2s'
               }}>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
@@ -503,13 +514,32 @@ export default function WhatsAppChat() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center', 
                     color: '#fff', fontWeight: 900, fontSize: '1.1rem',
                     boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
-                  }}>{item.name?.substring(0, 1)}</div>
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                       <h4 style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>{item.name}</h4>
-                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                  }}>{chat.name?.substring(0, 1)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: chat.unreadCount > 0 ? 800 : 700, fontSize: '0.95rem', color: '#fff' }}>{chat.name || chat.phone}</span>
+                      <span style={{ fontSize: '0.7rem', color: chat.unreadCount > 0 ? '#22c55e' : 'rgba(255,255,255,0.4)', fontWeight: chat.unreadCount > 0 ? 800 : 400 }}>
+                        {chat.timestamp ? new Date(chat.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
                     </div>
-                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <p style={{ 
+                        margin: 0, fontSize: '0.8rem', color: chat.unreadCount > 0 ? '#f8fafc' : 'rgba(255,255,255,0.5)', 
+                        fontWeight: chat.unreadCount > 0 ? 600 : 400,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' 
+                      }}>
+                        {chat.lastMessage || 'لا توجد رسائل'}
+                      </p>
+                      {chat.unreadCount > 0 && (
+                        <span style={{ 
+                          background: '#22c55e', color: '#fff', minWidth: '20px', height: '20px', 
+                          borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '0.7rem', fontWeight: 800, padding: '0 6px', boxShadow: '0 2px 5px rgba(34, 197, 94, 0.4)'
+                        }}>
+                          {chat.unreadCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

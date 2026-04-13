@@ -143,14 +143,20 @@ async function initializeSession(employeeId, onQrGenerated) {
       await msgRef.update(baseMsg);
 
       // 2. Store lightweight metadata in chat_list (NO MEDIA DATA HERE)
-      await rtdb.ref(`chat_list/${employeeId}/${cleanId}`).update({
-        lastMessage: textMsg.substring(0, 100), // Only first 100 chars
+      const chatListRef = rtdb.ref(`chat_list/${employeeId}/${cleanId}`);
+      await chatListRef.update({
+        lastMessage: textMsg.substring(0, 100), 
         timestamp: Date.now(), 
         phone: cleanId, 
         fullJid: remoteJid, 
         name: pushName,
         lastSender: isMe ? 'me' : 'them'
       });
+
+      if (!isMe) {
+        // Increment unread count for incoming messages
+        await chatListRef.child('unreadCount').transaction((count) => (count || 0) + 1);
+      }
 
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
