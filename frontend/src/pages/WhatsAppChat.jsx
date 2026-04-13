@@ -38,9 +38,10 @@ export default function WhatsAppChat() {
   const [showPass, setShowPass] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
-  const [attachment, setAttachment] = useState(null); // Current selected file
-  const fileInputRef = useRef(null);
   const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
+  
+  const [attachment, setAttachment] = useState(null); 
+  const fileInputRef = useRef(null);
   
   // Pagination & Lazy Loading
   const [messageLimit, setMessageLimit] = useState(10);
