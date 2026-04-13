@@ -119,18 +119,28 @@ async function initializeSession(employeeId, onQrGenerated) {
                          .replace(/(🔐 \*كلمة المرور:\* ).+/, '$1[بيانات مخفية للأمان]');
       }
 
-      const cleanId = remoteJid.split('@')[0].slice(-9);
-
-      // 1. Store heavy message data in a separate node
+      // 1. Store heavy message data in a separate node ONLY if requested
       const msgRef = rtdb.ref(`messages/${employeeId}/${cleanId}/${msg.key.id}`);
-      await msgRef.update({
+      const baseMsg = {
         text: textMsg,
         type: mediaType,
-        mediaData: mediaData,
+        hasMedia: mediaType !== 'text',
         time: Date.now(),
         sender: isMe ? 'me' : 'them',
         id: msg.key.id
-      });
+      };
+
+      if (mediaType !== 'text' && mediaData) {
+        // Store the heavy base64 in a dedicated media storage node
+        await rtdb.ref(`media_content/${employeeId}/${msg.key.id}`).set({
+          base64: mediaData,
+          type: mediaType,
+          fileName: msg.message.documentMessage?.fileName || 'file'
+        });
+        // We don't include mediaData in the main message stream anymore!
+      }
+
+      await msgRef.update(baseMsg);
 
       // 2. Store lightweight metadata in chat_list (NO MEDIA DATA HERE)
       await rtdb.ref(`chat_list/${employeeId}/${cleanId}`).update({

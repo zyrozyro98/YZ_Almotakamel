@@ -163,13 +163,16 @@ router.post('/send-image', async (req, res) => {
     const msgData = {
       text: caption || "📷 صورة",
       type: "image",
-      mediaData: base64Image,
+      hasMedia: true,
       time: Date.now(),
       sender: "me",
       id: result.key.id,
       senderName: senderName || "نظام",
       senderId: senderId || "system"
     };
+
+    // Store media content separately
+    await rtdb.ref(`media_content/${employeeId}/${result.key.id}`).set({ base64: base64Image, type: 'image' });
 
     await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
 
@@ -206,15 +209,20 @@ router.post('/send-document', async (req, res) => {
     const chatId = targetJid.split('@')[0].slice(-9);
 
     const msgData = {
-      text: caption || "📎 ملف الدورة",
+      text: caption || "📎 ملف",
       type: "document",
-      mediaData: base64File,
+      hasMedia: true,
       time: Date.now(),
       sender: "me",
       id: result.key.id,
       senderName: senderName || "نظام",
       senderId: senderId || "system"
     };
+
+    // Store media content separately
+    await rtdb.ref(`media_content/${employeeId}/${result.key.id}`).set({ 
+       base64: base64File, type: 'document', fileName: fileName || 'file' 
+    });
 
     await rtdb.ref(`messages/${employeeId}/${chatId}/${result.key.id}`).update(msgData).catch(() => {});
 
@@ -312,6 +320,18 @@ router.post('/delete', async (req, res) => {
   } catch (error) {
     console.error('[WA DELETE ERROR]', error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET MEDIA CONTENT ON DEMAND
+router.get('/get-media/:employeeId/:messageId', async (req, res) => {
+  const { employeeId, messageId } = req.params;
+  try {
+    const snap = await rtdb.ref(`media_content/${employeeId}/${messageId}`).once('value');
+    if (!snap.exists()) return res.status(404).json({ error: 'Media not found or expired' });
+    res.json(snap.val());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

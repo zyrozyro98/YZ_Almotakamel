@@ -8,8 +8,8 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { ref, onValue, query, limitToLast, orderByKey } from 'firebase/database';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query as fsQuery, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
 import { useWhatsApp } from '../context/WhatsAppContext';
 
@@ -38,10 +38,12 @@ export default function WhatsAppChat() {
   const [showPass, setShowPass] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false); 
-  const [attachment, setAttachment] = useState(null); // Current selected file
-  const fileInputRef = useRef(null);
-  
   const [activeMessageId, setActiveMessageId] = useState(null); // For showing delete icon
+  
+  // Pagination & Lazy Loading
+  const [messageLimit, setMessageLimit] = useState(10);
+  const [hasMore, setHasMore] = useState(true);
+  const [mediaLoading, setMediaLoading] = useState({}); // { [msgId]: boolean }
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -57,16 +59,24 @@ export default function WhatsAppChat() {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    const messagesRef = ref(rtdb, `messages/${targetId}/${cleanId}`);
+    
+    // PAGINATION: Only fetch the last N messages
+    const messagesRef = query(ref(rtdb, `messages/${targetId}/${cleanId}`), limitToLast(messageLimit));
+    
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
-        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
-      } else setMessages([]);
+        const sorted = list.sort((a, b) => (a.time || 0) - (b.time || 0));
+        setMessages(sorted);
+        setHasMore(sorted.length >= messageLimit);
+      } else {
+        setMessages([]);
+        setHasMore(false);
+      }
     });
     return () => unsubMsg();
-  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin, messageLimit]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -322,6 +332,85 @@ export default function WhatsAppChat() {
     }
   };
 
+  const loadMoreMessages = () => {
+    setMessageLimit(prev => prev + 10);
+  };
+
+  const loadMedia = async (msgId, callback) => {
+    if (mediaLoading[msgId]) return;
+    setMediaLoading(prev => ({ ...prev, [msgId]: true }));
+    try {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      const res = await axios.get(`${BASE_URL}/api/whatsapp/get-media/${targetId}/${msgId}`);
+      if (callback) callback(res.data.base64);
+    } catch (err) {
+      console.error('Failed to load media', err);
+    } finally {
+      setMediaLoading(prev => ({ ...prev, [msgId]: false }));
+    }
+  };
+
+  // Lazy Media Component
+  const MediaPlaceholder = ({ msg, onLoaded }) => {
+    const [localData, setLocalData] = useState(msg.mediaData || null);
+    const isLoading = mediaLoading[msg.id];
+
+    // AUTO-LOAD LOGIC for Voice Recordings
+    useEffect(() => {
+      if (msg.type === 'audio' && !localData) {
+        // Find index of this audio among all audio messages
+        const audios = messages.filter(m => m.type === 'audio');
+        const audioIdx = audios.findIndex(m => m.id === msg.id);
+        const isRecentAudio = audioIdx >= audios.length - 3;
+
+        if (!isAdmin && isRecentAudio) {
+          loadMedia(msg.id, setLocalData);
+        }
+      }
+    }, []);
+
+    if (localData) {
+      if (msg.type === 'image') return <img src={localData} alt="Loaded" style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} />;
+      if (msg.type === 'video') return <video src={localData} controls style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000', borderRadius: '8px', marginBottom: '8px' }} />;
+      if (msg.type === 'audio') return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
+          <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
+            <MessageCircle size={20} />
+          </div>
+          <audio src={localData} controls style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }} />
+        </div>
+      );
+      if (msg.type === 'document') return (
+        <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+          <FileText size={24} color="#3b82f6" />
+          <span style={{ fontSize: '0.8rem' }}>{msg.text}</span>
+          <a href={localData} download={msg.fileName || 'file'} style={{ marginRight: 'auto', background: '#3b82f6', color: '#fff', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem' }}>حفظ</a>
+        </div>
+      );
+    }
+
+    return (
+      <div 
+        onClick={() => loadMedia(msg.id, setLocalData)}
+        style={{ 
+          background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '20px', 
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+          cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.1)', marginBottom: '8px'
+        }}
+      >
+        {isLoading ? <RefreshCw size={24} className="animate-spin" /> : (
+          <>
+            {msg.type === 'image' && <ImageIcon size={30} opacity={0.5} />}
+            {msg.type === 'video' && <Zap size={30} opacity={0.5} />}
+            {msg.type === 'audio' && <MessageCircle size={30} opacity={0.5} />}
+            {msg.type === 'document' && <FileText size={30} opacity={0.5} />}
+            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>نقر للتحميل {msg.type === 'audio' ? 'السمعي' : 'المرئي'}</span>
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ 
       height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)', 
@@ -490,6 +579,19 @@ export default function WhatsAppChat() {
                 backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0)', 
                 backgroundSize: '24px 24px'
               }}>
+                {hasMore && (
+                  <button 
+                    onClick={loadMoreMessages}
+                    style={{ 
+                      alignSelf: 'center', padding: '8px 20px', borderRadius: '20px', 
+                      background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)',
+                      fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', marginBottom: '15px' 
+                    }}
+                  >
+                    تنزيل الرسائل السابقة ⬆️
+                  </button>
+                )}
+
                 {messages.map((m, i) => {
                   const isMe = m.sender === 'me';
                   const isPicked = selectedMessage?.id === m.id;
@@ -551,43 +653,12 @@ export default function WhatsAppChat() {
                             </div>
                           ) : (
                             <>
-                              {m.type === 'image' && m.mediaData && (
-                                <img 
-                                  src={m.mediaData} alt="Shared" 
-                                  style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }} 
-                                />
-                              )}
-                              {m.type === 'video' && m.mediaData && (
-                                <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
-                                  <video 
-                                    src={m.mediaData} 
-                                    controls 
-                                    style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
-                                  />
-                                </div>
-                              )}
-                              {m.type === 'audio' && m.mediaData && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
-                                  <div style={{ background: 'rgba(59,130,246,0.2)', padding: '10px', borderRadius: '50%', color: '#3b82f6' }}>
-                                    <MessageCircle size={20} />
-                                  </div>
-                                  <audio 
-                                    src={m.mediaData} 
-                                    controls 
-                                    style={{ height: '35px', maxWidth: '100%', filter: 'invert(100%) opacity(0.8)' }}
-                                  />
-                                </div>
-                              )}
-                              {m.type === 'document' && (
-                                <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                                  <FileText size={24} color="#3b82f6" />
-                                  <span style={{ fontSize: '0.8rem' }}>{m.text}</span>
-                                </div>
-                              )}
+                              {m.hasMedia && <MediaPlaceholder msg={m} />}
+                              
                               {(m.type === 'text' || !m.type) && (
                                 <p style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '0.94rem', lineHeight: 1.5, wordBreak: 'break-word', color: '#f8fafc' }}>{m.text}</p>
                               )}
-                              {m.type !== 'text' && m.type && m.text && m.text !== "[صورة]" && m.text !== "[فيديو]" && (
+                              {m.type !== 'text' && m.type && m.text && !m.text.includes('[') && (
                                  <p style={{ margin: '8px 0 0', fontSize: '0.9rem', color: '#f8fafc' }}>{m.text}</p>
                               )}
                             </>
