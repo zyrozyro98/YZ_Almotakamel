@@ -196,7 +196,8 @@ router.post('/send-image', async (req, res) => {
 
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
     
-    const chatId = targetJid.split('@')[0].slice(-9);
+    // Use the derived JID to determine final chatId
+    const finalChatId = targetJid.split('@')[0].slice(-9);
 
     const msgData = {
       text: caption || "📷 صورة",
@@ -209,12 +210,12 @@ router.post('/send-image', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update({
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
-      phone: chatId,
+      phone: finalChatId,
       fullJid: targetJid,
       lastSender: "me"
     }).catch(() => {});
