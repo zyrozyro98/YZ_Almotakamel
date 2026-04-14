@@ -266,20 +266,43 @@ router.post('/send-video', async (req, res) => {
     }
 });
 
-// Admin Route: Get ALL session statuses
-router.get('/status-all', async (req, res) => {
+// Delete Message
+router.post('/delete-message', async (req, res) => {
+  const { employeeId, phoneNumber, messageId, fullJid, isMe } = req.body;
+  if (!employeeId || !phoneNumber || !messageId) {
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+
   try {
-    const sessionsPath = path.join(__dirname, '..', 'sessions');
-    const files = fs.existsSync(sessionsPath) ? fs.readdirSync(sessionsPath) : [];
-    const sessionsFound = files.filter(f => f.startsWith('session-')).map(f => f.replace('session-', ''));
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '').slice(-9);
     
-    // Also check current active sessions in memory
-    const activeSessions = [];
-    for (const eid of sessionsFound) {
-      activeSessions.push(whatsappService.getConnectionStatus(eid));
+    // 1. Mark as deleted in RTDB (this is what ensures Admin can see it and others can't)
+    await rtdb.ref(`chats/${employeeId}/${cleanPhone}/messages/${messageId}`).update({
+      isDeleted: true,
+      deletedAt: Date.now()
+    });
+
+    // 2. Try to revoke on WhatsApp if it's our own message
+    if (isMe) {
+        try {
+            const sock = whatsappService.getSession(employeeId);
+            if (sock && sock.user) {
+                const targetJid = fullJid || `${phoneNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+                await sock.sendMessage(targetJid, { 
+                    delete: { 
+                        remoteJid: targetJid, 
+                        fromMe: true, 
+                        id: messageId 
+                    } 
+                });
+            }
+        } catch (revokeErr) {
+            console.error('[WA] Revoke failed:', revokeErr.message);
+            // We don't fail the whole request because the RTDB update is the primary goal
+        }
     }
-    
-    res.json(activeSessions);
+
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

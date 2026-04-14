@@ -4,7 +4,7 @@ import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon, Trash2, Trash
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
@@ -234,6 +234,23 @@ export default function WhatsAppChat() {
         senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
       });
     } catch (err) { console.error(err); } finally { setIsSending(false); }
+  };
+
+  const handleDeleteMessage = async (msg) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذه الرسالة؟')) return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/delete-message`, {
+        employeeId: targetId,
+        phoneNumber: selectedChat.phone,
+        messageId: msg.id,
+        fullJid: selectedChat.fullJid,
+        isMe: msg.sender === 'me'
+      });
+    } catch (err) {
+      console.error(err);
+      alert('فشل حذف الرسالة');
+    }
   };
 
   // --- Modal Logic ---
@@ -558,6 +575,9 @@ export default function WhatsAppChat() {
                   const messageDate = formatMessageDate(m.time || Date.now());
                   const prevMessageDate = i > 0 ? formatMessageDate(messages[i - 1].time || Date.now()) : null;
                   const showDateSeparator = messageDate !== prevMessageDate;
+                  const isDeleted = m.isDeleted;
+
+                  if (isDeleted && !isAdmin) return null;
 
                   return (
                     <React.Fragment key={i}>
@@ -579,7 +599,7 @@ export default function WhatsAppChat() {
                       >
                         <div style={{
                           maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px',
-                          background: isMe ? '#065f46' : '#1e293b',
+                          background: isDeleted ? '#334155' : (isMe ? '#065f46' : '#1e293b'),
                           color: '#fff',
                           borderTopRightRadius: isMe ? '2px' : '12px',
                           borderTopLeftRadius: isMe ? '12px' : '2px',
@@ -588,8 +608,37 @@ export default function WhatsAppChat() {
                           border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
                           position: 'relative',
                           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                          overflow: 'hidden'
+                          overflow: 'hidden',
+                          opacity: isDeleted ? 0.6 : 1
                         }}>
+                          {isDeleted && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '8px', color: '#94a3b8', fontSize: '0.7rem', borderBottom: '1px solid rgba(255,255,255,0.05)', pb: '4px' }}>
+                              <Trash2 size={12} />
+                              <span style={{ fontWeight: 600 }}>رسالة محذوفة</span>
+                            </div>
+                          )}
+                          {!isDeleted && !isSelectingMessage && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleDeleteMessage(m); }}
+                              style={{
+                                position: 'absolute',
+                                top: '5px',
+                                [isMe ? 'left' : 'right']: '5px',
+                                background: 'rgba(0,0,0,0.3)',
+                                border: 'none',
+                                borderRadius: '50%',
+                                padding: '4px',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                opacity: 0,
+                                transition: 'opacity 0.2s',
+                                zIndex: 10
+                              }}
+                              className="delete-msg-btn"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                           {m.type === 'image' && m.mediaData && (
                             <img
                               src={m.mediaData} alt="Shared"

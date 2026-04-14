@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, MessageSquare, User, Clock, Shield, Filter, Search, BarChart3, Radio } from 'lucide-react';
-import { rtdb, db as firestoreDb } from '../firebase';
+import { rtdb, db as firestoreDb, auth } from '../firebase';
 import { ref, onValue, limitToLast, query as rtdbQuery } from 'firebase/database';
+import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query as firestoreQuery } from 'firebase/firestore';
 
 export default function LiveMonitoring() {
@@ -14,16 +15,26 @@ export default function LiveMonitoring() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('all');
   const [employeesMap, setEmployeesMap] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(firestoreDb, 'employees'), (snap) => {
+    const unsubAuth = onAuthStateChanged(auth, user => {
+      if (user) {
+        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAdmin(false);
+      }
+    });
+
+    const unsubEmp = onSnapshot(collection(firestoreDb, 'employees'), (snap) => {
       const map = {};
       snap.docs.forEach(doc => {
         map[doc.id] = doc.data().name;
       });
       setEmployeesMap(map);
     });
-    return () => unsub();
+    return () => { unsubAuth(); unsubEmp(); };
   }, []);
 
   useEffect(() => {
@@ -78,8 +89,9 @@ export default function LiveMonitoring() {
       m.chatId?.includes(searchQuery);
     
     const matchesEmployee = selectedEmployeeId === 'all' || m.employeeId === selectedEmployeeId;
+    const isVisible = !m.isDeleted || isAdmin;
     
-    return matchesSearch && matchesEmployee;
+    return matchesSearch && matchesEmployee && isVisible;
   });
 
   return (
@@ -195,8 +207,19 @@ export default function LiveMonitoring() {
                   </td>
                   <td style={{ padding: '1.25rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{msg.chatId}</td>
                   <td style={{ padding: '1.25rem' }}>
-                    <p style={{ margin: 0, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '350px' }}>
+                    <p style={{ 
+                      margin: 0, 
+                      fontSize: '0.9rem', 
+                      whiteSpace: 'nowrap', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      maxWidth: '350px',
+                      opacity: msg.isDeleted ? 0.5 : 1,
+                      fontStyle: msg.isDeleted ? 'italic' : 'normal'
+                    }}>
+                      {msg.isDeleted && <Shield size={12} style={{ display: 'inline', marginLeft: '5px' }} />}
                       {msg.text || (msg.type === 'image' ? '🖼️ صورة' : (msg.type === 'video' ? '🎥 فيديو' : '📎 ملف'))}
+                      {msg.isDeleted && ' (محذوفة)'}
                     </p>
                   </td>
                   <td style={{ padding: '1.25rem' }}>
