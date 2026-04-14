@@ -93,10 +93,13 @@ export default function PhotoSender() {
 
       const file = filesQueue[current];
       // File name normally matches "050123... .jpg" - extract numbers only
-      const targetNumber = file.name.replace(/[^0-9]/g, '');
+      let targetNumber = file.name.replace(/[^0-9]/g, '');
+      if (targetNumber.length >= 9) {
+        targetNumber = targetNumber.slice(-9); // Use last 9 digits
+      }
 
       if (!targetNumber || targetNumber.length < 9) {
-        setLogs(prev => [{ type: 'error', num: file.name, msg: 'اسم الملف لا يحتوي على رقم هاتف صالح.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+        setLogs(prev => [{ type: 'error', num: file.name, msg: 'اسم الملف لا يحتوي على رقم هاتف صالح (على الأقل 9 أرقام).', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
         setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
       } else {
         try {

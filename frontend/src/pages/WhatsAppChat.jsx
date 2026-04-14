@@ -102,62 +102,34 @@ export default function WhatsAppChat() {
       setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
     });
 
-    // Listen to ALL Active Chats from RTDB to merge history for each student
-    const activeRef = ref(rtdb, 'chats');
+    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId) return;
+
+    const activeRef = ref(rtdb, `chats/${targetId}`);
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        // Group chats by student ID (phone) to find the latest interaction
-        const studentLatestMap = {};
-        Object.entries(data).forEach(([empId, empChats]) => {
-          Object.entries(empChats).forEach(([chatId, chatVal]) => {
-            const current = studentLatestMap[chatId];
-            if (!current || (chatVal.timestamp > current.timestamp)) {
-              studentLatestMap[chatId] = { phone: chatId, ...chatVal, sourceEmployeeId: empId };
-            }
-          });
-        });
-        setActiveChats(Object.values(studentLatestMap));
-      } else {
-        setActiveChats([]);
-      }
+      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
+      else setActiveChats([]);
     });
 
     return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
-    if (!selectedChat) return;
+    if (!selectedChat || !employeeId) return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
-    
-    // Merge chats from ALL employees for this student
-    const chatsRef = ref(rtdb, 'chats');
-    const unsubMsg = onValue(chatsRef, (snapshot) => {
-      const allData = snapshot.val();
-      if (allData) {
-        const aggregatedMessages = [];
-        Object.entries(allData).forEach(([empId, empChats]) => {
-          if (empChats[cleanId] && empChats[cleanId].messages) {
-            Object.entries(empChats[cleanId].messages).forEach(([msgId, val]) => {
-              aggregatedMessages.push({ 
-                id: msgId, 
-                ...val, 
-                sourceEmployeeId: empId // Track which employee session this came from
-              });
-            });
-          }
-        });
-        
-        // Remove duplicates (by message ID) and sort by time
-        const uniqueList = Array.from(new Map(aggregatedMessages.map(m => [m.id, m])).values());
-        setMessages(uniqueList.sort((a, b) => (a.time || 0) - (b.time || 0)));
-      } else {
-        setMessages([]);
-      }
+    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
+    const unsubMsg = onValue(messagesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
+        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
+      } else setMessages([]);
     });
-    
     return () => unsubMsg();
-  }, [selectedChat]);
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
     if (messages.length > 0) {
