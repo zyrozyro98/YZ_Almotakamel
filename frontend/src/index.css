@@ -381,6 +381,6 @@ button:disabled {
 }
 
 /* Delete message button visibility on hover */
-div:hover > .delete-msg-btn {
+div:hover > .msg-actions {
   opacity: 1 !important;
 }

@@ -72,15 +72,39 @@ router.post('/send', async (req, res) => {
     }
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
-    const result = await sock.sendMessage(targetJid, { text: message });
+    
+    let sendOptions = {};
+    if (req.body.quotedMsg) {
+      const q = req.body.quotedMsg;
+      sendOptions.quoted = {
+        key: { 
+          remoteJid: targetJid, 
+          fromMe: q.sender === 'me', 
+          id: q.id 
+        },
+        message: { conversation: q.text }
+      };
+    }
+
+    const result = await sock.sendMessage(targetJid, { text: message }, sendOptions);
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
       const chatId = targetJid.split('@')[0].slice(-9);
-      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update({
+      const updateData = {
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
-      }).catch(e => console.error('Failed to update sender info:', e.message));
+      };
+      
+      if (req.body.quotedMsg) {
+        updateData.quoted = {
+          id: req.body.quotedMsg.id,
+          text: req.body.quotedMsg.text,
+          sender: req.body.quotedMsg.sender
+        };
+      }
+
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });

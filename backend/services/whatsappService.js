@@ -119,6 +119,30 @@ async function initializeSession(employeeId, onQrGenerated) {
                          .replace(/(🔐 \*كلمة المرور:\* ).+/, '$1[بيانات مخفية للأمان]');
       }
 
+      // Extract Quoted Message Info
+      let quotedInfo = null;
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo || 
+                          msg.message?.imageMessage?.contextInfo || 
+                          msg.message?.videoMessage?.contextInfo || 
+                          msg.message?.documentMessage?.contextInfo || 
+                          msg.message?.audioMessage?.contextInfo;
+
+      if (contextInfo && contextInfo.quotedMessage) {
+        let quotedText = "";
+        const qm = contextInfo.quotedMessage;
+        if (qm.conversation) quotedText = qm.conversation;
+        else if (qm.extendedTextMessage) quotedText = qm.extendedTextMessage.text;
+        else if (qm.imageMessage) quotedText = qm.imageMessage.caption || "📷 صورة";
+        else if (qm.videoMessage) quotedText = qm.videoMessage.caption || "🎥 فيديو";
+        else if (qm.documentMessage) quotedText = qm.documentMessage.fileName || "📎 ملف";
+
+        quotedInfo = {
+          id: contextInfo.stanzaId,
+          participant: contextInfo.participant,
+          text: quotedText
+        };
+      }
+
       const cleanId = remoteJid.split('@')[0].slice(-9);
 
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
@@ -128,7 +152,8 @@ async function initializeSession(employeeId, onQrGenerated) {
         mediaData: mediaData,
         time: Date.now(),
         sender: isMe ? 'me' : 'them',
-        id: msg.key.id
+        id: msg.key.id,
+        quoted: quotedInfo
       };
 
       // Use update with message ID to avoid duplicates and allow API to set sender info

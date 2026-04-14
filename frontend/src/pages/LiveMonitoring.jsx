@@ -217,6 +217,7 @@ export default function LiveMonitoring() {
                       opacity: msg.isDeleted ? 0.5 : 1,
                       fontStyle: msg.isDeleted ? 'italic' : 'normal'
                     }}>
+                      {msg.quoted && <span style={{ color: 'var(--brand-primary)', fontWeight: 600, fontSize: '0.75rem', marginLeft: '5px' }}>↩️ {msg.quoted.text.substring(0, 20)}... |</span>}
                       {msg.isDeleted && <Shield size={12} style={{ display: 'inline', marginLeft: '5px' }} />}
                       {msg.text || (msg.type === 'image' ? '🖼️ صورة' : (msg.type === 'video' ? '🎥 فيديو' : '📎 ملف'))}
                       {msg.isDeleted && ' (محذوفة)'}

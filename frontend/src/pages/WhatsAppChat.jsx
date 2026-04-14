@@ -4,7 +4,7 @@ import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon, Trash2, Trash
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon, Trash2, Trash, Reply, CornerUpLeft, Quote
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
@@ -42,6 +42,7 @@ export default function WhatsAppChat() {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isSelectingMessage, setIsSelectingMessage] = useState(false);
   const [attachment, setAttachment] = useState(null); // Current selected file
+  const [replyingTo, setReplyingTo] = useState(null); // Message being replied to
   const fileInputRef = useRef(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -231,8 +232,14 @@ export default function WhatsAppChat() {
         message: textToSend,
         fullJid: selectedChat.fullJid,
         senderId: employeeId,
-        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف'),
+        quotedMsg: replyingTo ? {
+          id: replyingTo.id,
+          text: replyingTo.text,
+          sender: replyingTo.sender
+        } : null
       });
+      setReplyingTo(null);
     } catch (err) { console.error(err); } finally { setIsSending(false); }
   };
 
@@ -588,6 +595,7 @@ export default function WhatsAppChat() {
                       )}
 
                       <div
+                        id={`msg-${m.id}`}
                         style={{ display: 'flex', justifyContent: isMe ? 'flex-start' : 'flex-end', width: '100%', marginBottom: '2px' }}
                         onClick={() => {
                           if (isSelectingMessage) {
@@ -618,26 +626,54 @@ export default function WhatsAppChat() {
                             </div>
                           )}
                           {!isDeleted && !isSelectingMessage && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleDeleteMessage(m); }}
-                              style={{
-                                position: 'absolute',
-                                top: '5px',
-                                [isMe ? 'left' : 'right']: '5px',
-                                background: 'rgba(0,0,0,0.3)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                padding: '4px',
-                                color: '#ef4444',
-                                cursor: 'pointer',
-                                opacity: 0,
-                                transition: 'opacity 0.2s',
-                                zIndex: 10
-                              }}
-                              className="delete-msg-btn"
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                            <div style={{
+                              position: 'absolute',
+                              top: '5px',
+                              [isMe ? 'left' : 'right']: '5px',
+                              display: 'flex',
+                              gap: '4px',
+                              opacity: 0,
+                              transition: 'opacity 0.2s',
+                              zIndex: 10
+                            }} className="msg-actions">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setReplyingTo(m); }}
+                                style={{ background: 'rgba(0,0,0,0.3)', border: 'none', borderRadius: '50%', padding: '4px', color: '#fff', cursor: 'pointer' }}
+                              >
+                                <Reply size={12} />
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleDeleteMessage(m); }}
+                                style={{ background: 'rgba(0,0,0,0.3)', border: 'none', borderRadius: '50%', padding: '4px', color: '#ef4444', cursor: 'pointer' }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          )}
+                          {m.quoted && (
+                            <div style={{
+                              background: 'rgba(0,0,0,0.15)',
+                              borderRight: '3px solid #3b82f6',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              marginBottom: '8px',
+                              fontSize: '0.75rem',
+                              color: 'rgba(255,255,255,0.7)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                              cursor: 'pointer'
+                            }} onClick={() => {
+                              const target = document.getElementById(`msg-${m.quoted.id}`);
+                              if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}>
+                              <span style={{ fontWeight: 800, color: '#3b82f6', fontSize: '0.65rem' }}>
+                                {m.quoted.sender === 'me' ? 'أنت' : (selectedChat.name || 'الطرف الآخر')}
+                              </span>
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                                {m.quoted.text}
+                              </span>
+                            </div>
                           )}
                           {m.type === 'image' && m.mediaData && (
                             <img
@@ -698,6 +734,31 @@ export default function WhatsAppChat() {
               </div>
 
               <div style={{ padding: '20px', background: '#1e293b', borderTop: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
+                {replyingTo && (
+                  <div style={{
+                    padding: '10px 15px',
+                    background: 'rgba(0,0,0,0.2)',
+                    borderRight: '4px solid #3b82f6',
+                    marginBottom: '10px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    animation: 'slideUp 0.3s ease'
+                  }}>
+                    <div style={{ overflow: 'hidden' }}>
+                      <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: 800, color: '#3b82f6' }}>
+                        الرد على {replyingTo.sender === 'me' ? 'رسالتك' : selectedChat.name}
+                      </p>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {replyingTo.text}
+                      </p>
+                    </div>
+                    <button onClick={() => setReplyingTo(null)} style={{ background: 'none', border: 'none', color: '#94a3b8' }}>
+                      <X size={18} />
+                    </button>
+                  </div>
+                )}
                 {showEmojiPicker && (
                   <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000, boxShadow: '0 10px 40px rgba(0,0,0,0.6)', borderRadius: '15px' }}>
                     <Picker
