@@ -42,34 +42,7 @@ router.post('/send', async (req, res) => {
     }
 
     // 1. Resolve Target JID
-    let targetJid = fullJid;
-    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-    const chatId = cleanPhone.slice(-9);
-
-    if (!targetJid) {
-      // Try to find verified JID from RTDB
-      try {
-        const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
-        targetJid = snap.val()?.fullJid;
-      } catch(e) {}
-    }
-
-    if (!targetJid) {
-      // Still no JID? Use Guessing logic with safety
-      let finalPhone = cleanPhone;
-      
-      // If phone already has international code (966 or 967), don't touch it
-      if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
-        if (finalPhone.startsWith('05') && finalPhone.length === 10) {
-          finalPhone = '966' + finalPhone.slice(1);
-        } else if (finalPhone.startsWith('5') && finalPhone.length === 9) {
-          finalPhone = '966' + finalPhone;
-        } else if (finalPhone.startsWith('7') && finalPhone.length === 9) {
-          finalPhone = '967' + finalPhone;
-        }
-      }
-      targetJid = `${finalPhone}@s.whatsapp.net`;
-    }
+    const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
     
@@ -138,11 +111,31 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   }
 
   if (!targetJid) {
+    try {
+      // Look across all employees for this chat to find the fullJid
+      const allChatsSnap = await rtdb.ref('chats').once('value');
+      const allChats = allChatsSnap.val();
+      if (allChats) {
+        for (const empId in allChats) {
+           if (allChats[empId][chatId] && allChats[empId][chatId].fullJid) {
+             targetJid = allChats[empId][chatId].fullJid;
+             break;
+           }
+        }
+      }
+    } catch(e) {}
+  }
+
+  if (!targetJid) {
     let finalPhone = cleanPhone;
     
     // Aggressively format phone to WhatsApp canonical format
     if (finalPhone.startsWith('00')) finalPhone = finalPhone.slice(2);
     else if (finalPhone.startsWith('+')) finalPhone = finalPhone.slice(1);
+    
+    // Fix common mistake where user inputs 96605...
+    if (finalPhone.startsWith('9660')) finalPhone = '966' + finalPhone.slice(4);
+    else if (finalPhone.startsWith('9670')) finalPhone = '967' + finalPhone.slice(4);
     
     // After stripping international prefixes, evaluate SA and YE local prefixes
     if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
