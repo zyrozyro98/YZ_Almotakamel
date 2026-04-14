@@ -92,10 +92,12 @@ export default function PhotoSender() {
       if (!isRunningRef.current || isPausedRef.current) return;
 
       const file = filesQueue[current];
-      // File name normally matches "050123... .jpg" - extract numbers only
+      // Extract all numbers from the file name, removing letters, spaces, symbols and extensions
       let targetNumber = file.name.replace(/[^0-9]/g, '');
+      
+      // Extract the last 9 digits which represent the correct phone number
       if (targetNumber.length >= 9) {
-        targetNumber = targetNumber.slice(-9); // Use last 9 digits
+        targetNumber = targetNumber.slice(-9); 
       }
 
       if (!targetNumber || targetNumber.length < 9) {
