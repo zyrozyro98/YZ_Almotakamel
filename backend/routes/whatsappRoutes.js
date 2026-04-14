@@ -158,14 +158,40 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   return targetJid;
 }
 
-// Send Image
+// Send Image (with smart routing support)
 router.post('/send-image', async (req, res) => {
-  const { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
-    const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
+    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const chatId = cleanPhone.slice(-9);
 
-    const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    // Auto-Routing: Find best employee session if requested
+    if (employeeId === 'auto') {
+      employeeId = 'emp1'; // fallback default
+      try {
+        const chatsSnap = await rtdb.ref('chats').once('value');
+        if (chatsSnap.exists()) {
+          const allChats = chatsSnap.val();
+          let bestEmp = null;
+          let latestTime = 0;
+          for (const empKey in allChats) {
+            if (allChats[empKey][chatId]) {
+              const t = allChats[empKey][chatId].timestamp || 0;
+              if (t > latestTime) {
+                latestTime = t;
+                bestEmp = empKey;
+              }
+            }
+          }
+          if (bestEmp) employeeId = bestEmp;
+        }
+      } catch(e) { console.error('Auto validation failed', e); }
+    }
+
+    const sock = whatsappService.getSession(employeeId);
+    if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+
+    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
 
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
