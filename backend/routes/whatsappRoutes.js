@@ -29,13 +29,17 @@ router.post('/init', async (req, res) => {
 
 // THE REPAIRED SEND ROUTE
 router.post('/send', async (req, res) => {
-  const { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
   
   if (!employeeId || !phoneNumber || !message) {
     return res.status(400).json({ error: 'Missing required parameters.' });
   }
 
   try {
+    const { bestEmpId, bestJid } = await resolveBestSession(employeeId, phoneNumber);
+    employeeId = bestEmpId;
+    if (bestJid && !fullJid) fullJid = bestJid;
+
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) {
       return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
@@ -151,10 +155,61 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   return targetJid;
 }
 
+// Auto-route helper: Finds the most active employee session for a given student
+async function resolveBestSession(requestedEmpId, phoneNumber) {
+    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const chatId = cleanPhone.slice(-9);
+
+    let bestEmpId = requestedEmpId;
+    let bestJid = null;
+
+    try {
+        const allChatsSnap = await rtdb.ref('chats').once('value');
+        const allChats = allChatsSnap.val();
+        let latestTimestamp = 0;
+        let foundEmpId = null;
+        let foundJid = null;
+
+        if (allChats) {
+            for (const emp in allChats) {
+                if (allChats[emp][chatId]) {
+                    const ts = allChats[emp][chatId].timestamp || 0;
+                    if (ts > latestTimestamp) {
+                        // Check if this employee's session is currently active
+                        try {
+                            const sock = whatsappService.getSession(emp);
+                            if (sock && (sock.user || sock.authState?.creds?.me)) {
+                                latestTimestamp = ts;
+                                foundEmpId = emp;
+                                if (allChats[emp][chatId].fullJid) {
+                                    foundJid = allChats[emp][chatId].fullJid;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                }
+            }
+        }
+        
+        if (foundEmpId) {
+            bestEmpId = foundEmpId;
+            bestJid = foundJid;
+        }
+    } catch(e) {
+         console.error("Error auto-routing:", e);
+    }
+
+    return { bestEmpId, bestJid };
+}
+
 // Send Image
 router.post('/send-image', async (req, res) => {
-  const { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
+    const { bestEmpId, bestJid } = await resolveBestSession(employeeId, phoneNumber);
+    employeeId = bestEmpId;
+    if (bestJid && !fullJid) fullJid = bestJid;
+
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
 
@@ -192,8 +247,12 @@ router.post('/send-image', async (req, res) => {
 
 // Send Document
 router.post('/send-document', async (req, res) => {
-  const { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
   try {
+    const { bestEmpId, bestJid } = await resolveBestSession(employeeId, phoneNumber);
+    employeeId = bestEmpId;
+    if (bestJid && !fullJid) fullJid = bestJid;
+
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
 
@@ -237,14 +296,20 @@ router.post('/send-document', async (req, res) => {
 
 // 3. Send Video
 router.post('/send-video', async (req, res) => {
-    const { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
+    let { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
     if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
 
     try {
+        if (phoneNumber) {
+            const { bestEmpId, bestJid } = await resolveBestSession(employeeId, phoneNumber);
+            employeeId = bestEmpId;
+            if (bestJid && !fullJid) fullJid = bestJid;
+        }
+
         const sock = whatsappService.getSession(employeeId);
         if (!sock) return res.status(404).json({ error: 'Session not found' });
 
-        const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
+        const targetJid = fullJid || await getTargetJid(employeeId, phoneNumber, fullJid);
         const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
         const result = await sock.sendMessage(targetJid, { 
