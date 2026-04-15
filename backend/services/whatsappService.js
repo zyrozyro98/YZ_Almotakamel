@@ -143,37 +143,49 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // --- UNIFIED CHAT CONSOLIDATION (ONE STUDENT = ONE CHAT) ---
-      // 1. Normalize the JID parts (remove device suffix)
+      // --- UNIFIED CHAT CONSOLIDATION (PURE LOCAL NUMBER) ---
       const jidUser = remoteJid.split('@')[0].split(':')[0];
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
-      let cleanId = jidUser.slice(-9); // Default fall-back (9 digits)
+      // Helper to strip CC, leading zeros, and artifacts
+      const getPureNumber = (raw) => {
+        let d = raw.replace(/[^0-9]/g, '');
+        d = d.replace(/^0+/, ''); // Remove leading zeros
+        // Strip common country codes
+        if (d.startsWith('966')) d = d.slice(3);
+        else if (d.startsWith('967')) d = d.slice(3);
+        else if (d.startsWith('249')) d = d.slice(3); 
+        return d.replace(/^0+/, ''); // Final zero strip
+      };
+
+      const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+      let cleanId = isLid ? jidUser : getPureNumber(jidUser);
 
       // 2. SMART IDENTIFICATION: Link identity to Student record
       try {
-        // A. Search by exact JID Match (Verified Link)
         const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
-          if (s.phone) cleanId = s.phone.slice(-9);
+          if (s.phone) cleanId = getPureNumber(s.phone);
         } else {
-          // B. Search by Phone Match (if JID contains digits)
-          const numericUser = jidUser.replace(/[^0-9]/g, '');
-          if (numericUser.length >= 9) {
-            const potentialPhone = numericUser.slice(-9);
-            const phoneMatch = await db.collection('students').where('phone', '==', potentialPhone).get();
-            if (!phoneMatch.empty) {
-              cleanId = potentialPhone;
-              // Auto-Link this specific JID identity to the student record for future consistency
-              await phoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => {});
+          // If it's a numeric JID, try matching to registered phone
+          if (!isLid) {
+            const pureIncoming = getPureNumber(jidUser);
+            // Search Firestore for student with same pure phone
+            // (Assumes stored phone is already clean or we clean it in query)
+            const studentsSnap = await db.collection('students').get();
+            const matchedStudent = studentsSnap.docs.find(doc => getPureNumber(doc.data().phone) === pureIncoming);
+            
+            if (matchedStudent) {
+              cleanId = pureIncoming;
+              await matchedStudent.ref.update({ fullJid: normalizedJid }).catch(() => {});
             }
           }
         }
       } catch (err) { console.error("[WA] Resolution error:", err.message); }
 
-      // 3. PERSISTENCE: Save to the resolved canonical folder
+      // 3. PERSISTENCE
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
         text: textMsg,
@@ -185,10 +197,8 @@ async function initializeSession(employeeId, onQrGenerated) {
         quoted: quotedInfo
       };
 
-      // Atomic message save
       await chatRef.child('messages').child(msg.key.id).update(msgData);
       
-      // Update Chat Metadata (Ensures consistent display in sidebar)
       await chatRef.update({
         lastMessage: textMsg, 
         timestamp: Date.now(), 

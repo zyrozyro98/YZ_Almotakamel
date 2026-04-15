@@ -42,10 +42,19 @@ router.post('/send', async (req, res) => {
     }
 
     // 1. Resolve Target JID
+    const getMatchKey = (p) => {
+      if (!p) return '';
+      const jidBody = String(p).split(':')[0].split('@')[0];
+      let d = jidBody.replace(/[^0-9]/g, '');
+      d = d.replace(/^0+/, '');
+      if (d.startsWith('966')) d = d.slice(3);
+      else if (d.startsWith('967')) d = d.slice(3);
+      else if (d.startsWith('249')) d = d.slice(3);
+      return d.replace(/^0+/, '');
+    };
+    
     let targetJid = fullJid;
-    // Fix: Handle device ID colons by splitting before stripping non-digits
-    let cleanPhone = (phoneNumber || "").split(':')[0].replace(/[^0-9]/g, '');
-    const chatId = cleanPhone.slice(-9);
+    const chatId = getMatchKey(phoneNumber);
 
     if (!targetJid) {
       // Try to find verified JID from RTDB
@@ -128,45 +137,40 @@ router.get('/status/:employeeId', (req, res) => {
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, fullJid) {
   let targetJid = fullJid;
-  // Fix: Handle device ID colons by splitting before stripping non-digits
-  let cleanPhone = (phoneNumber || "").split(':')[0].replace(/[^0-9]/g, '');
-  const chatId = cleanPhone.slice(-9);
+  
+  const getPure = (raw) => {
+    let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+    d = d.replace(/^0+/, '');
+    if (d.startsWith('966')) d = d.slice(3);
+    else if (d.startsWith('967')) d = d.slice(3);
+    else if (d.startsWith('249')) d = d.slice(3);
+    return d.replace(/^0+/, '');
+  };
 
-  // 1. Try to fetch verified JID from Firestore if not provided
+  const cleanPhone = getPure(phoneNumber);
+
+  // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
     try {
-      const studentSnap = await db.collection('students').where('phone', '==', chatId).get();
-      if (!studentSnap.empty) {
-        targetJid = studentSnap.docs[0].data().fullJid;
-      }
+      const studentSnap = await db.collection('students').get();
+      const matched = studentSnap.docs.find(doc => getPure(doc.data().phone) === cleanPhone);
+      if (matched) targetJid = matched.data().fullJid;
     } catch (e) { console.error('Firestore JID lookup failed:', e.message); }
   }
 
-  // 2. Fallback to RTDB chat info
+  // 2. Fallback to RTDB
   if (!targetJid) {
     try {
-      const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
+      const snap = await rtdb.ref(`chats/${employeeId}/${cleanPhone}`).once('value');
       targetJid = snap.val()?.fullJid;
     } catch(e) {}
   }
 
-  // 3. Fallback to formatting the phone number
+  // 3. Fallback to formatting
   if (!targetJid) {
     let finalPhone = cleanPhone;
-    
-    // Aggressively format phone to WhatsApp canonical format
-    if (finalPhone.startsWith('00')) finalPhone = finalPhone.slice(2);
-    else if (finalPhone.startsWith('+')) finalPhone = finalPhone.slice(1);
-    
-    // After stripping international prefixes, evaluate SA and YE local prefixes
-    if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
-      // Strip leading zero for local parsing
-      if (finalPhone.startsWith('0')) finalPhone = finalPhone.slice(1);
-      
-      if (finalPhone.startsWith('5') && finalPhone.length === 9) finalPhone = '966' + finalPhone;
-      else if (finalPhone.startsWith('7') && finalPhone.length === 9) finalPhone = '967' + finalPhone;
-    }
-    
+    if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
+    else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
     targetJid = `${finalPhone}@s.whatsapp.net`;
   }
   return targetJid;

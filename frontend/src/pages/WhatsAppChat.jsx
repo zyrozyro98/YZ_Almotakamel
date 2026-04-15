@@ -143,9 +143,13 @@ export default function WhatsAppChat() {
 
   const getMatchKey = (p) => {
     if (!p) return '';
-    // Fix: Handle device ID colons (e.g. 96650...:1) by taking early part of string
-    const normalized = String(p).split(':')[0];
-    return normalized.replace(/[^0-9]/g, '').slice(-9);
+    const jidBody = String(p).split(':')[0].split('@')[0];
+    let d = jidBody.replace(/[^0-9]/g, '');
+    d = d.replace(/^0+/, '');
+    if (d.startsWith('966')) d = d.slice(3);
+    else if (d.startsWith('967')) d = d.slice(3);
+    else if (d.startsWith('249')) d = d.slice(3);
+    return d.replace(/^0+/, '');
   };
 
   // Memoized Combined List for Performance
