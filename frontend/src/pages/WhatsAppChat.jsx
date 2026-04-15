@@ -308,29 +308,32 @@ export default function WhatsAppChat() {
 
   // --- Modal Logic ---
   const openAddModal = async () => {
-    const rawValue = selectedChat?.phone || '';
-    let cleanPhone = getMatchKey(rawValue);
-    const isRealPhone = /^\d+$/.test(cleanPhone) && cleanPhone.length <= 13;
+    const rawValue = selectedChat?.phone || ''; // This is the ID from the sidebar
+    let resolvedPhone = '';
+    
+    // 1. Try getMatchKey first 
+    let pureVal = getMatchKey(rawValue);
+    const isActuallyPhone = /^\d+$/.test(pureVal) && pureVal.length <= 13;
 
-    if (!isRealPhone && rawValue) {
-      // It's a LID, attempt to fetch from cache dynamically
+    if (isActuallyPhone) {
+      resolvedPhone = pureVal;
+    } else if (rawValue) {
+      // 2. It's a LID, try fetching from the secret mapping cache
       try {
-        const lid = rawValue.split('@')[0].split(':')[0];
+        const lidOnly = rawValue.split('@')[0].split(':')[0];
         const targetId = isAdmin ? viewingEmployeeId : employeeId;
-        const snap = await get(ref(rtdb, `lid_mappings/${targetId}/${lid}`));
-        if (snap.exists() && snap.val()) {
-          cleanPhone = snap.val();
-        } else {
-          cleanPhone = '';
+        const snap = await get(ref(rtdb, `lid_mappings/${targetId}/${lidOnly}`));
+        if (snap.exists()) {
+          resolvedPhone = snap.val();
         }
       } catch (e) {
-        cleanPhone = '';
+        console.error("LID Resolution failed in modal:", e);
       }
     }
 
     setFormData({
       name: (selectedChat?.name?.includes('مجهول') || selectedChat?.name?.includes('+')) ? '' : (selectedChat?.name || ''),
-      phone: cleanPhone,
+      phone: resolvedPhone,
       university: '',
       specialization: '',
       major: '',
@@ -621,7 +624,12 @@ export default function WhatsAppChat() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
-                        <p style={{ margin: 0, fontSize: '0.6rem', color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.fullJid || item.phone}</p>
+                        <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>{item.phone || 'بدون رقم'}</p>
+                          {item.fullJid && item.fullJid.includes('@lid') && (
+                            <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.05)', padding: '0 4px', borderRadius: '3px' }}>LID</span>
+                          )}
+                        </div>
                       </div>
                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
@@ -674,10 +682,13 @@ export default function WhatsAppChat() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24} /></button>}
                   <div>
-                    <h3 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 800 }}>{selectedChat.name}</h3>
+                    <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {selectedChat.name}
+                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.phone}</span>
+                    </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'rgba(59,130,246,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
-                      {selectedChat.specialization && <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.specialization}</span>}
+                      <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
+                      {selectedChat.specialization && <span style={{ fontSize: '0.65rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.specialization}</span>}
                       <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: '5px', fontFamily: 'monospace' }}>ID: {selectedChat.fullJid || selectedChat.phone}</span>
                     </div>
                   </div>
