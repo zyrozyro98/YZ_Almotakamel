@@ -286,6 +286,22 @@ export default function WhatsAppChat() {
     }
   };
 
+  const handleCleanDatabase = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm('سيقوم هذا الإجراء بدمج كافة المجلدات القديمة (غير الموحدة) إلى الأرقام الصافية الجديدة. هل تريد الاستمرار؟')) return;
+    
+    try {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      const res = await axios.post(`${BASE_URL}/api/whatsapp/cleanup-database`, {
+        employeeId: targetId
+      });
+      alert(`اكتمل التنظيف! تم دمج وتوحيد ${res.data.transformed} محادثة بنجاح.`);
+      window.location.reload(); 
+    } catch (err) {
+      alert('فشل عملية التنظيف: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   // --- Modal Logic ---
   const openAddModal = () => {
     setFormData({
@@ -474,10 +490,21 @@ export default function WhatsAppChat() {
           borderLeft: '1px solid rgba(255,255,255,0.05)'
         }}>
           <div style={{ padding: '20px', background: 'rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', margin: 0 }}>الدردشات</h2>
-              {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20} /></button>}
-            </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', margin: 0 }}>الدردشات</h2>
+                <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                    {isAdmin && (
+                        <button 
+                            onClick={handleCleanDatabase}
+                            style={{ background: 'rgba(59,130,246,0.1)', border: 'none', color: '#3b82f6', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '5px' }}
+                            title="تنظيف وتوحيد قاعدة البيانات"
+                        >
+                            <RefreshCw size={14} /> تنظيف
+                        </button>
+                    )}
+                    {isMobile && <button onClick={() => window.history.back()} style={{ background: 'none', border: 'none', color: '#94a3b8' }}><X size={20} /></button>}
+                </div>
+              </div>
             <input
               type="text" placeholder={isAdmin ? "بحث عن طالب أو محادثة..." : "بحث في محادثاتي..."} className="input-base"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}

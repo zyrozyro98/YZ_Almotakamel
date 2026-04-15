@@ -10,6 +10,7 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const { db, rtdb } = require('../firebaseAdmin');
+const { getPureNumber } = require('../utils/numberUtils');
 
 const sessions = new Map();
 const qrCache = new Map(); 
@@ -148,19 +149,7 @@ async function initializeSession(employeeId, onQrGenerated) {
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
-      const getPureNumber = (raw) => {
-        if (!raw) return "";
-        let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-        if (d.length > 13) return d; 
-        d = d.replace(/^0+/, ''); 
-        if (d.startsWith('966')) d = d.slice(3);
-        else if (d.startsWith('967')) d = d.slice(3);
-        else if (d.startsWith('249')) d = d.slice(3); 
-        return d.replace(/^0+/, ''); 
-      };
-
-      const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-      let cleanId = isLid ? jidUser : getPureNumber(jidUser);
+      const cleanId = isLid ? jidUser : getPureNumber(jidUser);
 
       // 2. SMART IDENTIFICATION: Link identity to Student record
       try {

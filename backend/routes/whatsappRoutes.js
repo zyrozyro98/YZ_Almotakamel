@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
 const { rtdb } = require('../firebaseAdmin');
+const { getPureNumber } = require('../utils/numberUtils');
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -42,19 +43,7 @@ router.post('/send', async (req, res) => {
     }
 
     // 1. Resolve Target JID
-    const getMatchKey = (p) => {
-      if (!p) return '';
-      let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-      if (d.length > 13) return d; 
-      d = d.replace(/^0+/, '');
-      if (d.startsWith('966')) d = d.slice(3);
-      else if (d.startsWith('967')) d = d.slice(3);
-      else if (d.startsWith('249')) d = d.slice(3);
-      return d.replace(/^0+/, '');
-    };
-    
-    let targetJid = fullJid;
-    const chatId = getMatchKey(phoneNumber);
+    const chatId = getPureNumber(phoneNumber);
 
     if (!targetJid) {
       // Try to find verified JID from RTDB
@@ -434,6 +423,51 @@ router.post('/delete-chat', async (req, res) => {
     const cleanId = getPure(phoneNumber);
     await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cleanup & Merge Tool (Maintenance Only)
+router.post('/cleanup-database', async (req, res) => {
+  const { employeeId } = req.body;
+  if (!employeeId) return res.status(400).json({ error: 'Missing employeeId' });
+
+  try {
+    const chatsRef = rtdb.ref(`chats/${employeeId}`);
+    const snapshot = await chatsRef.once('value');
+    const allChats = snapshot.val();
+    if (!allChats) return res.json({ success: true, transformed: 0 });
+
+    let count = 0;
+    for (const [oldKey, chatData] of Object.entries(allChats)) {
+      const newKey = getPureNumber(oldKey);
+      
+      if (oldKey !== newKey) {
+        console.log(`[CLEANUP] Merging ${oldKey} -> ${newKey}`);
+        const newRef = chatsRef.child(newKey);
+        
+        // Merge chat metadata
+        await newRef.update({
+          name: chatData.name || "",
+          phone: newKey,
+          fullJid: chatData.fullJid || "",
+          lastMessage: chatData.lastMessage || "",
+          timestamp: chatData.timestamp || 0
+        });
+
+        // Merge messages if any
+        if (chatData.messages) {
+          await newRef.child('messages').update(chatData.messages);
+        }
+
+        // Delete old entry
+        await chatsRef.child(oldKey).remove();
+        count++;
+      }
+    }
+
+    res.json({ success: true, transformed: count });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
