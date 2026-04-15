@@ -175,6 +175,9 @@ router.post('/send-image', async (req, res) => {
           let bestEmp = null;
           let latestTime = 0;
           for (const empKey in allChats) {
+            // IGNORE the admin's personal UID (Golden Key) during auto-routing to prevent chat overlap
+            if (empKey === senderId && empKey !== 'emp1') continue;
+
             if (allChats[empKey][chatId]) {
               const t = allChats[empKey][chatId].timestamp || 0;
               if (t > latestTime) {
