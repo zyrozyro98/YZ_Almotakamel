@@ -173,12 +173,10 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   return targetJid;
 }
 
-// Send Image (with smart routing support)
 router.post('/send-image', async (req, res) => {
   let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
-    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-    const chatId = cleanPhone.slice(-9);
+    const chatId = getPureNumber(phoneNumber);
 
     // Auto-Routing: Find best employee session if requested
     if (employeeId === 'auto') {
@@ -248,7 +246,7 @@ router.post('/send-image', async (req, res) => {
     await sock.sendPresenceUpdate('paused', targetJid);
     
     // Use the derived JID to determine final chatId
-    const finalChatId = targetJid.split('@')[0].slice(-9);
+    const finalChatId = getPureNumber(targetJid);
 
     const msgData = {
       text: caption || "📷 صورة",
@@ -293,7 +291,7 @@ router.post('/send-document', async (req, res) => {
       caption: caption || "" 
     });
 
-    const chatId = targetJid.split('@')[0].slice(-9);
+    const chatId = getPureNumber(targetJid);
 
     const msgData = {
       text: caption || "📎 ملف الدورة",
@@ -453,20 +451,6 @@ router.post('/cleanup-database', async (req, res) => {
       }
     });
 
-    // 1. Build an Identity Map from Firestore Students
-    const studentSnap = await db.collection('students').get();
-    const jidToCanonical = {}; 
-    const phoneToCanonical = {}; 
-
-    studentSnap.forEach(doc => {
-      const s = doc.data();
-      const purePhone = getPureNumber(s.phone);
-      if (purePhone) {
-        if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
-        phoneToCanonical[purePhone] = purePhone;
-      }
-    });
-
     // 2. Process RTDB Chats
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
@@ -474,32 +458,33 @@ router.post('/cleanup-database', async (req, res) => {
     if (!allChats) return res.json({ success: true, transformed: 0 });
 
     let count = 0;
-    const entries = Object.entries(allChats);
-    
-    for (const [rawOldKey, chatData] of entries) {
+    for (const [rawOldKey, chatData] of Object.entries(allChats)) {
+      // Normalize oldKey to handle cases like "number@lid" or "number:1"
       const oldKey = rawOldKey.split(':')[0].split('@')[0];
-      let newKey = jidToCanonical[chatData.fullJid] || 
-                   phoneToCanonical[getPureNumber(oldKey)] || 
-                   getPureNumber(oldKey);
+      const newKey = jidToCanonical[chatData.fullJid] || 
+                     phoneToCanonical[getPureNumber(oldKey)] || 
+                     getPureNumber(oldKey);
       
+      // If the actual folder name in DB is different from its pure version
       if (rawOldKey !== newKey) {
-        console.log(`[CLEANUP] Processing: ${rawOldKey} -> ${newKey}`);
+        console.log(`[CLEANUP] Force Merging: ${rawOldKey} -> ${newKey}`);
         const newRef = chatsRef.child(newKey);
         
-        // Use a single update for metadata and messages to minimize round-trips
-        const updates = {
+        // Merge chat metadata
+        await newRef.update({
           name: chatData.name || "",
           phone: newKey,
-          fullJid: chatData.fullJid || "",
+          fullJid: chatData.fullJid || "", // Keep for bridge routing
           lastMessage: chatData.lastMessage || "",
           timestamp: chatData.timestamp || 0
-        };
+        });
 
-        await newRef.update(updates);
+        // Merge all messages from the old folder structure
         if (chatData.messages) {
           await newRef.child('messages').update(chatData.messages);
         }
 
+        // Obliterate the messy old record
         await chatsRef.child(rawOldKey).remove();
         count++;
       }
