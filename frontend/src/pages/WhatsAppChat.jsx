@@ -143,28 +143,10 @@ export default function WhatsAppChat() {
     if (!p) return '';
     let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
     
-    // --- DEEP SMART EXTRACTION ---
-    if (d.length > 13) {
-      const countryPatterns = [
-        { code: '967', start: '7' }, // Yemen
-        { code: '966', start: '5' }, // Saudi
-        { code: '249', start: '9' }, // Sudan
-        { code: '249', start: '1' }  // Sudan alt
-      ];
-      for (const p of countryPatterns) {
-        const idx = d.indexOf(p.code);
-        if (idx !== -1) {
-          const slice = d.slice(idx);
-          if (slice.startsWith(p.code + p.start)) {
-            d = slice.slice(0, 13);
-            break;
-          }
-        }
-      }
-    }
-    
+    // Strict Safety: Leave LIDs exactly as they are.
     if (d.length > 13) return d;
 
+    // Standard Pure Number logic
     d = d.replace(/^0+/, '');
     if (d.startsWith('966')) d = d.slice(3);
     else if (d.startsWith('967')) d = d.slice(3);
