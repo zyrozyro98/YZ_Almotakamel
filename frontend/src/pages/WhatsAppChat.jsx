@@ -309,10 +309,13 @@ export default function WhatsAppChat() {
   const handleAddStudent = async (e) => {
     e.preventDefault();
     try {
-      let cleanedPhone = formData.phone.replace(/[^0-9]/g, '');
-      if (cleanedPhone.length >= 9) {
-         cleanedPhone = cleanedPhone.slice(-9);
-      }
+      let d = formData.phone.replace(/[^0-9]/g, '');
+      d = d.replace(/^0+/, '');
+      if (d.startsWith('966')) d = d.slice(3);
+      else if (d.startsWith('967')) d = d.slice(3);
+      else if (d.startsWith('249')) d = d.slice(3);
+      let cleanedPhone = d.replace(/^0+/, '');
+
       await addDoc(collection(db, 'students'), {
         ...formData,
         phone: cleanedPhone,

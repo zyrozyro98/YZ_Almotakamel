@@ -143,17 +143,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // --- FILTERING & PREPARATION ---
-      // Ignore Groups, Statuses, Newsletters, and Community Announcements
-      if (
-        remoteJid === 'status@broadcast' || 
-        remoteJid.endsWith('@g.us') || 
-        remoteJid.endsWith('@newsletter') ||
-        remoteJid.includes('broadcast')
-      ) {
-        return;
-      }
-
+      // --- UNIFIED CHAT CONSOLIDATION (PURE LOCAL NUMBER) ---
       const jidUser = remoteJid.split('@')[0].split(':')[0];
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
@@ -165,84 +155,30 @@ async function initializeSession(employeeId, onQrGenerated) {
         if (d.startsWith('966')) d = d.slice(3);
         else if (d.startsWith('967')) d = d.slice(3);
         else if (d.startsWith('249')) d = d.slice(3); 
-        d = d.replace(/^0+/, ''); 
-        
-        // Safety: If it's too long (> 15) or too short (< 7), it might be a technical ID, not a PN
-        if (d.length > 15 || d.length < 7) return "";
-        return d;
+        return d.replace(/^0+/, ''); 
       };
 
-      const jidUser = remoteJid.split('@')[0].split(':')[0];
-      const jidDomain = remoteJid.split('@')[1];
-      const normalizedJid = `${jidUser}@${jidDomain}`;
       const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
       let cleanId = isLid ? jidUser : getPureNumber(jidUser);
 
-      // --- CROSS-IDENTIFIER UNIFICATION LOGIC ---
+      // 2. SMART IDENTIFICATION: Link identity to Student record
       try {
-        const safeKey = normalizedJid.replace(/[.#$[\]/]/g, '_');
-        
-        // 1. Check Central Identity Map (RTDB Cache)
-        const mappingSnap = await rtdb.ref(`identity_mappings/${safeKey}`).once('value');
-        if (mappingSnap.exists()) {
-          cleanId = mappingSnap.val();
-        } else {
-          // 2. Check Firestore (Canonical Database)
-          const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-          if (!jidMatch.empty) {
-            const s = jidMatch.docs[0].data();
-            if (s.phone) {
-              cleanId = getPureNumber(s.phone);
-              await rtdb.ref(`identity_mappings/${safeKey}`).set(cleanId);
-            }
-          } else if (!isLid) {
-            // Phone-to-JID mapping discovery
-            const pureIncoming = getPureNumber(jidUser);
-            const phoneMatch = await db.collection('students').where('phone', '==', pureIncoming).get();
-            if (!phoneMatch.empty) {
-              const studentDoc = phoneMatch.docs[0];
-              cleanId = pureIncoming;
-              await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
-              await rtdb.ref(`identity_mappings/${safeKey}`).set(cleanId);
-            }
+        const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+        if (!jidMatch.empty) {
+          const s = jidMatch.docs[0].data();
+          if (s.phone) cleanId = getPureNumber(s.phone);
+        } else if (!isLid) {
+          const pureIncoming = getPureNumber(jidUser);
+          const phoneMatch = await db.collection('students').where('phone', '==', pureIncoming).get();
+          if (!phoneMatch.empty) {
+            const studentDoc = phoneMatch.docs[0];
+            cleanId = pureIncoming;
+            await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }
-      } catch (err) { console.error("[WA] Mapping error:", err.message); }
+      } catch (err) { console.error("[WA] Resolution error:", err.message); }
 
-      // 3. RTDB FALLBACK: Check if we manually linked this LID previously in any chat
-      if (cleanId === jidUser || isLid) {
-        try {
-          const chatSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
-          if (chatSnap.exists()) {
-            const data = chatSnap.val();
-            const matchingChat = Object.values(data).find(c => c.fullJid === normalizedJid && c.phone);
-            if (matchingChat) {
-              cleanId = matchingChat.phone;
-              // Register this discovery in the global map for next time
-              const safeKey = normalizedJid.replace(/[.#$[\]/]/g, '_');
-              await rtdb.ref(`identity_mappings/${safeKey}`).set(cleanId);
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 3. AUTO-MERGE & MIGRATION: If we found a mapping for a technical ID, move old messages
-      if (cleanId !== jidUser && (isLid || jidUser.includes('@'))) {
-        try {
-          const oldRef = rtdb.ref(`chats/${employeeId}/${jidUser}`);
-          const oldMsgSnap = await oldRef.child('messages').once('value');
-          if (oldMsgSnap.exists()) {
-             console.log(`[WA] Merging folder ${jidUser} -> ${cleanId}`);
-             const oldMessages = oldMsgSnap.val();
-             // 1. Move messages
-             await rtdb.ref(`chats/${employeeId}/${cleanId}/messages`).update(oldMessages);
-             // 2. Delete old folder
-             await oldRef.remove();
-          }
-        } catch (mergeErr) { console.error("[WA] Merge failed:", mergeErr.message); }
-      }
-
-      // 4. PERSISTENCE (Always route to the consolidated cleanId)
+      // 3. PERSISTENCE
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
         text: textMsg,
@@ -265,21 +201,9 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastSender: isMe ? 'me' : 'them'
       });
 
-      if (isLid && cleanId !== jidUser) {
-        await chatRef.update({ linkedLid: normalizedJid }).catch(() => {});
-      }
-
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
-        await notifRef.set({ 
-          title: `رسالة جديدة من ${pushName}`, 
-          body: textMsg.substring(0, 50), 
-          time: Date.now(), 
-          read: false, 
-          type: 'chat', 
-          chatId: cleanId, 
-          fullJid: normalizedJid 
-        });
+        await notifRef.set({ title: `رسالة جديدة من ${pushName}`, body: textMsg.substring(0, 50), time: Date.now(), read: false, type: 'chat', chatId: cleanId, fullJid: normalizedJid });
       }
     }
   });
