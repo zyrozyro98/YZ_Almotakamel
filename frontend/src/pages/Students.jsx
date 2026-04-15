@@ -94,14 +94,23 @@ export default function Students() {
     e.preventDefault();
     if (validateForm()) {
       setIsSubmitting(true);
+      
+      // Clean phone number: remove non-digits, keep last 9
+      let cleanedPhone = formData.phone.replace(/[^0-9]/g, '');
+      if (cleanedPhone.length >= 9) {
+         cleanedPhone = cleanedPhone.slice(-9);
+      }
+      
+      const finalDataToSave = { ...formData, phone: cleanedPhone };
+
       try {
         if (editingId) {
-          await updateDoc(doc(db, 'students', editingId), { ...formData });
+          await updateDoc(doc(db, 'students', editingId), finalDataToSave);
           setEditingId(null);
           setActiveTab('list');
         } else {
           await addDoc(collection(db, 'students'), {
-            ...formData,
+            ...finalDataToSave,
             createdAt: serverTimestamp(),
             mainStatus: 'جديد',
             subStatus: 'لم يتم التواصل'
