@@ -10,7 +10,17 @@ export default function PhotoSender() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [senderId, setSenderId] = useState('emp1');
-  const [goldenKey, setGoldenKey] = useState(null);
+  const [ goldenKey, setGoldenKey ] = useState(null);
+  const [ students, setStudents ] = useState([]);
+
+  useEffect(() => {
+    // Cache students globally for matching JIDs in PhotoSender
+    const unsub = onSnapshot(collection(db, 'students'), (snap) => {
+      const sData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setStudents(sData);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (isAdmin) {
@@ -143,10 +153,14 @@ export default function PhotoSender() {
           const noise = " ".repeat(Math.floor(Math.random() * 5)) + (Math.random() > 0.5 ? "\u200B" : "");
           if (finalMessage) finalMessage += noise;
 
+          const student = students.find(s => getPureNumber(s.phone) === targetNumber);
+          const studentJid = student?.fullJid || '';
+
           if (b64) {
              await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
                employeeId: senderId,
                phoneNumber: targetNumber,
+               fullJid: studentJid,
                base64Image: b64,
                caption: finalMessage,
                senderName: auth.currentUser?.displayName || 'المرسل القوي',
@@ -156,6 +170,7 @@ export default function PhotoSender() {
              await axios.post(`${BASE_URL}/api/whatsapp/send`, {
                employeeId: senderId,
                phoneNumber: targetNumber,
+               fullJid: studentJid,
                message: finalMessage,
                senderName: auth.currentUser?.displayName || 'المرسل القوي',
                senderId: auth.currentUser?.uid || 'system'
