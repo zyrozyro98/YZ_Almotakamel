@@ -602,7 +602,10 @@ export default function WhatsAppChat() {
                   }}>{item.name?.substring(0, 1)}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h4 style={{ margin: 0, color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>{item.name}</h4>
+                      <div style={{ overflow: 'hidden' }}>
+                        <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
+                        <p style={{ margin: 0, fontSize: '0.6rem', color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.fullJid || item.phone}</p>
+                      </div>
                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
                     <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
@@ -655,9 +658,10 @@ export default function WhatsAppChat() {
                   {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24} /></button>}
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 800 }}>{selectedChat.name}</h3>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#3b82f6', background: 'rgba(59,130,246,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
                       {selectedChat.specialization && <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.specialization}</span>}
+                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: '5px', fontFamily: 'monospace' }}>ID: {selectedChat.fullJid || selectedChat.phone}</span>
                     </div>
                   </div>
                 </div>
