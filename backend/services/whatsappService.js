@@ -144,26 +144,27 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // --- UNIFIED CHAT CONSOLIDATION (PURE LOCAL NUMBER) ---
+      // --- ADVANCED PHONE-CENTRIC CONSOLIDATION ---
       const jidUser = remoteJid.split('@')[0].split(':')[0];
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
       const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-      let cleanId = isLid ? jidUser : getPureNumber(jidUser);
+      let cleanId = getPureNumber(jidUser); // Advanced: Extracts phone from LID if possible
 
       // 2. SMART IDENTIFICATION: Link identity to Student record
       try {
+        // A. Try match by the current technical JID
         const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
           if (s.phone) cleanId = getPureNumber(s.phone);
         } else {
-          const pureIncoming = getPureNumber(jidUser);
-          const phoneMatch = await db.collection('students').where('phone', '==', pureIncoming).get();
+          // B. Try match by the extracted phone number
+          const phoneMatch = await db.collection('students').where('phone', '==', cleanId).get();
           if (!phoneMatch.empty) {
             const studentDoc = phoneMatch.docs[0];
-            cleanId = pureIncoming;
+            // Link this new technical identity to the student permanently
             await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }

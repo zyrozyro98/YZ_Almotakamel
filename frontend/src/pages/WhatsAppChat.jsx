@@ -143,7 +143,21 @@ export default function WhatsAppChat() {
     if (!p) return '';
     let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
     
-    // Safety: If it's a very long numeric ID (14+), it's a technical LID.
+    // Advanced Extractions: If it's a long technical ID, try to find a phone number pattern
+    if (d.length > 13) {
+      const patterns = ['966', '967', '249'];
+      for (const pattern of patterns) {
+        const idx = d.indexOf(pattern);
+        if (idx !== -1) {
+          const potential = d.slice(idx);
+          if (potential.length >= 9 && potential.length <= 13) {
+            d = potential;
+            break;
+          }
+        }
+      }
+    }
+    
     if (d.length > 13) return d;
 
     d = d.replace(/^0+/, '');

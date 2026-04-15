@@ -43,6 +43,7 @@ router.post('/send', async (req, res) => {
     }
 
     // 1. Resolve Target JID
+    let targetJid = fullJid;
     const chatId = getPureNumber(phoneNumber);
 
     if (!targetJid) {
