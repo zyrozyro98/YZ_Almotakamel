@@ -143,7 +143,17 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // --- UNIFIED CHAT CONSOLIDATION (PURE LOCAL NUMBER) ---
+      // --- FILTERING & PREPARATION ---
+      // Ignore Groups, Statuses, Newsletters, and Community Announcements
+      if (
+        remoteJid === 'status@broadcast' || 
+        remoteJid.endsWith('@g.us') || 
+        remoteJid.endsWith('@newsletter') ||
+        remoteJid.includes('broadcast')
+      ) {
+        return;
+      }
+
       const jidUser = remoteJid.split('@')[0].split(':')[0];
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
@@ -155,7 +165,11 @@ async function initializeSession(employeeId, onQrGenerated) {
         if (d.startsWith('966')) d = d.slice(3);
         else if (d.startsWith('967')) d = d.slice(3);
         else if (d.startsWith('249')) d = d.slice(3); 
-        return d.replace(/^0+/, ''); 
+        d = d.replace(/^0+/, ''); 
+        
+        // Safety: If it's too long (> 15) or too short (< 7), it might be a technical ID, not a PN
+        if (d.length > 15 || d.length < 7) return "";
+        return d;
       };
 
       const jidUser = remoteJid.split('@')[0].split(':')[0];
