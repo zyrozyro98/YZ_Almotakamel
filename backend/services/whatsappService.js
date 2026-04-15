@@ -4,7 +4,8 @@ const {
   DisconnectReason, 
   Browsers, 
   fetchLatestBaileysVersion,
-  downloadMediaMessage 
+  downloadMediaMessage,
+  makeInMemoryStore
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
@@ -17,7 +18,10 @@ const sessions = new Map();
 const qrCache = new Map(); 
 const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
 
-// Global set to track processed message IDs to prevent double notifications/saves
+// Global Contact Store to link JIDs and Phones
+const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
+
+// Global set to track processed message IDs
 const processedMessageIds = new Set();
 setInterval(() => {
   if (processedMessageIds.size > 5000) processedMessageIds.clear();
@@ -38,8 +42,13 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       const isMe = msg.key.fromMe;
-      const pushName = msg.pushName || 'مستخدم واتساب';
       
+      // Sophisticated Name Handling: prioritize phone over weird symbols
+      let pushName = msg.pushName || 'مستخدم واتساب';
+      if (pushName.length < 2 || /^[^a-zA-Z0-9\u0600-\u06FF]+$/.test(pushName)) {
+        pushName = getPureNumber(jidUser) || 'مستخدم واتساب';
+      }
+
       let textMsg = "";
       let mediaType = "text";
       let mediaData = null;
@@ -73,40 +82,41 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
       if (!textMsg && !mediaData) continue;
 
-      // 🛡️ Advanced Identity Resolution Logic
+      // Identity Resolution with Store Support
       let cleanId = getPureNumber(jidUser); 
       const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
 
       try {
-        // 1. Check if JID is already linked to a student
         const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
           if (s.phone) cleanId = getPureNumber(s.phone);
         } else {
-          // 2. If it's a technical LID, attempt LIVE resolution
           if (isLid) {
-            try {
-              const results = await sock.onWhatsApp(normalizedJid);
-              if (results && results.length > 0 && results[0].exists) {
-                const resolvedJid = results[0].jid;
-                if (resolvedJid.includes('@s.whatsapp.net')) {
-                   cleanId = getPureNumber(resolvedJid);
+            // Check in-memory contact store
+            const contact = store.contacts[normalizedJid];
+            if (contact && contact.id && contact.id.includes('@s.whatsapp.net')) {
+              cleanId = getPureNumber(contact.id);
+            } else {
+              // Try Live Resolution
+              try {
+                const results = await sock.onWhatsApp(normalizedJid);
+                if (results && results.length > 0 && results[0].exists) {
+                  const rJid = results[0].jid;
+                  if (rJid.includes('@s.whatsapp.net')) cleanId = getPureNumber(rJid);
                 }
-              }
-            } catch (e) {}
+              } catch (e) {}
+            }
           }
 
-          // 3. Final link-up attempt
           const phoneMatch = await db.collection('students').where('phone', '==', cleanId).get();
           if (!phoneMatch.empty) {
             const studentDoc = phoneMatch.docs[0];
             await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }
-      } catch (err) { console.error("[WA] JID Resolution fail:", err.message); }
+      } catch (err) { console.error("[WA] Identity Sync Fail:", err.message); }
 
-      // Handle Quoted Messages
       let quotedInfo = null;
       const contextInfo = msg.message?.extendedTextMessage?.contextInfo || 
                           msg.message?.imageMessage?.contextInfo || 
@@ -182,8 +192,10 @@ async function initializeSession(employeeId, onQrGenerated) {
     logger: pino({ level: 'silent' }),
     browser: ['YZ_Almotakamel', 'Chrome', '114.0.5735.199'],
     connectTimeoutMs: 30000,
-    generateHighQualityQR: true, 
   });
+
+  // Bind store to socket
+  store.bind(sock.ev);
 
   sessions.set(employeeId, sock);
   sock.ev.on('creds.update', saveCreds);
