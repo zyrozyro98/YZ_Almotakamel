@@ -44,8 +44,8 @@ router.post('/send', async (req, res) => {
     // 1. Resolve Target JID
     const getMatchKey = (p) => {
       if (!p) return '';
-      const jidBody = String(p).split(':')[0].split('@')[0];
-      let d = jidBody.replace(/[^0-9]/g, '');
+      let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+      if (d.length > 13) return d; 
       d = d.replace(/^0+/, '');
       if (d.startsWith('966')) d = d.slice(3);
       else if (d.startsWith('967')) d = d.slice(3);

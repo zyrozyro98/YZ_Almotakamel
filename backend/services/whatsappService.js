@@ -150,7 +150,8 @@ async function initializeSession(employeeId, onQrGenerated) {
       
       const getPureNumber = (raw) => {
         if (!raw) return "";
-        let d = String(raw).replace(/[^0-9]/g, '');
+        let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+        if (d.length > 13) return d; 
         d = d.replace(/^0+/, ''); 
         if (d.startsWith('966')) d = d.slice(3);
         else if (d.startsWith('967')) d = d.slice(3);
