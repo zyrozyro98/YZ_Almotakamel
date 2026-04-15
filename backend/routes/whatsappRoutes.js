@@ -460,35 +460,34 @@ router.post('/cleanup-database', async (req, res) => {
     if (!allChats) return res.json({ success: true, transformed: 0 });
 
     let count = 0;
-    for (const [oldKey, chatData] of Object.entries(allChats)) {
-      // Logic for new key: 
-      // First try to resolve via Firestore JID map, 
-      // Then try via Pure Phone, 
-      // Else just use Pure extraction
-      let newKey = jidToCanonical[chatData.fullJid] || 
-                   phoneToCanonical[getPureNumber(oldKey)] || 
-                   getPureNumber(oldKey);
+    for (const [rawOldKey, chatData] of Object.entries(allChats)) {
+      // Normalize oldKey to handle cases like "number@lid" or "number:1"
+      const oldKey = rawOldKey.split(':')[0].split('@')[0];
+      const newKey = jidToCanonical[chatData.fullJid] || 
+                     phoneToCanonical[getPureNumber(oldKey)] || 
+                     getPureNumber(oldKey);
       
-      if (oldKey !== newKey) {
-        console.log(`[CLEANUP] Merging Chat: ${oldKey} -> ${newKey}`);
+      // If the actual folder name in DB is different from its pure version
+      if (rawOldKey !== newKey) {
+        console.log(`[CLEANUP] Force Merging: ${rawOldKey} -> ${newKey}`);
         const newRef = chatsRef.child(newKey);
         
-        // Merge chat metadata (Keep newer data if possible)
+        // Merge chat metadata
         await newRef.update({
           name: chatData.name || "",
           phone: newKey,
-          fullJid: chatData.fullJid || "", // Keep the last used JID for routing
+          fullJid: chatData.fullJid || "", // Keep for bridge routing
           lastMessage: chatData.lastMessage || "",
           timestamp: chatData.timestamp || 0
         });
 
-        // Merge all messages
+        // Merge all messages from the old folder structure
         if (chatData.messages) {
           await newRef.child('messages').update(chatData.messages);
         }
 
-        // Wipe old folder
-        await chatsRef.child(oldKey).remove();
+        // Obliterate the messy old record
+        await chatsRef.child(rawOldKey).remove();
         count++;
       }
     }

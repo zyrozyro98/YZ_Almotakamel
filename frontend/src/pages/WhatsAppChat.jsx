@@ -367,6 +367,27 @@ export default function WhatsAppChat() {
       else if (d.startsWith('249')) d = d.slice(3);
       let cleanedPhone = d.replace(/^0+/, '');
 
+      // --- SMART BRIDGING LOGIC ---
+      const q = query(collection(db, 'students'), where('phone', '==', cleanedPhone));
+      const snap = await getDocs(q);
+
+      if (!snap.empty) {
+        const existing = snap.docs[0];
+        const confirmMerge = window.confirm(`هذا الرقم مسجل مسبقاً باسم "${existing.data().name}". هل تريد ربط هذه المحادثة الجديدة بهذا الطالب ودمج الرسائل؟`);
+        
+        if (confirmMerge) {
+          // Update the existing student with the new JID
+          await updateDoc(existing.ref, { fullJid: selectedChat?.fullJid || '' });
+          alert('تم ربط الهوية بنجاح. سيتم الآن دمج المحادثات...');
+          setActiveModal(null);
+          // Trigger the cleanup to move messages to the phone folder
+          handleCleanup();
+          return;
+        }
+        return; // Stop if user cancelled merge
+      }
+
+      // Standard New Student Logic
       await addDoc(collection(db, 'students'), {
         ...formData,
         phone: cleanedPhone,

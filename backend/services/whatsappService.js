@@ -73,28 +73,40 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
       if (!textMsg && !mediaData) continue;
 
-      // Privacy Masking for Credentials
-      if (textMsg && textMsg.includes('بيانات الدخول الخاصة بك للمنصة التعليمية')) {
-        textMsg = textMsg.replace(/(👤 \*اسم المستخدم:\* ).+/, '$1[بيانات مخفية للأمان]')
-                         .replace(/(🔐 \*كلمة المرور:\* ).+/, '$1[بيانات مخفية للأمان]');
-      }
-
+      // 🛡️ Advanced Identity Resolution Logic
       let cleanId = getPureNumber(jidUser); 
+      const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
 
       try {
+        // 1. Check if JID is already linked to a student
         const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
           if (s.phone) cleanId = getPureNumber(s.phone);
         } else {
+          // 2. If it's a technical LID, attempt LIVE resolution
+          if (isLid) {
+            try {
+              const results = await sock.onWhatsApp(normalizedJid);
+              if (results && results.length > 0 && results[0].exists) {
+                const resolvedJid = results[0].jid;
+                if (resolvedJid.includes('@s.whatsapp.net')) {
+                   cleanId = getPureNumber(resolvedJid);
+                }
+              }
+            } catch (e) {}
+          }
+
+          // 3. Final link-up attempt
           const phoneMatch = await db.collection('students').where('phone', '==', cleanId).get();
           if (!phoneMatch.empty) {
             const studentDoc = phoneMatch.docs[0];
             await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }
-      } catch (err) { console.error("[WA] Resolution error:", err.message); }
+      } catch (err) { console.error("[WA] JID Resolution fail:", err.message); }
 
+      // Handle Quoted Messages
       let quotedInfo = null;
       const contextInfo = msg.message?.extendedTextMessage?.contextInfo || 
                           msg.message?.imageMessage?.contextInfo || 
