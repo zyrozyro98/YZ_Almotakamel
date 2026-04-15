@@ -119,7 +119,9 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    const cleanId = String(selectedChat.phone).replace(/[^0-9]/g, '').slice(-9);
+    // Fix: Handle device ID colons before stripping non-digits
+    const jidBody = String(selectedChat.phone).split(':')[0];
+    const cleanId = jidBody.replace(/[^0-9]/g, '').slice(-9);
     const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
@@ -139,7 +141,12 @@ export default function WhatsAppChat() {
     }
   }, [messages, selectedChat]);
 
-  const getMatchKey = (p) => String(p || '').replace(/[^0-9]/g, '').slice(-9);
+  const getMatchKey = (p) => {
+    if (!p) return '';
+    // Fix: Handle device ID colons (e.g. 96650...:1) by taking early part of string
+    const normalized = String(p).split(':')[0];
+    return normalized.replace(/[^0-9]/g, '').slice(-9);
+  };
 
   // Memoized Combined List for Performance
   const memoizedCombinedList = React.useMemo(() => {

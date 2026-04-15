@@ -143,7 +143,9 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      const cleanId = remoteJid.split('@')[0].slice(-9);
+      // Solve: Extract actual phone number by removing device suffix (:1) and stripping JID domain
+      const jidUser = remoteJid.split('@')[0].split(':')[0];
+      const cleanId = jidUser.slice(-9);
 
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {

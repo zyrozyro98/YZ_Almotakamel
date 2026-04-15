@@ -43,7 +43,8 @@ router.post('/send', async (req, res) => {
 
     // 1. Resolve Target JID
     let targetJid = fullJid;
-    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    // Fix: Handle device ID colons by splitting before stripping non-digits
+    let cleanPhone = (phoneNumber || "").split(':')[0].replace(/[^0-9]/g, '');
     const chatId = cleanPhone.slice(-9);
 
     if (!targetJid) {
@@ -127,7 +128,8 @@ router.get('/status/:employeeId', (req, res) => {
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, fullJid) {
   let targetJid = fullJid;
-  let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+  // Fix: Handle device ID colons by splitting before stripping non-digits
+  let cleanPhone = (phoneNumber || "").split(':')[0].replace(/[^0-9]/g, '');
   const chatId = cleanPhone.slice(-9);
 
   if (!targetJid) {
