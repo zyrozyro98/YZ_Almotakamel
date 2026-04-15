@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
-const { rtdb } = require('../firebaseAdmin');
+const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 
 // Logout
