@@ -178,6 +178,22 @@ async function initializeSession(employeeId, onQrGenerated) {
         }
       } catch (err) { console.error("[WA] Resolution error:", err.message); }
 
+      // 2b. RTDB FALLBACK: If still an LID/technical ID, check if we've already linked it in RTDB
+      if (cleanId === jidUser || isLid) {
+        try {
+          // Check if this normalizedJid exists in ANY chat under this employee with a saved phone
+          const chatSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+          if (chatSnap.exists()) {
+            const data = chatSnap.val();
+            const matchingChat = Object.values(data).find(c => c.fullJid === normalizedJid && c.phone);
+            if (matchingChat) {
+              cleanId = matchingChat.phone;
+              console.log(`[WA] Re-routed ${normalizedJid} to phone folder: ${cleanId}`);
+            }
+          }
+        } catch (rtdbErr) { /* ignore */ }
+      }
+
       // 3. PERSISTENCE
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
