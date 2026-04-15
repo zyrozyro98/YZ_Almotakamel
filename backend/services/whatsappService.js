@@ -149,7 +149,8 @@ async function initializeSession(employeeId, onQrGenerated) {
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
-      const cleanId = isLid ? jidUser : getPureNumber(jidUser);
+      const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+      let cleanId = isLid ? jidUser : getPureNumber(jidUser);
 
       // 2. SMART IDENTIFICATION: Link identity to Student record
       try {
@@ -157,7 +158,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
           if (s.phone) cleanId = getPureNumber(s.phone);
-        } else if (!isLid) {
+        } else {
           const pureIncoming = getPureNumber(jidUser);
           const phoneMatch = await db.collection('students').where('phone', '==', pureIncoming).get();
           if (!phoneMatch.empty) {

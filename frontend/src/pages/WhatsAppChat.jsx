@@ -142,7 +142,23 @@ export default function WhatsAppChat() {
   const getMatchKey = (p) => {
     if (!p) return '';
     let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+    
+    // Sophisticated Extraction for LIDs
+    if (d.length > 13) {
+      const patterns = ['966', '967', '249'];
+      for (const pattern of patterns) {
+        const idx = d.indexOf(pattern);
+        if (idx !== -1) {
+          const potential = d.slice(idx);
+          if (potential.length >= 9 && potential.length <= 13) {
+            d = potential;
+            break;
+          }
+        }
+      }
+    }
     if (d.length > 13) return d;
+
     d = d.replace(/^0+/, '');
     if (d.startsWith('966')) d = d.slice(3);
     else if (d.startsWith('967')) d = d.slice(3);
@@ -304,10 +320,23 @@ export default function WhatsAppChat() {
 
   // --- Modal Logic ---
   const openAddModal = () => {
+    const rawValue = selectedChat?.phone || '';
+    const cleanPhone = getMatchKey(rawValue);
+    // If it's still a technical ID (>13 digits), we leave it empty, 
+    // but if it's a real-looking phone, we pre-fill it.
+    const isRealPhone = /^\d+$/.test(cleanPhone) && cleanPhone.length <= 13;
+
     setFormData({
-      name: selectedChat?.name?.includes('مجهول') ? '' : (selectedChat?.name || ''),
-      phone: selectedChat?.phone || '',
-      university: '', specialization: '', batch: '', platformUser: '', platformPass: '', idNumber: '', notes: ''
+      name: (selectedChat?.name?.includes('مجهول') || selectedChat?.name?.includes('+')) ? '' : (selectedChat?.name || ''),
+      phone: isRealPhone ? cleanPhone : '',
+      university: '',
+      specialization: '',
+      major: '',
+      batch: '',
+      idNumber: '',
+      platformUser: '',
+      platformPass: '',
+      notes: ''
     });
     setActiveModal('add');
   };

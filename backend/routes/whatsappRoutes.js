@@ -91,7 +91,7 @@ router.post('/send', async (req, res) => {
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
-      const chatId = targetJid.split('@')[0].slice(-9);
+      const chatId = getPureNumber(targetJid);
       const updateData = {
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
