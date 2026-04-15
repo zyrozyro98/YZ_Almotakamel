@@ -257,8 +257,8 @@ router.post('/send-image', async (req, res) => {
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
     await sock.sendPresenceUpdate('paused', targetJid);
     
-    // Use the derived JID to determine final chatId
-    const finalChatId = getPureNumber(targetJid);
+    // FORCE SAVE TO PHONE FOLDER (regardless of LID delivery)
+    const finalChatId = getPureNumber(phoneNumber);
 
     const msgData = {
       text: caption || "📷 صورة",
@@ -303,7 +303,7 @@ router.post('/send-document', async (req, res) => {
       caption: caption || "" 
     });
 
-    const chatId = getPureNumber(targetJid);
+    const chatId = getPureNumber(phoneNumber);
 
     const msgData = {
       text: caption || "📎 ملف الدورة",
