@@ -28,10 +28,10 @@ export default function PhotoSender() {
         const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setIsAdmin(adminStatus);
         setGoldenKey(user.uid);
-        setSenderId('emp1'); // Default to generic employee routing
+        setSenderId('auto'); // Default to smart auto-routing
       } else {
         setIsAdmin(false);
-        setSenderId('emp1');
+        setSenderId('auto');
       }
       setCheckingAdmin(false);
     });
@@ -220,7 +220,8 @@ export default function PhotoSender() {
                 disabled={isRunning}
                 style={{ flex: 1 }}
               >
-                <option value="emp1">الحساب الافتراضي للموظف (emp1) - موصى به لكافة الطلاب</option>
+                <option value="auto">توجيه ذكي تلقائي للموظف المناسب (مستحسن 🌟)</option>
+                <option value="emp1">الحساب الافتراضي للموظف (emp1)</option>
                 <option value={goldenKey}>المفتاح الذهبي (إرسال من حسابي الشخصي كـ مدير)</option>
                 {employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey).map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
