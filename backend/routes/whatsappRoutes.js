@@ -165,30 +165,9 @@ router.post('/send-image', async (req, res) => {
     let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const chatId = cleanPhone.slice(-9);
 
-    // Auto-Routing: Find best employee session if requested
-    if (employeeId === 'auto') {
-      employeeId = 'emp1'; // fallback default
-      try {
-        const chatsSnap = await rtdb.ref('chats').once('value');
-        if (chatsSnap.exists()) {
-          const allChats = chatsSnap.val();
-          let bestEmp = null;
-          let latestTime = 0;
-          for (const empKey in allChats) {
-            // IGNORE the admin's personal UID (Golden Key) during auto-routing to prevent chat overlap
-            if (empKey === senderId && empKey !== 'emp1') continue;
-
-            if (allChats[empKey][chatId]) {
-              const t = allChats[empKey][chatId].timestamp || 0;
-              if (t > latestTime) {
-                latestTime = t;
-                bestEmp = empKey;
-              }
-            }
-          }
-          if (bestEmp) employeeId = bestEmp;
-        }
-      } catch(e) { console.error('Auto validation failed', e); }
+    // Enforce default fallback if somehow undefined
+    if (employeeId === 'auto' || !employeeId) {
+      employeeId = 'emp1';
     }
 
     const sock = whatsappService.getSession(employeeId);
