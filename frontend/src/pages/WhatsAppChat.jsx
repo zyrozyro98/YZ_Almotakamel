@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, get } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
@@ -325,16 +325,30 @@ export default function WhatsAppChat() {
   };
 
   // --- Modal Logic ---
-  const openAddModal = () => {
+  const openAddModal = async () => {
     const rawValue = selectedChat?.phone || '';
-    const cleanPhone = getMatchKey(rawValue);
-    // If it's still a technical ID (>13 digits), we leave it empty, 
-    // but if it's a real-looking phone, we pre-fill it.
+    let cleanPhone = getMatchKey(rawValue);
     const isRealPhone = /^\d+$/.test(cleanPhone) && cleanPhone.length <= 13;
+
+    if (!isRealPhone && rawValue) {
+      // It's a LID, attempt to fetch from cache dynamically
+      try {
+        const lid = rawValue.split('@')[0].split(':')[0];
+        const targetId = isAdmin ? viewingEmployeeId : employeeId;
+        const snap = await get(ref(rtdb, `lid_mappings/${targetId}/${lid}`));
+        if (snap.exists() && snap.val()) {
+          cleanPhone = snap.val();
+        } else {
+          cleanPhone = '';
+        }
+      } catch (e) {
+        cleanPhone = '';
+      }
+    }
 
     setFormData({
       name: (selectedChat?.name?.includes('مجهول') || selectedChat?.name?.includes('+')) ? '' : (selectedChat?.name || ''),
-      phone: isRealPhone ? cleanPhone : '',
+      phone: cleanPhone,
       university: '',
       specialization: '',
       major: '',

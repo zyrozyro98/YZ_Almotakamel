@@ -73,11 +73,20 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
       if (!textMsg && !mediaData) continue;
 
-      // 🛡️ Advanced Identity Resolution Logic
       let cleanId = getPureNumber(jidUser); 
       const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
 
       try {
+        // --- SECRETE LID CACHE LOOKUP ---
+        if (isLid) {
+            const lidSnap = await rtdb.ref(`lid_mappings/${employeeId}/${jidUser}`).once('value');
+            if (lidSnap.exists()) {
+                const realPhone = lidSnap.val();
+                cleanId = getPureNumber(realPhone);
+                console.log(`[WA] Cached LID mapping hit: ${jidUser} -> ${cleanId}`);
+            }
+        }
+
         // 1. Check if JID is already linked to a student
         const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
         if (!jidMatch.empty) {
@@ -212,6 +221,30 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastUpdate: Date.now(),
         phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id 
       });
+    }
+  });
+
+  sock.ev.on('contacts.upsert', async (contacts) => {
+    for (const contact of contacts) {
+      if (contact.lidJid && contact.id) {
+        const lid = contact.lidJid.split('@')[0].split(':')[0];
+        const phone = contact.id.split('@')[0].split(':')[0];
+        if (lid !== phone && phone.match(/^\d+$/)) {
+           await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(phone).catch(()=>{});
+        }
+      }
+    }
+  });
+
+  sock.ev.on('contacts.update', async (updates) => {
+    for (const update of updates) {
+      if (update.lidJid && update.id) {
+        const lid = update.lidJid.split('@')[0].split(':')[0];
+        const phone = update.id.split('@')[0].split(':')[0];
+        if (lid !== phone && phone.match(/^\d+$/)) {
+           await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(phone).catch(()=>{});
+        }
+      }
     }
   });
 
