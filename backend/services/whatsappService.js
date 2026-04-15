@@ -148,15 +148,14 @@ async function initializeSession(employeeId, onQrGenerated) {
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
-      // Helper to strip CC, leading zeros, and artifacts
       const getPureNumber = (raw) => {
-        let d = raw.replace(/[^0-9]/g, '');
-        d = d.replace(/^0+/, ''); // Remove leading zeros
-        // Strip common country codes
+        if (!raw) return "";
+        let d = String(raw).replace(/[^0-9]/g, '');
+        d = d.replace(/^0+/, ''); 
         if (d.startsWith('966')) d = d.slice(3);
         else if (d.startsWith('967')) d = d.slice(3);
         else if (d.startsWith('249')) d = d.slice(3); 
-        return d.replace(/^0+/, ''); // Final zero strip
+        return d.replace(/^0+/, ''); 
       };
 
       const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
@@ -168,19 +167,13 @@ async function initializeSession(employeeId, onQrGenerated) {
         if (!jidMatch.empty) {
           const s = jidMatch.docs[0].data();
           if (s.phone) cleanId = getPureNumber(s.phone);
-        } else {
-          // If it's a numeric JID, try matching to registered phone
-          if (!isLid) {
-            const pureIncoming = getPureNumber(jidUser);
-            // Search Firestore for student with same pure phone
-            // (Assumes stored phone is already clean or we clean it in query)
-            const studentsSnap = await db.collection('students').get();
-            const matchedStudent = studentsSnap.docs.find(doc => getPureNumber(doc.data().phone) === pureIncoming);
-            
-            if (matchedStudent) {
-              cleanId = pureIncoming;
-              await matchedStudent.ref.update({ fullJid: normalizedJid }).catch(() => {});
-            }
+        } else if (!isLid) {
+          const pureIncoming = getPureNumber(jidUser);
+          const phoneMatch = await db.collection('students').where('phone', '==', pureIncoming).get();
+          if (!phoneMatch.empty) {
+            const studentDoc = phoneMatch.docs[0];
+            cleanId = pureIncoming;
+            await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }
       } catch (err) { console.error("[WA] Resolution error:", err.message); }

@@ -119,9 +119,7 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    // Fix: Handle device ID colons before stripping non-digits
-    const jidBody = String(selectedChat.phone).split(':')[0];
-    const cleanId = jidBody.replace(/[^0-9]/g, '').slice(-9);
+    const cleanId = getMatchKey(selectedChat.phone);
     const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
     const unsubMsg = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();

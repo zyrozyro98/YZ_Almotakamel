@@ -152,9 +152,10 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
     try {
-      const studentSnap = await db.collection('students').get();
-      const matched = studentSnap.docs.find(doc => getPure(doc.data().phone) === cleanPhone);
-      if (matched) targetJid = matched.data().fullJid;
+      const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
+      if (!studentSnap.empty) {
+        targetJid = studentSnap.docs[0].data().fullJid;
+      }
     } catch (e) { console.error('Firestore JID lookup failed:', e.message); }
   }
 
