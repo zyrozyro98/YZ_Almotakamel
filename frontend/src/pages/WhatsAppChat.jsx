@@ -284,7 +284,7 @@ export default function WhatsAppChat() {
         messageId: msg.id,
         fullJid: selectedChat.fullJid,
         isMe: msg.sender === 'me'
-      });
+      }, { timeout: 300000 });
     } catch (err) {
       console.error(err);
       alert('فشل حذف الرسالة');
@@ -300,7 +300,7 @@ export default function WhatsAppChat() {
       await axios.post(`${BASE_URL}/api/whatsapp/delete-chat`, {
         employeeId: targetId,
         phoneNumber: selectedChat.phone
-      });
+      }, { timeout: 300000 });
       alert('تم حذف المحادثة بنجاح');
       setSelectedChat(null);
     } catch (err) {
@@ -316,7 +316,7 @@ export default function WhatsAppChat() {
       const targetId = isAdmin ? viewingEmployeeId : employeeId;
       const res = await axios.post(`${BASE_URL}/api/whatsapp/cleanup-database`, {
         employeeId: targetId
-      });
+      }, { timeout: 300000 });
       alert(`اكتمل التنظيف! تم دمج وتوحيد ${res.data.transformed} محادثة بنجاح.`);
       window.location.reload(); 
     } catch (err) {
