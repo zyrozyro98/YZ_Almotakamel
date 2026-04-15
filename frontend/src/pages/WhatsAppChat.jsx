@@ -271,6 +271,23 @@ export default function WhatsAppChat() {
     }
   };
 
+  const handleDeleteChat = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm(`هل أنت متأكد من حذف محادثة ${selectedChat.name} نهائياً من سجلات الموظف؟`)) return;
+    
+    try {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      await axios.post(`${BASE_URL}/api/whatsapp/delete-chat`, {
+        employeeId: targetId,
+        phoneNumber: selectedChat.phone
+      });
+      alert('تم حذف المحادثة بنجاح');
+      setSelectedChat(null);
+    } catch (err) {
+      alert('فشل حذف المحادثة: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   // --- Modal Logic ---
   const openAddModal = () => {
     setFormData({
@@ -581,7 +598,18 @@ export default function WhatsAppChat() {
                     </div>
                   </div>
                 </div>
-                <Info size={18} style={{ color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                  {isAdmin && (
+                    <button 
+                      onClick={handleDeleteChat}
+                      style={{ background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', padding: '8px', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}
+                      title="حذف الدردشة"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                  <Info size={18} style={{ color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowDetails(!showDetails)} />
+                </div>
               </div>
 
               <div className="custom-scrollbar" style={{

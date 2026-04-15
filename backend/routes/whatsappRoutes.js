@@ -406,4 +406,27 @@ router.post('/delete-message', async (req, res) => {
   }
 });
 
+// Delete Full Chat (Admin Only)
+router.post('/delete-chat', async (req, res) => {
+  const { employeeId, phoneNumber } = req.body;
+  if (!employeeId || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
+
+  try {
+    const getPure = (raw) => {
+      let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+      d = d.replace(/^0+/, '');
+      if (d.startsWith('966')) d = d.slice(3);
+      else if (d.startsWith('967')) d = d.slice(3);
+      else if (d.startsWith('249')) d = d.slice(3);
+      return d.replace(/^0+/, '');
+    };
+    
+    const cleanId = getPure(phoneNumber);
+    await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
