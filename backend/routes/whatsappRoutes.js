@@ -165,8 +165,55 @@ router.post('/send-image', async (req, res) => {
     let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const chatId = cleanPhone.slice(-9);
 
+    // Auto-Routing: Find best employee session if requested
+    if (employeeId === 'auto') {
+      employeeId = 'emp1'; // fallback default
+      try {
+        const chatsSnap = await rtdb.ref('chats').once('value');
+        if (chatsSnap.exists()) {
+          const allChats = chatsSnap.val();
+          let bestEmp = null;
+          let latestTime = 0;
+          let connectedEmps = []; // Track who is actually online
+
+          // Find all connected sessions to use as fallback
+          const waStatusSnap = await rtdb.ref('wa_status').once('value');
+          if (waStatusSnap.exists()) {
+            const statuses = waStatusSnap.val();
+            for (const key in statuses) {
+              if (statuses[key].isConnected) connectedEmps.push(key);
+            }
+          }
+
+          // Search for the latest chat
+          for (const empKey in allChats) {
+            if (allChats[empKey][chatId]) {
+              const t = allChats[empKey][chatId].timestamp || 0;
+              // Only pick this employee if they are actually connected!
+              if (t > latestTime && connectedEmps.includes(empKey)) {
+                latestTime = t;
+                bestEmp = empKey;
+              }
+            }
+          }
+
+          // If the most recent employee is disconnected (or no prior chat), smartly fallback to ANY connected employee
+          if (bestEmp) {
+            employeeId = bestEmp;
+          } else if (connectedEmps.length > 0) {
+             // Prefer goldenKey (Admin) or just the first connected if available
+             employeeId = connectedEmps[0];
+          } else {
+             // Let it fail naturally if absolutely nobody is connected
+             employeeId = 'emp1';
+          }
+
+        }
+      } catch(e) { console.error('Auto validation failed', e); }
+    }
+
     // Enforce default fallback if somehow undefined
-    if (employeeId === 'auto' || !employeeId) {
+    if (!employeeId) {
       employeeId = 'emp1';
     }
 
