@@ -96,6 +96,14 @@ router.post('/send', async (req, res) => {
       };
     }
 
+    // --- HUMAN SIMULATION ---
+    // 1. Send 'composing' status (Typing...)
+    await sock.sendPresenceUpdate('composing', targetJid);
+    // 2. Wait for a short "Thinking/Typing" duration (1.5 - 4 seconds)
+    await new Promise(r => setTimeout(r, 1500 + Math.random() * 2500));
+    // 3. Stop Composing
+    await sock.sendPresenceUpdate('paused', targetJid);
+    
     const result = await sock.sendMessage(targetJid, { text: message }, sendOptions);
 
     // Record the sender info in RTDB immediately for the monitoring feed
@@ -242,7 +250,14 @@ router.post('/send-image', async (req, res) => {
     let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
 
+    // --- HUMAN SIMULATION ---
+    // 1. Send 'composing' (or 'recording') status
+    await sock.sendPresenceUpdate('composing', targetJid);
+    // 2. Simulated Upload Delay
+    await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
+    
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
+    await sock.sendPresenceUpdate('paused', targetJid);
     
     // Use the derived JID to determine final chatId
     const finalChatId = targetJid.split('@')[0].slice(-9);
