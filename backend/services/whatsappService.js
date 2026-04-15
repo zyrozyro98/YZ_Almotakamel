@@ -143,9 +143,34 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // Solve: Extract actual phone number by removing device suffix (:1) and stripping JID domain
+      // --- SMART CHAT CONSOLIDATION ---
+      // 1. Normalize the JID parts (remove device suffix)
       const jidUser = remoteJid.split('@')[0].split(':')[0];
-      const cleanId = jidUser.slice(-9);
+      const jidDomain = remoteJid.split('@')[1];
+      const normalizedJid = `${jidUser}@${jidDomain}`;
+      
+      let cleanId = jidUser.slice(-9); // Normal default (last 9 digits)
+
+      // 2. Try to find if this JID belongs to a registered student to consolidate chats
+      try {
+        const studentSnap = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+        if (!studentSnap.empty) {
+          const studentData = studentSnap.docs[0].data();
+          if (studentData.phone) cleanId = studentData.phone.slice(-9);
+        } else {
+          // Fallback: If no JID match, check if the phone number itself (last 9) matches a student
+          const numericUser = jidUser.replace(/[^0-9]/g, '');
+          if (numericUser.length >= 9) {
+            const potentialPhone = numericUser.slice(-9);
+            const phoneSnap = await db.collection('students').where('phone', '==', potentialPhone).get();
+            if (!phoneSnap.empty) {
+              cleanId = potentialPhone;
+              // Link this JID to the student for future consolidation
+              await studentSnap.docs[0]?.ref.update({ fullJid: normalizedJid }).catch(() => {});
+            }
+          }
+        }
+      } catch (err) { console.error("[WA] Consolidation failed:", err.message); }
 
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
@@ -165,14 +190,14 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastMessage: textMsg, 
         timestamp: Date.now(), 
         phone: cleanId, 
-        fullJid: remoteJid, 
+        fullJid: normalizedJid, 
         name: pushName,
         lastSender: isMe ? 'me' : 'them'
       });
 
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
-        await notifRef.set({ title: `رسالة جديدة من ${pushName}`, body: textMsg.substring(0, 50), time: Date.now(), read: false, type: 'chat', chatId: cleanId, fullJid: remoteJid });
+        await notifRef.set({ title: `رسالة جديدة من ${pushName}`, body: textMsg.substring(0, 50), time: Date.now(), read: false, type: 'chat', chatId: cleanId, fullJid: normalizedJid });
       }
     }
   });

@@ -132,6 +132,17 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   let cleanPhone = (phoneNumber || "").split(':')[0].replace(/[^0-9]/g, '');
   const chatId = cleanPhone.slice(-9);
 
+  // 1. Try to fetch verified JID from Firestore if not provided
+  if (!targetJid) {
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', chatId).get();
+      if (!studentSnap.empty) {
+        targetJid = studentSnap.docs[0].data().fullJid;
+      }
+    } catch (e) { console.error('Firestore JID lookup failed:', e.message); }
+  }
+
+  // 2. Fallback to RTDB chat info
   if (!targetJid) {
     try {
       const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
@@ -139,6 +150,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
     } catch(e) {}
   }
 
+  // 3. Fallback to formatting the phone number
   if (!targetJid) {
     let finalPhone = cleanPhone;
     
