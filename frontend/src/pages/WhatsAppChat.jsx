@@ -283,10 +283,18 @@ export default function WhatsAppChat() {
   const handleAddStudent = async (e) => {
     e.preventDefault();
     try {
+      let cleanedPhone = formData.phone.replace(/[^0-9]/g, '');
+      if (cleanedPhone.length >= 9) {
+         cleanedPhone = cleanedPhone.slice(-9);
+      }
       await addDoc(collection(db, 'students'), {
         ...formData,
+        phone: cleanedPhone,
+        fullJid: selectedChat?.fullJid || '',
         createdAt: Timestamp.now(),
-        createdBy: employeeId
+        createdBy: employeeId,
+        mainStatus: 'جديد',
+        subStatus: 'تم التواصل'
       });
       alert('تم إضافة الطالب بنجاح');
       setActiveModal(null);
@@ -849,9 +857,15 @@ export default function WhatsAppChat() {
 
             {(activeModal === 'add' || activeModal === 'edit') && (
               <form onSubmit={activeModal === 'add' ? handleAddStudent : handleUpdateStudent} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div>
-                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>اسم الطالب</label>
-                  <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>اسم الطالب</label>
+                    <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الهاتف (واتساب)</label>
+                    <input type="tel" dir="ltr" className="input-base" style={{ textAlign: 'right' }} value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} required />
+                  </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
