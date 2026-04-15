@@ -516,6 +516,22 @@ export default function WhatsAppChat() {
     } catch (err) { alert('خطأ في حفظ الإيصال'); }
   };
 
+  // Helper to determine the "Cleanest" phone number to show the user
+  const getDisplayPhone = (item) => {
+    if (!item) return '';
+    const raw = item.phone || '';
+    
+    // 1. If it's already a clean phone number, return it
+    if (raw.length <= 13 && /^\d+$/.test(raw)) return raw;
+
+    // 2. If it's a LID, check if we have a student record with this JID
+    const student = students.find(s => s.fullJid === item.fullJid);
+    if (student && student.phone) return student.phone;
+
+    // 3. Last resort: Return the raw (LID)
+    return raw;
+  };
+
   return (
     <div style={{
       height: isMobile ? 'calc(100% - 10px)' : 'calc(100vh - 150px)',
@@ -625,7 +641,7 @@ export default function WhatsAppChat() {
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
                         <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>{item.phone || 'بدون رقم'}</p>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>{getDisplayPhone(item)}</p>
                           {item.fullJid && item.fullJid.includes('@lid') && (
                             <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.05)', padding: '0 4px', borderRadius: '3px' }}>LID</span>
                           )}
@@ -684,7 +700,7 @@ export default function WhatsAppChat() {
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {selectedChat.name}
-                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{selectedChat.phone}</span>
+                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{getDisplayPhone(selectedChat)}</span>
                     </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
