@@ -146,17 +146,17 @@ export default function WhatsAppChat() {
     // --- DEEP SMART EXTRACTION ---
     if (d.length > 13) {
       const countryPatterns = [
-        { code: '967', start: '7', len: 12 }, // Yemen
-        { code: '966', start: '5', len: 12 }, // Saudi
-        { code: '249', start: '9', len: 12 }, // Sudan
-        { code: '249', start: '1', len: 12 }  // Sudan alt
+        { code: '967', start: '7' }, // Yemen
+        { code: '966', start: '5' }, // Saudi
+        { code: '249', start: '9' }, // Sudan
+        { code: '249', start: '1' }  // Sudan alt
       ];
       for (const p of countryPatterns) {
         const idx = d.indexOf(p.code);
         if (idx !== -1) {
-          const slice = d.slice(idx, idx + p.len);
-          if (slice.startsWith(p.code + p.start) && slice.length === p.len) {
-            d = slice;
+          const slice = d.slice(idx);
+          if (slice.startsWith(p.code + p.start)) {
+            d = slice.slice(0, 13);
             break;
           }
         }

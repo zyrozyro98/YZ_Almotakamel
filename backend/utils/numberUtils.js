@@ -24,11 +24,13 @@ const getPureNumber = (raw) => {
     for (const p of countryPatterns) {
       const idx = d.indexOf(p.code);
       if (idx !== -1) {
-        const slice = d.slice(idx, idx + p.len);
-        // Validate if it matches the mobile start digit and length
-        if (slice.startsWith(p.code + p.start) && slice.length === p.len) {
-          d = slice;
-          break;
+        // Advanced: Try searching for a valid mobile string starting with country code
+        // We accept lengths from 9 (local) to 13 (with code)
+        const slice = d.slice(idx);
+        if (slice.startsWith(p.code + p.start)) {
+           // We take the max reasonable length for a mobile number
+           d = slice.slice(0, 13);
+           break;
         }
       }
     }
