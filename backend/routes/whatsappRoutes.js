@@ -433,12 +433,27 @@ router.post('/delete-chat', async (req, res) => {
   }
 });
 
-// Cleanup & Merge Tool (Maintenance Only)
+// Cleanup & Merge Tool (Student-Aware Merge)
 router.post('/cleanup-database', async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: 'Missing employeeId' });
 
   try {
+    // 1. Build an Identity Map from Firestore Students
+    const studentSnap = await db.collection('students').get();
+    const jidToCanonical = {}; // fullJid -> phone
+    const phoneToCanonical = {}; // phone -> phone
+
+    studentSnap.forEach(doc => {
+      const s = doc.data();
+      const purePhone = getPureNumber(s.phone);
+      if (purePhone) {
+        if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
+        phoneToCanonical[purePhone] = purePhone;
+      }
+    });
+
+    // 2. Process RTDB Chats
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
     const allChats = snapshot.val();
@@ -446,27 +461,33 @@ router.post('/cleanup-database', async (req, res) => {
 
     let count = 0;
     for (const [oldKey, chatData] of Object.entries(allChats)) {
-      const newKey = getPureNumber(oldKey);
+      // Logic for new key: 
+      // First try to resolve via Firestore JID map, 
+      // Then try via Pure Phone, 
+      // Else just use Pure extraction
+      let newKey = jidToCanonical[chatData.fullJid] || 
+                   phoneToCanonical[getPureNumber(oldKey)] || 
+                   getPureNumber(oldKey);
       
       if (oldKey !== newKey) {
-        console.log(`[CLEANUP] Merging ${oldKey} -> ${newKey}`);
+        console.log(`[CLEANUP] Merging Chat: ${oldKey} -> ${newKey}`);
         const newRef = chatsRef.child(newKey);
         
-        // Merge chat metadata
+        // Merge chat metadata (Keep newer data if possible)
         await newRef.update({
           name: chatData.name || "",
           phone: newKey,
-          fullJid: chatData.fullJid || "",
+          fullJid: chatData.fullJid || "", // Keep the last used JID for routing
           lastMessage: chatData.lastMessage || "",
           timestamp: chatData.timestamp || 0
         });
 
-        // Merge messages if any
+        // Merge all messages
         if (chatData.messages) {
           await newRef.child('messages').update(chatData.messages);
         }
 
-        // Delete old entry
+        // Wipe old folder
         await chatsRef.child(oldKey).remove();
         count++;
       }
@@ -474,6 +495,7 @@ router.post('/cleanup-database', async (req, res) => {
 
     res.json({ success: true, transformed: count });
   } catch (error) {
+    console.error("[WA] Cleanup major failure:", error);
     res.status(500).json({ error: error.message });
   }
 });
