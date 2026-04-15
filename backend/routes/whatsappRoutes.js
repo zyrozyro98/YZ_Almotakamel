@@ -57,11 +57,15 @@ router.post('/send', async (req, res) => {
       // Still no JID? Use Guessing logic with safety
       let finalPhone = chatId;
       
-      // If the clean number starts with 5 or 7 but doesn't have country code prefix
-      if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
-      else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
-      
-      targetJid = `${finalPhone}@s.whatsapp.net`;
+      if (finalPhone.length > 13) {
+        // It's a technical LID
+        targetJid = `${finalPhone}@lid`;
+      } else {
+        // Standard Phone Guessing
+        if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
+        else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
+        targetJid = `${finalPhone}@s.whatsapp.net`;
+      }
     }
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
