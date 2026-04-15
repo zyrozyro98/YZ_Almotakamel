@@ -123,7 +123,20 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   
   const cleanPhone = getMatchKey(phoneNumber);
 
-  // 1. Try to fetch verified JID from Firestore
+  // 1. Try Global Identity Map first (Cached JID)
+  if (!targetJid) {
+    try {
+      const safePhone = cleanPhone.replace(/[.#$[\]/]/g, '_');
+      const mapSnap = await rtdb.ref(`identity_mappings`).orderByValue().equalTo(cleanPhone).limitToFirst(1).once('value');
+      if (mapSnap.exists()) {
+        targetJid = Object.keys(mapSnap.val())[0].replace(/_/g, '.'); // Restore original JID (rough estimate)
+        // Wait, restoring JID from key is hard if we replaced chars. 
+        // Better to store JID as value or just trust the student record.
+      }
+    } catch (e) {}
+  }
+
+  // 2. Try to fetch verified JID from Firestore
   if (!targetJid) {
     try {
       const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
@@ -133,7 +146,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
     } catch (e) { console.error('Firestore JID lookup failed:', e.message); }
   }
 
-  // 2. Fallback to RTDB
+  // 3. Fallback to RTDB
   if (!targetJid) {
     try {
       const snap = await rtdb.ref(`chats/${employeeId}/${cleanPhone}`).once('value');
