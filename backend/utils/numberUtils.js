@@ -10,26 +10,34 @@ const getPureNumber = (raw) => {
   // Handle various formats: +967..., 966..., 05..., 9677...:1@s.whatsapp.net
   let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
   
-  // Advanced Extractions: If it's a long technical ID, try to find a phone number pattern
+  // --- DEEP SMART EXTRACTION ---
+  // If we have a long ID (LID), search for a valid country-coded phone inside it.
   if (d.length > 13) {
-    const patterns = ['966', '967', '249'];
-    for (const p of patterns) {
-      const idx = d.indexOf(p);
+    // Search for 12-digit patterns: 967..., 966..., 249...
+    const countryPatterns = [
+      { code: '967', start: '7', len: 12 }, // Yemen
+      { code: '966', start: '5', len: 12 }, // Saudi
+      { code: '249', start: '9', len: 12 }, // Sudan
+      { code: '249', start: '1', len: 12 }  // Sudan alt
+    ];
+
+    for (const p of countryPatterns) {
+      const idx = d.indexOf(p.code);
       if (idx !== -1) {
-        const potential = d.slice(idx);
-        // Valid local phone length (9 to 13 digits with country code)
-        if (potential.length >= 9 && potential.length <= 13) {
-          d = potential;
+        const slice = d.slice(idx, idx + p.len);
+        // Validate if it matches the mobile start digit and length
+        if (slice.startsWith(p.code + p.start) && slice.length === p.len) {
+          d = slice;
           break;
         }
       }
     }
   }
 
-  // Final check: If it's still > 13, it remains a LID
+  // If still too long or no match, keep as is
   if (d.length > 13) return d;
 
-  // Standard Pure Number logic
+  // Standard Cleaning
   d = d.replace(/^0+/, ''); 
   if (d.startsWith('966')) d = d.slice(3);
   else if (d.startsWith('967')) d = d.slice(3);

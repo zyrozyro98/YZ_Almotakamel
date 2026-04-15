@@ -143,15 +143,20 @@ export default function WhatsAppChat() {
     if (!p) return '';
     let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
     
-    // Advanced Extractions: If it's a long technical ID, try to find a phone number pattern
+    // --- DEEP SMART EXTRACTION ---
     if (d.length > 13) {
-      const patterns = ['966', '967', '249'];
-      for (const pattern of patterns) {
-        const idx = d.indexOf(pattern);
+      const countryPatterns = [
+        { code: '967', start: '7', len: 12 }, // Yemen
+        { code: '966', start: '5', len: 12 }, // Saudi
+        { code: '249', start: '9', len: 12 }, // Sudan
+        { code: '249', start: '1', len: 12 }  // Sudan alt
+      ];
+      for (const p of countryPatterns) {
+        const idx = d.indexOf(p.code);
         if (idx !== -1) {
-          const potential = d.slice(idx);
-          if (potential.length >= 9 && potential.length <= 13) {
-            d = potential;
+          const slice = d.slice(idx, idx + p.len);
+          if (slice.startsWith(p.code + p.start) && slice.length === p.len) {
+            d = slice;
             break;
           }
         }
