@@ -133,7 +133,6 @@ router.get('/status/:employeeId', (req, res) => {
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, fullJid) {
   let targetJid = fullJid;
-  
   const getPure = (raw) => {
     let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
     d = d.replace(/^0+/, '');
@@ -144,6 +143,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
   };
 
   const cleanPhone = getPure(phoneNumber);
+  const sock = whatsappService.getSession(employeeId);
 
   // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
@@ -152,18 +152,30 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
       if (!studentSnap.empty) {
         targetJid = studentSnap.docs[0].data().fullJid;
       }
-    } catch (e) { console.error('Firestore JID lookup failed:', e.message); }
+    } catch (e) {}
   }
 
-  // 2. Fallback to RTDB
-  if (!targetJid) {
+  // 2. Proactive Discovery (The Master Key)
+  // If we only have a phone number, ask WA if they have a specialized LID for it
+  if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
     try {
-      const snap = await rtdb.ref(`chats/${employeeId}/${cleanPhone}`).once('value');
-      targetJid = snap.val()?.fullJid;
-    } catch(e) {}
+      const results = await sock.onWhatsApp(phoneNumber);
+      if (results && results.length > 0 && results[0].exists) {
+        const waJid = results[0].jid;
+        // If WA returned a LID, we MUST use it and CACHE it for the receiver
+        if (waJid.includes('@lid')) {
+          targetJid = waJid;
+          const lid = waJid.split('@')[0].split(':')[0];
+          await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(()=>{});
+          console.log(`[WA] Proactive LID Discovery: ${cleanPhone} -> ${lid}`);
+        } else {
+          targetJid = waJid;
+        }
+      }
+    } catch (e) {}
   }
 
-  // 3. Fallback to formatting
+  // 3. Fallback to standard formatting
   if (!targetJid) {
     let finalPhone = cleanPhone;
     if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
