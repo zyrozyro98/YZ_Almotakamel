@@ -143,35 +143,37 @@ async function initializeSession(employeeId, onQrGenerated) {
         };
       }
 
-      // --- SMART CHAT CONSOLIDATION ---
+      // --- UNIFIED CHAT CONSOLIDATION (ONE STUDENT = ONE CHAT) ---
       // 1. Normalize the JID parts (remove device suffix)
       const jidUser = remoteJid.split('@')[0].split(':')[0];
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       
-      let cleanId = jidUser.slice(-9); // Normal default (last 9 digits)
+      let cleanId = jidUser.slice(-9); // Default fall-back (9 digits)
 
-      // 2. Try to find if this JID belongs to a registered student to consolidate chats
+      // 2. SMART IDENTIFICATION: Link identity to Student record
       try {
-        const studentSnap = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-        if (!studentSnap.empty) {
-          const studentData = studentSnap.docs[0].data();
-          if (studentData.phone) cleanId = studentData.phone.slice(-9);
+        // A. Search by exact JID Match (Verified Link)
+        const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+        if (!jidMatch.empty) {
+          const s = jidMatch.docs[0].data();
+          if (s.phone) cleanId = s.phone.slice(-9);
         } else {
-          // Fallback: If no JID match, check if the phone number itself (last 9) matches a student
+          // B. Search by Phone Match (if JID contains digits)
           const numericUser = jidUser.replace(/[^0-9]/g, '');
           if (numericUser.length >= 9) {
             const potentialPhone = numericUser.slice(-9);
-            const phoneSnap = await db.collection('students').where('phone', '==', potentialPhone).get();
-            if (!phoneSnap.empty) {
+            const phoneMatch = await db.collection('students').where('phone', '==', potentialPhone).get();
+            if (!phoneMatch.empty) {
               cleanId = potentialPhone;
-              // Link this JID to the student for future consolidation
-              await studentSnap.docs[0]?.ref.update({ fullJid: normalizedJid }).catch(() => {});
+              // Auto-Link this specific JID identity to the student record for future consistency
+              await phoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => {});
             }
           }
         }
-      } catch (err) { console.error("[WA] Consolidation failed:", err.message); }
+      } catch (err) { console.error("[WA] Resolution error:", err.message); }
 
+      // 3. PERSISTENCE: Save to the resolved canonical folder
       const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
       const msgData = {
         text: textMsg,
@@ -183,9 +185,10 @@ async function initializeSession(employeeId, onQrGenerated) {
         quoted: quotedInfo
       };
 
-      // Use update with message ID to avoid duplicates and allow API to set sender info
+      // Atomic message save
       await chatRef.child('messages').child(msg.key.id).update(msgData);
       
+      // Update Chat Metadata (Ensures consistent display in sidebar)
       await chatRef.update({
         lastMessage: textMsg, 
         timestamp: Date.now(), 
