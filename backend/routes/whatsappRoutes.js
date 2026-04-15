@@ -1,7 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
-const { rtdb } = require('../firebaseAdmin');
+const { rtdb, db } = require('../firebaseAdmin');
+
+const getMatchKey = (p) => {
+  if (!p) return '';
+  const jidBody = String(p).split(':')[0].split('@')[0];
+  let d = jidBody.replace(/[^0-9]/g, '');
+  d = d.replace(/^0+/, '');
+  if (d.startsWith('966')) d = d.slice(3);
+  else if (d.startsWith('967')) d = d.slice(3);
+  else if (d.startsWith('249')) d = d.slice(3);
+  return d.replace(/^0+/, '');
+};
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -29,101 +40,65 @@ router.post('/init', async (req, res) => {
 
 // THE REPAIRED SEND ROUTE
 router.post('/send', async (req, res) => {
-  const { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
-  
-  if (!employeeId || !phoneNumber || !message) {
-    return res.status(400).json({ error: 'Missing required parameters.' });
-  }
+  let { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
+  if (!message || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
 
   try {
-    const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) {
-      return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
-    }
+    const activeEmpId = employeeId || 'emp1';
+    const sock = whatsappService.getSession(activeEmpId);
+    if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
 
-    // 1. Resolve Target JID
-    const getMatchKey = (p) => {
-      if (!p) return '';
-      const jidBody = String(p).split(':')[0].split('@')[0];
-      let d = jidBody.replace(/[^0-9]/g, '');
-      d = d.replace(/^0+/, '');
-      if (d.startsWith('966')) d = d.slice(3);
-      else if (d.startsWith('967')) d = d.slice(3);
-      else if (d.startsWith('249')) d = d.slice(3);
-      return d.replace(/^0+/, '');
-    };
+    // 1. Resolve Target JID using the helper
+    let targetJid = await getTargetJid(activeEmpId, phoneNumber, fullJid || null);
     
-    let targetJid = fullJid;
-    const chatId = getMatchKey(phoneNumber);
+    // 2. Identify the PURE chatId (folder)
+    const finalChatId = getMatchKey(targetJid);
 
-    if (!targetJid) {
-      // Try to find verified JID from RTDB
-      try {
-        const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
-        targetJid = snap.val()?.fullJid;
-      } catch(e) {}
-    }
+    // 3. HUMAN SIMULATION (Typing...)
+    await sock.sendPresenceUpdate('composing', targetJid);
+    await new Promise(r => setTimeout(r, 1500 + Math.random() * 2500));
+    await sock.sendPresenceUpdate('paused', targetJid);
 
-    if (!targetJid) {
-      // Still no JID? Use Guessing logic with safety
-      let finalPhone = cleanPhone;
-      
-      // If phone already has international code (966 or 967), don't touch it
-      if (!finalPhone.startsWith('966') && !finalPhone.startsWith('967')) {
-        if (finalPhone.startsWith('05') && finalPhone.length === 10) {
-          finalPhone = '966' + finalPhone.slice(1);
-        } else if (finalPhone.startsWith('5') && finalPhone.length === 9) {
-          finalPhone = '966' + finalPhone;
-        } else if (finalPhone.startsWith('7') && finalPhone.length === 9) {
-          finalPhone = '967' + finalPhone;
-        }
-      }
-      targetJid = `${finalPhone}@s.whatsapp.net`;
-    }
-
-    console.log(`[WA] Sending message to JID: ${targetJid}`);
-    
+    // 4. Handle Quoted Messages
     let sendOptions = {};
     if (req.body.quotedMsg) {
       const q = req.body.quotedMsg;
       sendOptions.quoted = {
-        key: { 
-          remoteJid: targetJid, 
-          fromMe: q.sender === 'me', 
-          id: q.id 
-        },
+        key: { remoteJid: targetJid, fromMe: q.sender === 'me', id: q.id },
         message: { conversation: q.text }
       };
     }
 
-    // --- HUMAN SIMULATION ---
-    // 1. Send 'composing' status (Typing...)
-    await sock.sendPresenceUpdate('composing', targetJid);
-    // 2. Wait for a short "Thinking/Typing" duration (1.5 - 4 seconds)
-    await new Promise(r => setTimeout(r, 1500 + Math.random() * 2500));
-    // 3. Stop Composing
-    await sock.sendPresenceUpdate('paused', targetJid);
-    
+    // 5. Send Message
     const result = await sock.sendMessage(targetJid, { text: message }, sendOptions);
 
-    // Record the sender info in RTDB immediately for the monitoring feed
-    if (senderId || senderName) {
-      const chatId = targetJid.split('@')[0].slice(-9);
-      const updateData = {
-        senderName: senderName || 'نظام',
-        senderId: senderId || 'system'
-      };
-      
-      if (req.body.quotedMsg) {
-        updateData.quoted = {
-          id: req.body.quotedMsg.id,
-          text: req.body.quotedMsg.text,
-          sender: req.body.quotedMsg.sender
-        };
-      }
+    // 6. Record in RTDB
+    const msgData = {
+      text: message,
+      time: Date.now(),
+      sender: 'me',
+      id: result.key.id,
+      senderName: senderName || "نظام",
+      senderId: senderId || "system"
+    };
 
-      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
+    if (req.body.quotedMsg) {
+      msgData.quoted = {
+        id: req.body.quotedMsg.id,
+        text: req.body.quotedMsg.text,
+        sender: req.body.quotedMsg.sender
+      };
     }
+
+    const chatRef = rtdb.ref(`chats/${activeEmpId}/${finalChatId}`);
+    await chatRef.child('messages').child(result.key.id).update(msgData).catch(() => {});
+    await chatRef.update({
+      lastMessage: message,
+      timestamp: Date.now(),
+      phone: finalChatId,
+      fullJid: targetJid,
+      lastSender: 'me'
+    }).catch(() => {});
 
     return res.status(200).json({ status: 'sent', to: targetJid });
   } catch (error) {
@@ -146,16 +121,7 @@ router.get('/status/:employeeId', (req, res) => {
 async function getTargetJid(employeeId, phoneNumber, fullJid) {
   let targetJid = fullJid;
   
-  const getPure = (raw) => {
-    let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-    d = d.replace(/^0+/, '');
-    if (d.startsWith('966')) d = d.slice(3);
-    else if (d.startsWith('967')) d = d.slice(3);
-    else if (d.startsWith('249')) d = d.slice(3);
-    return d.replace(/^0+/, '');
-  };
-
-  const cleanPhone = getPure(phoneNumber);
+  const cleanPhone = getMatchKey(phoneNumber);
 
   // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
@@ -189,8 +155,7 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
 router.post('/send-image', async (req, res) => {
   let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
-    let cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-    const chatId = cleanPhone.slice(-9);
+    const chatId = getMatchKey(phoneNumber);
 
     // Auto-Routing: Find best employee session if requested
     if (employeeId === 'auto') {
@@ -259,8 +224,7 @@ router.post('/send-image', async (req, res) => {
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
     await sock.sendPresenceUpdate('paused', targetJid);
     
-    // Use the derived JID to determine final chatId
-    const finalChatId = targetJid.split('@')[0].slice(-9);
+    const finalChatId = getMatchKey(targetJid);
 
     const msgData = {
       text: caption || "📷 صورة",
@@ -305,7 +269,7 @@ router.post('/send-document', async (req, res) => {
       caption: caption || "" 
     });
 
-    const chatId = targetJid.split('@')[0].slice(-9);
+    const chatId = getMatchKey(targetJid);
 
     const msgData = {
       text: caption || "📎 ملف الدورة",
@@ -350,7 +314,7 @@ router.post('/send-video', async (req, res) => {
             mimetype: 'video/mp4' // Standard for WhatsApp
         });
         
-        const chatId = targetJid.split('@')[0].slice(-9);
+        const chatId = getMatchKey(targetJid);
 
         const msgData = {
           text: caption || "🎥 مقطع فيديو",
@@ -388,7 +352,7 @@ router.post('/delete-message', async (req, res) => {
   }
 
   try {
-    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '').slice(-9);
+    const cleanPhone = getMatchKey(phoneNumber);
     
     // 1. Mark as deleted in RTDB (this is what ensures Admin can see it and others can't)
     await rtdb.ref(`chats/${employeeId}/${cleanPhone}/messages/${messageId}`).update({
