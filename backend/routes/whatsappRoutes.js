@@ -453,6 +453,20 @@ router.post('/cleanup-database', async (req, res) => {
       }
     });
 
+    // 1. Build an Identity Map from Firestore Students
+    const studentSnap = await db.collection('students').get();
+    const jidToCanonical = {}; 
+    const phoneToCanonical = {}; 
+
+    studentSnap.forEach(doc => {
+      const s = doc.data();
+      const purePhone = getPureNumber(s.phone);
+      if (purePhone) {
+        if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
+        phoneToCanonical[purePhone] = purePhone;
+      }
+    });
+
     // 2. Process RTDB Chats
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
@@ -460,33 +474,32 @@ router.post('/cleanup-database', async (req, res) => {
     if (!allChats) return res.json({ success: true, transformed: 0 });
 
     let count = 0;
-    for (const [rawOldKey, chatData] of Object.entries(allChats)) {
-      // Normalize oldKey to handle cases like "number@lid" or "number:1"
+    const entries = Object.entries(allChats);
+    
+    for (const [rawOldKey, chatData] of entries) {
       const oldKey = rawOldKey.split(':')[0].split('@')[0];
-      const newKey = jidToCanonical[chatData.fullJid] || 
-                     phoneToCanonical[getPureNumber(oldKey)] || 
-                     getPureNumber(oldKey);
+      let newKey = jidToCanonical[chatData.fullJid] || 
+                   phoneToCanonical[getPureNumber(oldKey)] || 
+                   getPureNumber(oldKey);
       
-      // If the actual folder name in DB is different from its pure version
       if (rawOldKey !== newKey) {
-        console.log(`[CLEANUP] Force Merging: ${rawOldKey} -> ${newKey}`);
+        console.log(`[CLEANUP] Processing: ${rawOldKey} -> ${newKey}`);
         const newRef = chatsRef.child(newKey);
         
-        // Merge chat metadata
-        await newRef.update({
+        // Use a single update for metadata and messages to minimize round-trips
+        const updates = {
           name: chatData.name || "",
           phone: newKey,
-          fullJid: chatData.fullJid || "", // Keep for bridge routing
+          fullJid: chatData.fullJid || "",
           lastMessage: chatData.lastMessage || "",
           timestamp: chatData.timestamp || 0
-        });
+        };
 
-        // Merge all messages from the old folder structure
+        await newRef.update(updates);
         if (chatData.messages) {
           await newRef.child('messages').update(chatData.messages);
         }
 
-        // Obliterate the messy old record
         await chatsRef.child(rawOldKey).remove();
         count++;
       }
