@@ -73,47 +73,49 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
       if (!textMsg && !mediaData) continue;
 
-      let cleanId = getPureNumber(jidUser); 
-      const isLid = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-
+      // --- UNIFIED JID SYSTEM ---
+      // We use the JID identifier (Phone number for standard chats) as the master key
+      let chatId = getPureNumber(jidUser); 
+      
       try {
-        // --- SECRETE LID CACHE LOOKUP ---
-        if (isLid) {
-            const lidSnap = await rtdb.ref(`lid_mappings/${employeeId}/${jidUser}`).once('value');
-            if (lidSnap.exists()) {
-                const realPhone = lidSnap.val();
-                cleanId = getPureNumber(realPhone);
-                console.log(`[WA] Cached LID mapping hit: ${jidUser} -> ${cleanId}`);
+        // 1. Resolve Identity: If it's a technical identifier (LID), try to find its JID mapping
+        const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+        
+        if (isTechnicalId) {
+            const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+            if (jidMappingSnap.exists()) {
+                chatId = getPureNumber(jidMappingSnap.val());
+                console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
+            } else {
+                // Live JID Discovery
+                try {
+                  const results = await sock.onWhatsApp(normalizedJid);
+                  if (results && results.length > 0 && results[0].exists) {
+                    const resolvedJid = results[0].jid;
+                    if (resolvedJid.includes('@s.whatsapp.net')) {
+                       chatId = getPureNumber(resolvedJid);
+                       // Cache the mapping to maintain unified JID history
+                       await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(()=>{});
+                    }
+                  }
+                } catch (e) {}
             }
         }
 
-        // 1. Check if JID is already linked to a student
-        const jidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-        if (!jidMatch.empty) {
-          const s = jidMatch.docs[0].data();
-          if (s.phone) cleanId = getPureNumber(s.phone);
+        // 2. Cross-reference with Students Database (Firestore)
+        // Check by JID record first
+        const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+        if (!studentJidMatch.empty) {
+          const s = studentJidMatch.docs[0].data();
+          if (s.phone) chatId = getPureNumber(s.phone);
         } else {
-          // 2. If it's a technical LID, attempt LIVE resolution
-          if (isLid) {
-            try {
-              const results = await sock.onWhatsApp(normalizedJid);
-              if (results && results.length > 0 && results[0].exists) {
-                const resolvedJid = results[0].jid;
-                if (resolvedJid.includes('@s.whatsapp.net')) {
-                   cleanId = getPureNumber(resolvedJid);
-                }
-              }
-            } catch (e) {}
-          }
-
-          // 3. Final link-up attempt
-          const phoneMatch = await db.collection('students').where('phone', '==', cleanId).get();
-          if (!phoneMatch.empty) {
-            const studentDoc = phoneMatch.docs[0];
-            await studentDoc.ref.update({ fullJid: normalizedJid }).catch(() => {});
+          // If match by phone exists, link this JID to the student
+          const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
+          if (!studentPhoneMatch.empty) {
+            await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => {});
           }
         }
-      } catch (err) { console.error("[WA] JID Resolution fail:", err.message); }
+      } catch (err) { console.error("[WA] JID System Error:", err.message); }
 
       // Handle Quoted Messages
       let quotedInfo = null;
@@ -136,7 +138,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         };
       }
 
-      const chatRef = rtdb.ref(`chats/${employeeId}/${cleanId}`);
+      const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
       const msgData = {
         id: msgId,
         text: textMsg,
@@ -151,7 +153,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       await chatRef.update({
         lastMessage: textMsg,
         timestamp: Date.now(),
-        phone: cleanId,
+        phone: chatId,
         fullJid: normalizedJid,
         name: pushName,
         lastSender: isMe ? 'me' : 'them'
@@ -165,7 +167,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
           time: Date.now(), 
           read: false, 
           type: 'chat', 
-          chatId: cleanId, 
+          chatId: chatId, 
           fullJid: normalizedJid 
         });
       }
@@ -227,10 +229,10 @@ async function initializeSession(employeeId, onQrGenerated) {
   sock.ev.on('contacts.upsert', async (contacts) => {
     for (const contact of contacts) {
       if (contact.lidJid && contact.id) {
-        const lid = contact.lidJid.split('@')[0].split(':')[0];
-        const phone = contact.id.split('@')[0].split(':')[0];
-        if (lid !== phone && phone.match(/^\d+$/)) {
-           await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(phone).catch(()=>{});
+        const jidKey = contact.lidJid.split('@')[0].split(':')[0];
+        const phoneJid = contact.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(()=>{});
         }
       }
     }
@@ -239,10 +241,10 @@ async function initializeSession(employeeId, onQrGenerated) {
   sock.ev.on('contacts.update', async (updates) => {
     for (const update of updates) {
       if (update.lidJid && update.id) {
-        const lid = update.lidJid.split('@')[0].split(':')[0];
-        const phone = update.id.split('@')[0].split(':')[0];
-        if (lid !== phone && phone.match(/^\d+$/)) {
-           await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(phone).catch(()=>{});
+        const jidKey = update.lidJid.split('@')[0].split(':')[0];
+        const phoneJid = update.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(()=>{});
         }
       }
     }

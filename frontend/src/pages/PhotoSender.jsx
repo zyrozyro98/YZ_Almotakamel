@@ -91,12 +91,15 @@ export default function PhotoSender() {
 
   const getPureNumber = (raw) => {
     if (!raw) return "";
-    let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-    d = d.replace(/^0+/, '');
-    if (d.startsWith('966')) d = d.slice(3);
-    else if (d.startsWith('967')) d = d.slice(3);
-    else if (d.startsWith('249')) d = d.slice(3);
-    return d.replace(/^0+/, '');
+    // JID System: Extract the identifier part (phone or technical ID) without stripping country codes
+    let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
+    
+    // Auto-prefix local numbers for better matching with student records if they use 9-digit format
+    if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
+    else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
+    else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+
+    return d;
   };
 
   const parseSpintax = (text) => {

@@ -7,21 +7,14 @@
 const getPureNumber = (raw) => {
   if (!raw) return "";
   
-  // Handle various formats: +967..., 966..., 05..., 9677...:1@s.whatsapp.net
-  let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+  // Extract the numeric part before any @ or :
+  let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
   
-  // Strict Safety: If it's a very long numeric ID (14+), it's a technical LID.
-  // DO NOT attempt to extract numbers from it, as it leads to false 
-  // positives (e.g. slicing parts of the LID thinking it's a country code).
-  if (d.length > 13) return d;
-
-  // Standard Pure Number Cleaning for actual phone numbers
-  d = d.replace(/^0+/, ''); 
-  if (d.startsWith('966')) d = d.slice(3);
-  else if (d.startsWith('967')) d = d.slice(3);
-  else if (d.startsWith('249')) d = d.slice(3);
+  // If it's a numeric-only JID, we keep the full number (with country code).
+  // If it's an LID (containing letters or very long), we keep it as is.
+  // This aligns with the "JID system" which uses the full protocol identifier.
   
-  return d.replace(/^0+/, '');
+  return d;
 };
 
 module.exports = { getPureNumber };

@@ -1,0 +1,40 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Backend Service (Node.js Express App)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: yz-almotakamel-backend
+    env: node
+    plan: starter # Starter plan recommended for persistent disk
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: node index.js
+    rootDir: backend
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      # Note: Add FIREBASE_ADMIN_CREDENTIALS and other secrets in Render Dashboard
+    # Persistent Disk for WhatsApp Sessions (Requires Paid Plan)
+    disk:
+      name: whatsapp-sessions
+      mountPath: /usr/src/app/sessions
+      sizeGB: 1
+
+  # ---------------------------------------------------------------------------
+  # Frontend Service (Static Site)
+  # ---------------------------------------------------------------------------
+  - type: static
+    name: yz-almotakamel-frontend
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run build
+    publishPath: frontend/dist
+    rootDir: . # Build from root to handle monorepo dependencies
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          name: yz-almotakamel-backend
+          type: web
+          property: host

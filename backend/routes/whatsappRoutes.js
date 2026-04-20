@@ -58,13 +58,11 @@ router.post('/send', async (req, res) => {
       // Still no JID? Use Guessing logic with safety
       let finalPhone = chatId;
       
-      if (finalPhone.length > 13) {
+      if (finalPhone.length > 13 || /[a-zA-Z]/.test(finalPhone)) {
         // It's a technical LID
         targetJid = `${finalPhone}@lid`;
       } else {
-        // Standard Phone Guessing
-        if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
-        else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
+        // Standard Phone JID (Already contains country code due to JID system update)
         targetJid = `${finalPhone}@s.whatsapp.net`;
       }
     }
@@ -131,18 +129,7 @@ router.get('/status/:employeeId', (req, res) => {
 });
 
 // Helper function to resolve target JID (Shared with text send)
-async function getTargetJid(employeeId, phoneNumber, fullJid) {
-  let targetJid = fullJid;
-  const getPure = (raw) => {
-    let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-    d = d.replace(/^0+/, '');
-    if (d.startsWith('966')) d = d.slice(3);
-    else if (d.startsWith('967')) d = d.slice(3);
-    else if (d.startsWith('249')) d = d.slice(3);
-    return d.replace(/^0+/, '');
-  };
-
-  const cleanPhone = getPure(phoneNumber);
+  const cleanPhone = getPureNumber(phoneNumber);
   const sock = whatsappService.getSession(employeeId);
 
   // 1. Try to fetch verified JID from Firestore
@@ -166,8 +153,8 @@ async function getTargetJid(employeeId, phoneNumber, fullJid) {
         if (waJid.includes('@lid')) {
           targetJid = waJid;
           const lid = waJid.split('@')[0].split(':')[0];
-          await rtdb.ref(`lid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(()=>{});
-          console.log(`[WA] Proactive LID Discovery: ${cleanPhone} -> ${lid}`);
+          await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(()=>{});
+          console.log(`[WA] Proactive JID Discovery: ${cleanPhone} -> ${lid}`);
         } else {
           targetJid = waJid;
         }
@@ -426,16 +413,7 @@ router.post('/delete-chat', async (req, res) => {
   if (!employeeId || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
 
   try {
-    const getPure = (raw) => {
-      let d = (raw || "").split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
-      d = d.replace(/^0+/, '');
-      if (d.startsWith('966')) d = d.slice(3);
-      else if (d.startsWith('967')) d = d.slice(3);
-      else if (d.startsWith('249')) d = d.slice(3);
-      return d.replace(/^0+/, '');
-    };
-    
-    const cleanId = getPure(phoneNumber);
+    const cleanId = getPureNumber(phoneNumber);
     await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
     res.json({ success: true });
   } catch (error) {

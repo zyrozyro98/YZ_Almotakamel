@@ -95,13 +95,13 @@ export default function Students() {
     if (validateForm()) {
       setIsSubmitting(true);
       
-      // Clean phone number: remove non-digits, country codes, and leading zeros
+      // JID System: Clean phone number while protecting country codes
       let d = formData.phone.replace(/[^0-9]/g, '');
-      d = d.replace(/^0+/, '');
-      if (d.startsWith('966')) d = d.slice(3);
-      else if (d.startsWith('967')) d = d.slice(3);
-      else if (d.startsWith('249')) d = d.slice(3);
-      let cleanedPhone = d.replace(/^0+/, '');
+      // Auto-prefix local numbers if we know they are likely Yemeni/Saudi/Sudanese
+      if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
+      else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
+      else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+      let cleanedPhone = d;
       
       const finalDataToSave = { ...formData, phone: cleanedPhone };
 

@@ -141,17 +141,16 @@ export default function WhatsAppChat() {
 
   const getMatchKey = (p) => {
     if (!p) return '';
-    let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9]/g, '');
+    // JID System: Extract the identifier part (phone or LID) without stripping country codes
+    let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
     
-    // Strict Safety: Leave LIDs exactly as they are.
-    if (d.length > 13) return d;
+    // Auto-prefix local numbers if we know they are likely Yemeni/Saudi for better matching
+    // (Optional but helpful for backwards compatibility with legacy student records)
+    if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
+    else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
+    else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
 
-    // Standard Pure Number logic
-    d = d.replace(/^0+/, '');
-    if (d.startsWith('966')) d = d.slice(3);
-    else if (d.startsWith('967')) d = d.slice(3);
-    else if (d.startsWith('249')) d = d.slice(3);
-    return d.replace(/^0+/, '');
+    return d;
   };
 
   // Memoized Combined List for Performance
@@ -322,12 +321,12 @@ export default function WhatsAppChat() {
       try {
         const lidOnly = rawValue.split('@')[0].split(':')[0];
         const targetId = isAdmin ? viewingEmployeeId : employeeId;
-        const snap = await get(ref(rtdb, `lid_mappings/${targetId}/${lidOnly}`));
+        const snap = await get(ref(rtdb, `jid_mappings/${targetId}/${lidOnly}`));
         if (snap.exists()) {
           resolvedPhone = snap.val();
         }
       } catch (e) {
-        console.error("LID Resolution failed in modal:", e);
+        console.error("JID Resolution failed in modal:", e);
       }
     }
 
@@ -360,11 +359,11 @@ export default function WhatsAppChat() {
     e.preventDefault();
     try {
       let d = formData.phone.replace(/[^0-9]/g, '');
-      d = d.replace(/^0+/, '');
-      if (d.startsWith('966')) d = d.slice(3);
-      else if (d.startsWith('967')) d = d.slice(3);
-      else if (d.startsWith('249')) d = d.slice(3);
-      let cleanedPhone = d.replace(/^0+/, '');
+      // Ensure country code is present for the JID system
+      if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
+      else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
+      else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+      let cleanedPhone = d;
 
       // --- SMART BRIDGING LOGIC ---
       const q = query(collection(db, 'students'), where('phone', '==', cleanedPhone));
