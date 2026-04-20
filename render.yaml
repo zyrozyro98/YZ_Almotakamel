@@ -25,7 +25,7 @@ services:
   # ---------------------------------------------------------------------------
   # Frontend Service (Static Site)
   # ---------------------------------------------------------------------------
-  - type: static
+  - type: static_site
     name: yz-almotakamel-frontend
     plan: free
     region: frankfurt
