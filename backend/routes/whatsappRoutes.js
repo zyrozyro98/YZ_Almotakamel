@@ -129,6 +129,7 @@ router.get('/status/:employeeId', (req, res) => {
 });
 
 // Helper function to resolve target JID (Shared with text send)
+async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);
   const sock = whatsappService.getSession(employeeId);
 
