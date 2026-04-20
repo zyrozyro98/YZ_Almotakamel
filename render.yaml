@@ -21,21 +21,3 @@ services:
       name: whatsapp-sessions
       mountPath: /usr/src/app/sessions
       sizeGB: 1
-
-  # ---------------------------------------------------------------------------
-  # Frontend Service (Static Site)
-  # ---------------------------------------------------------------------------
-  - type: web
-    name: yz-almotakamel-frontend
-    env: static
-    plan: free
-    region: frankfurt
-    buildCommand: npm install && npm run build
-    publishPath: frontend/dist
-    rootDir: . # Build from root to handle monorepo dependencies
-    envVars:
-      - key: VITE_API_BASE_URL
-        fromService:
-          name: yz-almotakamel-backend
-          type: web
-          property: host
