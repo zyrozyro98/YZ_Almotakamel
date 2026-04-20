@@ -42,30 +42,9 @@ router.post('/send', async (req, res) => {
       return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
     }
 
-    // 1. Resolve Target JID
-    let targetJid = fullJid;
-    const chatId = getPureNumber(phoneNumber);
+    // 1. Resolve Target JID using unified logic
+    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
 
-    if (!targetJid) {
-      // Try to find verified JID from RTDB
-      try {
-        const snap = await rtdb.ref(`chats/${employeeId}/${chatId}`).once('value');
-        targetJid = snap.val()?.fullJid;
-      } catch(e) {}
-    }
-
-    if (!targetJid) {
-      // Still no JID? Use Guessing logic with safety
-      let finalPhone = chatId;
-      
-      if (finalPhone.length > 13 || /[a-zA-Z]/.test(finalPhone)) {
-        // It's a technical LID
-        targetJid = `${finalPhone}@lid`;
-      } else {
-        // Standard Phone JID (Already contains country code due to JID system update)
-        targetJid = `${finalPhone}@s.whatsapp.net`;
-      }
-    }
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
     
