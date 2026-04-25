@@ -29,19 +29,32 @@ const createMock = (name) => {
 try {
   if (admin.apps.length === 0) {
     const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
     
-    if (fs.existsSync(serviceAccountPath)) {
+    if (serviceAccountVar) {
+      console.log('[FIREBASE] Initializing with service account from environment variable.');
+      try {
+        const serviceAccount = JSON.parse(serviceAccountVar);
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+        });
+      } catch (err) {
+        console.error('[FIREBASE ERROR] Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err.message);
+        // Fallback to project ID only if parsing fails
+        admin.initializeApp({
+          projectId: process.env.FIREBASE_PROJECT_ID || 'yz-almotakamel',
+          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+        });
+      }
+    } else if (fs.existsSync(serviceAccountPath)) {
       console.log('[FIREBASE] Found serviceAccountKey.json. Initializing with full credentials.');
-      
-      // Set environment variable as an absolute fallback
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath;
-
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccountPath),
         databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
       });
     } else {
-      console.warn('[FIREBASE] serviceAccountKey.json NOT found. Initializing with project ID only.');
+      console.warn('[FIREBASE] No service account found. Initializing with project ID only (might fail on non-GCP).');
       admin.initializeApp({
         projectId: process.env.FIREBASE_PROJECT_ID || 'yz-almotakamel',
         databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
