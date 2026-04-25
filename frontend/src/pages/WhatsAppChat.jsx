@@ -727,12 +727,10 @@ export default function WhatsAppChat() {
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {selectedChat.name}
-                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '6px' }}>{getDisplayPhone(selectedChat)}</span>
                     </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
                       {selectedChat.specialization && <span style={{ fontSize: '0.65rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.specialization}</span>}
-                      <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: '5px', fontFamily: 'monospace' }}>ID: {selectedChat.fullJid || selectedChat.phone}</span>
                     </div>
                   </div>
                 </div>
