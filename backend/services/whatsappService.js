@@ -15,7 +15,7 @@ const { getPureNumber } = require('../utils/numberUtils');
 
 const sessions = new Map();
 const qrCache = new Map(); 
-const SESSIONS_PATH = path.join(__dirname, '..', 'sessions');
+const SESSIONS_PATH = process.env.WA_SESSION_PATH || path.join(__dirname, '..', 'sessions');
 
 // Global set to track processed message IDs to prevent double notifications/saves
 const processedMessageIds = new Set();

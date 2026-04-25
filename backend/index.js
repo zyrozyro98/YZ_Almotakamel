@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Ensure sessions directory exists for Baileys Multi-Device state
-const sessionsDir = path.join(__dirname, 'sessions');
+const sessionsDir = process.env.WA_SESSION_PATH || path.join(__dirname, 'sessions');
 if (!fs.existsSync(sessionsDir)) {
   fs.mkdirSync(sessionsDir, { recursive: true });
   console.log('[SYSTEM] Created sessions directory');
@@ -58,7 +58,7 @@ app.listen(PORT, async () => {
 
   // --- AUTO-BOOT SESSIONS ---
   // Scan for saved credentials and re-init sessions automatically
-  const sessionsParentDir = path.join(__dirname, 'sessions');
+  const sessionsParentDir = process.env.WA_SESSION_PATH || path.join(__dirname, 'sessions');
   if (fs.existsSync(sessionsParentDir)) {
     const files = fs.readdirSync(sessionsParentDir);
     for (const file of files) {
