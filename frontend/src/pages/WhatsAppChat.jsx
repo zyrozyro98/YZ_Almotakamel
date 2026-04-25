@@ -30,6 +30,7 @@ export default function WhatsAppChat() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const messagesEndRef = useRef(null);
+  const notificationSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3')); // Clean notification ping
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [view, setView] = useState('list');
   const [sidebarTab, setSidebarTab] = useState('chats'); // 'chats' or 'directory'
@@ -123,7 +124,19 @@ export default function WhatsAppChat() {
     const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(200));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
+      if (data) {
+        const chatList = Object.entries(data).map(([id, val]) => ({ phone: id, ...val }));
+        
+        // Notification Logic: If last message changed and it's not from 'me'
+        chatList.forEach(chat => {
+           const prev = activeChats.find(pc => pc.phone === chat.phone);
+           if (prev && chat.timestamp > prev.timestamp && chat.lastSender === 'them') {
+              notificationSound.current.play().catch(() => {});
+           }
+        });
+
+        setActiveChats(chatList);
+      }
       else setActiveChats([]);
     });
 

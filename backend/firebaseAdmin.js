@@ -5,6 +5,7 @@ const fs = require('fs');
 let db = null;
 let rtdb = null;
 let auth = null;
+let storage = null;
 
 // Helper to create safe mocks if everything fails
 const createMock = (name) => {
@@ -37,27 +38,31 @@ try {
         const serviceAccount = JSON.parse(serviceAccountVar);
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
-          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'yz-almotakamel.appspot.com'
         });
       } catch (err) {
         console.error('[FIREBASE ERROR] Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err.message);
         // Fallback to project ID only if parsing fails
         admin.initializeApp({
           projectId: process.env.FIREBASE_PROJECT_ID || 'yz-almotakamel',
-          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+          databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'yz-almotakamel.appspot.com'
         });
       }
     } else if (fs.existsSync(serviceAccountPath)) {
       console.log('[FIREBASE] Found serviceAccountKey.json. Initializing with full credentials.');
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccountPath),
-        databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+        databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'yz-almotakamel.appspot.com'
       });
     } else {
       console.warn('[FIREBASE] No service account found. Initializing with project ID only (might fail on non-GCP).');
       admin.initializeApp({
         projectId: process.env.FIREBASE_PROJECT_ID || 'yz-almotakamel',
-        databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com'
+        databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'yz-almotakamel.appspot.com'
       });
     }
   }
@@ -86,11 +91,20 @@ try {
       auth = createMock('Auth');
   }
 
+  try {
+      storage = admin.storage();
+      console.log('[FIREBASE] Storage initialized.');
+  } catch (e) {
+      console.error('[FIREBASE] Storage Init failed:', e.message);
+      storage = createMock('Storage');
+  }
+
 } catch (error) {
   console.error('[FIREBASE ERROR] Root Initialization failed:', error.message);
   db = createMock('Firestore');
   rtdb = createMock('RTDB');
   auth = createMock('Auth');
+  storage = createMock('Storage');
 }
 
-module.exports = { admin, db, rtdb, auth };
+module.exports = { admin, db, rtdb, auth, storage };

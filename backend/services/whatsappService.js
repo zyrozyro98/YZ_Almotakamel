@@ -10,8 +10,25 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const admin = require('firebase-admin');
-const { db, rtdb } = require('../firebaseAdmin');
+const { db, rtdb, storage } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
+
+// Helper to upload media to Firebase Storage
+async function uploadToStorage(buffer, fileName, mimeType) {
+  try {
+    const bucket = storage.bucket();
+    const file = bucket.file(`media/${Date.now()}_${fileName}`);
+    await file.save(buffer, {
+      metadata: { contentType: mimeType },
+      public: true,
+      resumable: false
+    });
+    return `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+  } catch (err) {
+    console.error("[STORAGE ERROR]", err.message);
+    return null;
+  }
+}
 
 const sessions = new Map();
 const qrCache = new Map(); 
@@ -67,7 +84,9 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         try {
           const buffer = await downloadMediaMessage(msg, 'buffer', {});
           const mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
-          mediaData = `data:${mime};base64,${buffer.toString('base64')}`;
+          const fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+          mediaData = await uploadToStorage(buffer, fileName, mime);
+          console.log(`[WA] Media uploaded: ${mediaData}`);
         } catch (err) { console.error("[WA] Media error:", err.message); }
       }
 

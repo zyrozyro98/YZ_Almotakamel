@@ -11,6 +11,7 @@ export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
+  const [waStatus, setWaStatus] = useState({ isConnected: false });
 
   // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
@@ -44,6 +45,17 @@ export default function DashboardLayout() {
       }
     });
 
+    return () => unsubscribe();
+  }, [employeeId]);
+
+  // 3. Real-time WhatsApp Status Listener
+  useEffect(() => {
+    if (!employeeId || employeeId === 'emp1') return;
+    const statusRef = ref(rtdb, `wa_status/${employeeId}`);
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      if (snapshot.exists()) setWaStatus(snapshot.val());
+      else setWaStatus({ isConnected: false });
+    });
     return () => unsubscribe();
   }, [employeeId]);
 
@@ -230,8 +242,37 @@ export default function DashboardLayout() {
                 </div>
               )}
             </div>
+
+            <div 
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '0.4rem 1rem', 
+                background: 'rgba(255,255,255,0.03)', borderRadius: '14px', border: '1px solid var(--glass-border)',
+                cursor: isAdmin ? 'pointer' : 'default'
+              }}
+              onClick={() => isAdmin && (window.location.href = '/whatsapp-config')}
+              title={isAdmin ? 'إدارة الاتصال' : 'حالة الاتصال'}
+            >
+              <div style={{ 
+                width: '10px', height: '10px', borderRadius: '50%', 
+                background: waStatus.isConnected ? 'var(--success)' : 'var(--danger)',
+                boxShadow: waStatus.isConnected ? '0 0 8px var(--success)' : '0 0 8px var(--danger)',
+                animation: waStatus.isConnected ? 'none' : 'pulse-red 2s infinite'
+              }}></div>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>
+                {waStatus.isConnected ? 'متصل' : 'غير مرتبط'}
+              </span>
+              <Smartphone size={16} color={waStatus.isConnected ? 'var(--success)' : 'var(--text-secondary)'} />
+            </div>
           </div>
         </header>
+
+        <style>{`
+          @keyframes pulse-red {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+          }
+        `}</style>
 
         <div style={{ 
           flex: 1, 
