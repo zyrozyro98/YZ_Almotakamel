@@ -108,7 +108,6 @@ export default function WhatsAppChat() {
     });
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     if (!targetId) return;
 
     const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(200));
