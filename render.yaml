@@ -23,3 +23,19 @@ services:
       name: whatsapp-sessions
       mountPath: /usr/src/app/sessions
       sizeGB: 1
+
+  # ---------------------------------------------------------------------------
+  # Frontend Service (React + Nginx Docker)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: yz-almotakamel-frontend
+    env: docker
+    plan: free
+    region: frankfurt
+    dockerContext: .
+    dockerfilePath: Dockerfile.frontend
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://yz-almotakamel-backend.onrender.com
+      # Firebase keys will be inherited from the repo .env or can be set in dashboard
+
