@@ -68,6 +68,21 @@ export default function WhatsAppChat() {
     return () => unsubAuth();
   }, [viewingEmployeeId]);
 
+  // Separate Effect for Global Metadata (runs once)
+  useEffect(() => {
+    if (!employeeId) return;
+
+    const unsubUnivs = onSnapshot(collection(db, 'universities'), (snap) => {
+      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubMajors = onSnapshot(collection(db, 'majors'), (snap) => {
+      setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
+    });
+
+    return () => { unsubUnivs(); unsubMajors(); };
+  }, [employeeId]);
+
   // Fetch all employees if admin
   useEffect(() => {
     if (!isAdmin) return;
@@ -97,15 +112,10 @@ export default function WhatsAppChat() {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Listen to Universities for dropdowns
-    const unsubUnivs = onSnapshot(collection(db, 'universities'), (snap) => {
-      setUniversities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    // Listen to Global Majors
-    const unsubMajors = onSnapshot(collection(db, 'majors'), (snap) => {
-      setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
-    });
+    // Clear previous chats to show loading state
+    setActiveChats([]);
+    setSelectedChat(null);
+    setMessages([]);
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
@@ -117,7 +127,7 @@ export default function WhatsAppChat() {
       else setActiveChats([]);
     });
 
-    return () => { unsubStudents(); unsubActive(); unsubUnivs(); unsubMajors(); };
+    return () => { unsubStudents(); unsubActive(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
