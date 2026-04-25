@@ -362,12 +362,11 @@ export default function WhatsAppChat() {
       name: (selectedChat?.name?.includes('مجهول') || selectedChat?.name?.includes('+')) ? '' : (selectedChat?.name || ''),
       phone: resolvedPhone,
       university: '',
-      specialization: '',
       major: '',
       batch: '',
       idNumber: '',
-      platformUser: '',
-      platformPass: '',
+      username: '',
+      password: '',
       notes: ''
     });
     setActiveModal('add');
@@ -1050,8 +1049,8 @@ export default function WhatsAppChat() {
                     <select
                       className="input-base"
                       style={{ background: '#0f172a' }}
-                      value={formData.specialization}
-                      onChange={e => setFormData({ ...formData, specialization: e.target.value })}
+                      value={formData.major}
+                      onChange={e => setFormData({ ...formData, major: e.target.value })}
                       required
                     >
                       <option value="">اختر التخصص</option>
@@ -1068,8 +1067,8 @@ export default function WhatsAppChat() {
                     <input
                       type="password"
                       className="input-base"
-                      value={formData.platformUser || ''}
-                      onChange={e => setFormData({ ...formData, platformUser: e.target.value })}
+                      value={formData.username || ''}
+                      onChange={e => setFormData({ ...formData, username: e.target.value })}
                     />
                   </div>
                   <div>
@@ -1078,8 +1077,8 @@ export default function WhatsAppChat() {
                       type="password"
                       className="input-base"
                       placeholder="••••••••"
-                      value={formData.platformPass || ''}
-                      onChange={e => setFormData({ ...formData, platformPass: e.target.value })}
+                      value={formData.password || ''}
+                      onChange={e => setFormData({ ...formData, password: e.target.value })}
                     />
                   </div>
                 </div>

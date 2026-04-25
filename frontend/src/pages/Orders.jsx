@@ -75,7 +75,11 @@ export default function Orders() {
           date: student.createdAt ? new Date(student.createdAt.seconds * 1000).toLocaleDateString('ar-SA') : 'اليوم',
           mainStatus: student.mainStatus || 'جديد',
           subStatus: student.subStatus || 'لم يتم التواصل',
-          details: student.notes || 'طلب تسجيل (لا توجد ملاحظات)'
+          details: student.notes || 'طلب تسجيل (لا توجد ملاحظات)',
+          batch: student.batch || 'غير محدد',
+          idNumber: student.idNumber || 'غير مسجل',
+          username: student.username || 'غير مسجل',
+          password: student.password || '••••••••'
         };
       });
       setOrdersData(liveData);
@@ -205,6 +209,22 @@ export default function Orders() {
                     <div>
                       <p className="input-label" style={{ margin: 0 }}>التخصص</p>
                       <p style={{ fontSize: '1.1rem', marginTop: '0.2rem' }}>{selectedOrder.major}</p>
+                    </div>
+                    <div>
+                      <p className="input-label" style={{ margin: 0 }}>رقم الدفعة</p>
+                      <p style={{ fontSize: '1.1rem', marginTop: '0.2rem' }}>{selectedOrder.batch}</p>
+                    </div>
+                    <div>
+                      <p className="input-label" style={{ margin: 0 }}>رقم الهوية</p>
+                      <p style={{ fontSize: '1.1rem', marginTop: '0.2rem' }}>{selectedOrder.idNumber}</p>
+                    </div>
+                    <div>
+                      <p className="input-label" style={{ margin: 0 }}>يوزر المنصة</p>
+                      <p style={{ fontSize: '1.1rem', marginTop: '0.2rem', color: '#3b82f6' }}>{selectedOrder.username}</p>
+                    </div>
+                    <div>
+                      <p className="input-label" style={{ margin: 0 }}>باسورد المنصة</p>
+                      <p style={{ fontSize: '1.1rem', marginTop: '0.2rem', color: '#3b82f6' }}>{selectedOrder.password}</p>
                     </div>
                   </div>
                   {selectedOrder.details && (

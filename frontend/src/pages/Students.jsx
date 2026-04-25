@@ -34,6 +34,7 @@ export default function Students() {
     university: '',
     major: '',
     batch: '',
+    idNumber: '',
     group: '',
     notes: ''
   });
@@ -84,6 +85,8 @@ export default function Students() {
       password: student.password || '',
       university: student.university || '',
       major: student.major || '',
+      batch: student.batch || '',
+      idNumber: student.idNumber || '',
       notes: student.notes || ''
     });
     setEditingId(student.id);
@@ -267,6 +270,16 @@ export default function Students() {
                   <option key={i} value={m}>{m}</option>
                 ))}
               </select>
+            </div>
+            
+            <div className="flex-col gap-2">
+              <label className="input-label">رقم الدفعة</label>
+              <input type="text" className="input-base" placeholder="مثلاً: 2024" value={formData.batch} onChange={e => setFormData({...formData, batch: e.target.value})} />
+            </div>
+
+            <div className="flex-col gap-2">
+              <label className="input-label">رقم الهوية</label>
+              <input type="text" className="input-base" placeholder="رقم الهوية الوطنية" value={formData.idNumber} onChange={e => setFormData({...formData, idNumber: e.target.value})} />
             </div>
 
             <div className="flex-col gap-2" style={{ gridColumn: 'span 2' }}>
