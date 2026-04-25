@@ -1032,8 +1032,8 @@ export default function WhatsAppChat() {
                     <input type="text" className="input-base" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
                   </div>
                   <div>
-                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الهاتف (واتساب)</label>
-                    <input type="tel" dir="ltr" className="input-base" style={{ textAlign: 'right' }} value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} required />
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>رقم الهاتف (مخفي للأمان)</label>
+                    <input type="password" dir="ltr" className="input-base" style={{ textAlign: 'right' }} value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} required />
                   </div>
                 </div>
 
