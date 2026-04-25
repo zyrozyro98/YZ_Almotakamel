@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue, get } from 'firebase/database';
+import { ref, onValue, get, query as rtdbQuery, limitToLast } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
 
 export default function WhatsAppChat() {
@@ -87,8 +87,13 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
 
-    // Listen to Students
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+    // Listen to Students (Optimized Query)
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    const studentsBaseQuery = isAdmin 
+      ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(300))
+      : query(collection(db, 'students'), where('assignedTo', '==', employeeId));
+
+    const unsubStudents = onSnapshot(studentsBaseQuery, (snap) => {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -106,7 +111,7 @@ export default function WhatsAppChat() {
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     if (!targetId) return;
 
-    const activeRef = ref(rtdb, `chats/${targetId}`);
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(200));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setActiveChats(Object.entries(data).map(([id, val]) => ({ phone: id, ...val })));
@@ -120,8 +125,8 @@ export default function WhatsAppChat() {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = getMatchKey(selectedChat.phone);
-    const messagesRef = ref(rtdb, `chats/${targetId}/${cleanId}/messages`);
-    const unsubMsg = onValue(messagesRef, (snapshot) => {
+    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${cleanId}/messages`), limitToLast(100));
+    const unsubMsg = onValue(messagesQuery, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
@@ -155,11 +160,12 @@ export default function WhatsAppChat() {
 
   // Memoized Combined List for Performance
   const memoizedCombinedList = React.useMemo(() => {
-    // 1. Create a map of students for fast lookup
+    // 1. Create a map of students for fast lookup (Optimized)
     const studentMap = new Map();
-    students.forEach(s => {
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i];
       studentMap.set(getMatchKey(s.phone), { ...s });
-    });
+    }
 
     // 2. Merge active chats into the map or create new entries
     activeChats.forEach(chat => {
