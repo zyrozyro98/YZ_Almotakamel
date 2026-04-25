@@ -107,6 +107,28 @@ router.get('/status/:employeeId', (req, res) => {
   }
 });
 
+// Get ALL Statuses (Admin only)
+router.get('/status-all', async (req, res) => {
+  try {
+    const employeesSnap = await db.collection('employees').get();
+    const statuses = [];
+    
+    for (const doc of employeesSnap.docs) {
+      const emp = doc.data();
+      const status = whatsappService.getConnectionStatus(doc.id);
+      statuses.push({
+        id: doc.id,
+        name: emp.name,
+        ...status
+      });
+    }
+    
+    res.json(statuses);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);

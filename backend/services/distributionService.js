@@ -5,40 +5,44 @@ const { db, rtdb } = require('../firebaseAdmin');
  * Automatically assigns new incoming leads/orders to the employee with the lowest active load.
  */
 
-// Simulated pool of active customer service employees.
-// In production, this would be fetched from Firestore 'users' collection where role='employee' and status='online'
-const ACTIVE_EMPLOYEES = ['emp1', 'emp2', 'emp3'];
-
-async function getEmployeeLoads() {
-  const loads = {};
-  for (const emp of ACTIVE_EMPLOYEES) {
-    // Check how many active 'new' or 'waiting' orders are assigned to this employee
-    const snapshot = await db.collection('orders')
-      .where('assignedTo', '==', emp)
-      .where('mainStatus', 'in', ['جديد', 'انتظار'])
-      .get();
-    
-    loads[emp] = snapshot.size;
-  }
-  return loads;
-}
-
 async function findBestEmployee() {
-  const loads = await getEmployeeLoads();
-  
-  // Find employee with the minimum load
-  let bestEmp = ACTIVE_EMPLOYEES[0];
-  let minLoad = loads[bestEmp];
-
-  for (const [emp, load] of Object.entries(loads)) {
-    if (load < minLoad) {
-      minLoad = load;
-      bestEmp = emp;
+  try {
+    // 1. Fetch all real employees from Firestore
+    const employeesSnap = await db.collection('employees').get();
+    if (employeesSnap.empty) {
+      console.warn('[DISTRIBUTION] No employees found in Firestore. Falling back to default emp1');
+      return 'emp1';
     }
-  }
 
-  console.log(`[DISTRIBUTION] Assigned to ${bestEmp}. Current load: ${minLoad}`);
-  return bestEmp;
+    const employeeIds = employeesSnap.docs.map(doc => doc.id);
+    const loads = {};
+
+    // 2. Calculate loads for each real employee
+    for (const empId of employeeIds) {
+      const snapshot = await db.collection('orders')
+        .where('assignedTo', '==', empId)
+        .where('mainStatus', 'in', ['جديد', 'انتظار'])
+        .get();
+      loads[empId] = snapshot.size;
+    }
+
+    // 3. Find the one with the minimum load
+    let bestEmp = employeeIds[0];
+    let minLoad = loads[bestEmp];
+
+    for (const [empId, load] of Object.entries(loads)) {
+      if (load < minLoad) {
+        minLoad = load;
+        bestEmp = empId;
+      }
+    }
+
+    console.log(`[DISTRIBUTION] Assigned to ${bestEmp}. Current load: ${minLoad}`);
+    return bestEmp;
+  } catch (error) {
+    console.error('[DISTRIBUTION ERROR]', error.message);
+    return 'emp1'; // Safe fallback
+  }
 }
 
 /**
