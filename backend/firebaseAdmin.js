@@ -5,7 +5,6 @@ const fs = require('fs');
 let db = null;
 let rtdb = null;
 let auth = null;
-let storage = null;
 
 // Helper to create safe mocks if everything fails
 const createMock = (name) => {
@@ -91,20 +90,11 @@ try {
       auth = createMock('Auth');
   }
 
-  try {
-      storage = admin.storage();
-      console.log('[FIREBASE] Storage initialized.');
-  } catch (e) {
-      console.error('[FIREBASE] Storage Init failed:', e.message);
-      storage = createMock('Storage');
-  }
-
 } catch (error) {
   console.error('[FIREBASE ERROR] Root Initialization failed:', error.message);
   db = createMock('Firestore');
   rtdb = createMock('RTDB');
   auth = createMock('Auth');
-  storage = createMock('Storage');
 }
 
-module.exports = { admin, db, rtdb, auth, storage };
+module.exports = { admin, db, rtdb, auth };

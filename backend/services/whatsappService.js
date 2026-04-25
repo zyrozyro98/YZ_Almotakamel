@@ -10,22 +10,21 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const admin = require('firebase-admin');
-const { db, rtdb, storage } = require('../firebaseAdmin');
+const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 
-// Helper to upload media to Firebase Storage
+// Helper to save media to Local Disk (Render Persistent Disk)
 async function uploadToStorage(buffer, fileName, mimeType) {
   try {
-    const bucket = storage.bucket();
-    const file = bucket.file(`media/${Date.now()}_${fileName}`);
-    await file.save(buffer, {
-      metadata: { contentType: mimeType },
-      public: true,
-      resumable: false
-    });
-    return `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+    const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+    const uploadPath = path.join(SESSIONS_PATH, 'uploads', safeName);
+    fs.writeFileSync(uploadPath, buffer);
+    
+    // Dynamic URL generation (Points to Render backend)
+    const baseUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';
+    return `${baseUrl}/uploads/${safeName}`;
   } catch (err) {
-    console.error("[STORAGE ERROR]", err.message);
+    console.error("[LOCAL STORAGE ERROR]", err.message);
     return null;
   }
 }
