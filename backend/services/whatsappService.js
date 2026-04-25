@@ -71,7 +71,16 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       const jidDomain = remoteJid.split('@')[1];
       const normalizedJid = `${jidUser}@${jidDomain}`;
       const isMe = msg.key.fromMe;
-      const pushName = msg.pushName || 'مستخدم واتساب';
+      
+      // Better Name Resolution for Groups/Channels
+      let pushName = msg.pushName || 'مستخدم واتساب';
+      if (jidDomain === 'g.us') pushName = `مجموعة: ${pushName}`;
+      if (jidDomain === 'newsletter') pushName = `قناة: ${pushName}`;
+
+      // If it's a group and we have participant info, try to use it
+      const participant = msg.key.participant || remoteJid;
+      const participantName = msg.pushName || 'مجهول';
+
       
       let textMsg = "";
       let mediaType = "text";
@@ -184,21 +193,44 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         quoted: quotedInfo
       };
 
+      // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
+      let finalName = pushName;
+      if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
+        try {
+          // Check cache first
+          const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
+          if (cacheSnap.exists()) {
+            finalName = cacheSnap.val();
+          } else {
+            // Live fetch from WhatsApp
+            if (jidDomain === 'g.us') {
+              const meta = await sock.groupMetadata(remoteJid);
+              finalName = meta.subject || finalName;
+            } else if (jidDomain === 'newsletter') {
+              const meta = await sock.newsletterMetadata("jid", remoteJid);
+              finalName = meta.name || finalName;
+            }
+            // Save to cache
+            await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(()=>{});
+          }
+        } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
+      }
+
       await chatRef.child('messages').child(msgId).update(msgData);
       await chatRef.update({
         lastMessage: textMsg,
         timestamp: Date.now(),
         phone: chatId,
         fullJid: normalizedJid,
-        name: pushName,
+        name: finalName,
         lastSender: isMe ? 'me' : 'them'
       });
 
       if (!isMe) {
         const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
         await notifRef.set({ 
-          title: `رسالة جديدة من ${pushName}`, 
-          body: textMsg.substring(0, 50), 
+          title: `رسالة جديدة في ${finalName}`, 
+          body: `${pushName}: ${textMsg.substring(0, 50)}`, 
           time: Date.now(), 
           read: false, 
           type: 'chat', 
