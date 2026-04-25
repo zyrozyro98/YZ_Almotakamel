@@ -667,12 +667,7 @@ export default function WhatsAppChat() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
-                        <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>{getDisplayPhone(item)}</p>
-                          {item.fullJid && item.fullJid.includes('@lid') && (
-                            <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.05)', padding: '0 4px', borderRadius: '3px' }}>LID</span>
-                          )}
-                        </div>
+                      </div>
                       </div>
                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
