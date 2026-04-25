@@ -12,13 +12,30 @@ const fs = require('fs');
 const admin = require('firebase-admin');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
+const sharp = require('sharp');
 
-// Helper to save media to Local Disk (Render Persistent Disk)
+// Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
 async function uploadToStorage(buffer, fileName, mimeType) {
   try {
     const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
     const uploadPath = path.join(SESSIONS_PATH, 'uploads', safeName);
-    fs.writeFileSync(uploadPath, buffer);
+    
+    let finalBuffer = buffer;
+
+    // 1. Image Compression (Optimization)
+    if (mimeType.startsWith('image/') && !mimeType.includes('gif')) {
+      try {
+        finalBuffer = await sharp(buffer)
+          .resize({ width: 1200, withoutEnlargement: true }) // Max width 1200px
+          .jpeg({ quality: 70 }) // 70% Quality is enough for CS
+          .toBuffer();
+        console.log(`[WA] Compressed image: ${buffer.length} -> ${finalBuffer.length}`);
+      } catch (e) {
+        console.warn("[WA] Sharp compression failed, saving original.");
+      }
+    }
+    
+    fs.writeFileSync(uploadPath, finalBuffer);
     
     // Dynamic URL generation (Points to Render backend)
     const baseUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';

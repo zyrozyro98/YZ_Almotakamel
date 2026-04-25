@@ -84,5 +84,27 @@ app.listen(PORT, async () => {
       }
     }
   }
+
+  // --- AUTO-CLEANUP MEDIA (Maintenance) ---
+  // Periodically check and delete files older than 30 days to save disk space
+  setInterval(() => {
+    console.log('[MAINTENANCE] Running media cleanup...');
+    const now = Date.now();
+    const expiry = 30 * 24 * 60 * 60 * 1000; // 30 Days
+
+    const uploadsPath = path.join(sessionsParentDir, 'uploads');
+    if (fs.existsSync(uploadsPath)) {
+      fs.readdirSync(uploadsPath).forEach(file => {
+        const filePath = path.join(uploadsPath, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (now - stats.mtimeMs > expiry) {
+            fs.unlinkSync(filePath);
+            console.log(`[MAINTENANCE] Deleted old file: ${file}`);
+          }
+        } catch (e) {}
+      });
+    }
+  }, 24 * 60 * 60 * 1000); // Run once every 24 hours
 });
 
