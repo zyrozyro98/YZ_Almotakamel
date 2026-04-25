@@ -668,7 +668,6 @@ export default function WhatsAppChat() {
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
                       </div>
-                      </div>
                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
                     <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
