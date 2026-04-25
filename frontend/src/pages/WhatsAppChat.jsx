@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
@@ -14,6 +14,8 @@ import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, 
 import Picker from '@emoji-mart/react';
 
 export default function WhatsAppChat() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [employeeId, setEmployeeId] = useState('emp1');
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -221,7 +223,7 @@ export default function WhatsAppChat() {
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }, [students, activeChats, isAdmin]);
 
-  // Handle URL Selection (from Notification)
+  // Handle URL Selection (from Notification or Orders)
   const location = useLocation();
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -231,6 +233,13 @@ export default function WhatsAppChat() {
       if (target) {
         setSelectedChat(target);
         if (isMobile) setView('chat');
+        
+        // Auto-switch tab if needed
+        if (target.timestamp > 0) setSidebarTab('chats');
+        else if (!target.isUnknown) setSidebarTab('directory');
+
+        // Clear the URL to avoid re-triggering on tab switches
+        navigate('/chat', { replace: true });
       }
     }
   }, [location.search, memoizedCombinedList, isMobile]);

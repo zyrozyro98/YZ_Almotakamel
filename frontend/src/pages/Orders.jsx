@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Filter, Eye, ChevronRight, CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 
 // Maps main status to acceptable sub-statuses
 const STATUS_MAP = {
@@ -35,6 +36,7 @@ const getStatusIcon = (status) => {
 };
 
 export default function Orders() {
+  const navigate = useNavigate();
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [activeTab, setActiveTab] = useState('الكل');
   const [ordersData, setOrdersData] = useState([]);
@@ -196,9 +198,12 @@ export default function Orders() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginTop: '0.2rem' }}>
                         <p style={{ fontSize: '1.1rem', margin: 0 }} dir="ltr">{selectedOrder.phone}</p>
                         {selectedOrder.phone !== 'غير مسجل' && (
-                          <a href={`https://wa.me/${selectedOrder.phone.replace(/\+/g,'')}`} target="_blank" rel="noopener noreferrer" style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', background: 'rgba(37, 211, 102, 0.1)', color: '#25D366', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid currentColor', textDecoration: 'none' }}>
-                            تواصل واتساب
-                          </a>
+                          <button 
+                            onClick={() => navigate(`/chat?select=${selectedOrder.phone}`)}
+                            style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', background: 'rgba(37, 211, 102, 0.1)', color: '#25D366', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid currentColor', cursor: 'pointer' }}
+                          >
+                            تواصل واتساب (النظام)
+                          </button>
                         )}
                       </div>
                     </div>
