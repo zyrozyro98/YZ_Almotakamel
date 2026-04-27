@@ -3,7 +3,7 @@ import { FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, QrCode, Trendi
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 import { db, auth } from '../firebase';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, getDocs, orderBy, query, getDoc, doc } from 'firebase/firestore';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function Reports() {
@@ -16,9 +16,15 @@ export default function Reports() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
   React.useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
+    const unsub = auth.onAuthStateChanged(async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
       } else {
         setIsAdmin(false);

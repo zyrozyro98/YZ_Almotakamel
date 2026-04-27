@@ -4,7 +4,7 @@ import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDoc, doc } from 'firebase/firestore';
 
 export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
@@ -21,10 +21,16 @@ export default function WhatsAppConfig() {
 
   // 1. Auth Listener
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, user => {
+    const unsubAuth = onAuthStateChanged(auth, async user => {
       if (user) {
         setEmployeeId(user.uid);
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
         if (!adminStatus) setTargetEmployeeId(user.uid);
       } else {

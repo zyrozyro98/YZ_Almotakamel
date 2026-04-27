@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User } from 'lucide-react';
+import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User, Clock, Calendar, Square, Save, Trash2, Download, Eye, FileOutput } from 'lucide-react';
 import axios from 'axios';
-import { db, auth } from '../firebase';
+import { db, auth, rtdb } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 
 export default function PhotoSender() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -33,12 +34,23 @@ export default function PhotoSender() {
   }, [isAdmin]);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => {
+    const unsub = onAuthStateChanged(auth, async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        const id = user.uid;
+        setGoldenKey(id);
+        
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', id));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
+          }
+        } catch (e) { console.error(e); }
+        
         setIsAdmin(adminStatus);
-        setGoldenKey(user.uid);
-        setSenderId('auto'); // Default to smart auto-routing
+        setSenderId('auto');
       } else {
         setIsAdmin(false);
         setSenderId('auto');
@@ -58,6 +70,22 @@ export default function PhotoSender() {
   const [manualQueue, setManualQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [logs, setLogs] = useState([]);
+  
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState('');
+  
+  // Custom Variables Management
+  const [greetings, setGreetings] = useState(() => JSON.parse(localStorage.getItem('wa_greetings')) || ['مرحباً', 'أهلاً بك', 'السلام عليكم', 'تحية طيبة']);
+  const [closings, setClosings] = useState(() => JSON.parse(localStorage.getItem('wa_closings')) || ['شكراً لك', 'بالتوفيق', 'مع تمنياتنا لك بالنجاح', 'فريق دبلومالاين']);
+  const [showVarManager, setShowVarManager] = useState(false);
+  
+  // Presets
+  const [presets, setPresets] = useState([]);
+  const [presetName, setPresetName] = useState('');
+  
+  const [senderStatus, setSenderStatus] = useState({ isConnected: false });
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewContent, setPreviewContent] = useState('');
   
   // Real stats
   const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0, pending: 0 });
@@ -91,13 +119,34 @@ export default function PhotoSender() {
 
   const getPureNumber = (raw) => {
     if (!raw) return "";
-    // JID System: Extract the identifier part (phone or technical ID) without stripping country codes
-    let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
     
-    // Auto-prefix local numbers for better matching with student records if they use 9-digit format
-    if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
-    else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
-    else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+    // 1. If it's a JID format (e.g. 966...@s.whatsapp.net), take the part before @
+    let d = String(raw).split('@')[0];
+    
+    // 2. Remove all non-digits (handles spaces, symbols, and letters in filenames)
+    d = d.replace(/\D/g, '');
+    
+    // 3. Normalize common regional formats
+    // Case 1: Saudi number starting with 05 (e.g. 0501234567 -> 966501234567)
+    if (/^05\d{8}$/.test(d)) {
+        d = '966' + d.substring(1);
+    }
+    // Case 2: Yemeni number starting with 07 (e.g. 0771234567 -> 967771234567)
+    else if (/^07\d{8}$/.test(d)) {
+        d = '967' + d.substring(1);
+    }
+    // Case 3: Saudi 9-digit (5xxxxxxxx -> 9665xxxxxxxx)
+    else if (/^5\d{8}$/.test(d)) {
+        d = '966' + d;
+    }
+    // Case 4: Yemeni 9-digit (7xxxxxxxx -> 9677xxxxxxxx)
+    else if (/^7\d{8}$/.test(d)) {
+        d = '967' + d;
+    }
+    // Case 5: International starting with 00 (00966... -> 966...)
+    if (d.startsWith('00')) {
+        d = d.substring(2);
+    }
 
     return d;
   };
@@ -105,12 +154,145 @@ export default function PhotoSender() {
   const parseSpintax = (text) => {
     if (!text) return "";
     return text.replace(/\{([^{}]+)\}/g, (match, options) => {
+      // If it contains variables we know, skip spintax parsing for them here
+      const vars = ['name', 'greeting', 'university', 'major', 'closing'];
+      if (vars.includes(options.toLowerCase())) return match;
+
       const choices = options.split('|');
       return choices[Math.floor(Math.random() * choices.length)];
     });
   };
 
-  const getBase64 = (file) => {
+  const parseTemplate = (tpl, phoneNumber) => {
+    let result = tpl;
+    
+    // 1. Spintax parsing
+    result = parseSpintax(result);
+    
+    // 2. Variable lookup
+    const cleanTarget = getPureNumber(phoneNumber);
+    const student = students.find(s => getPureNumber(s.phone) === cleanTarget);
+    
+    const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)] || '';
+    const randomClosing = closings[Math.floor(Math.random() * closings.length)] || '';
+    
+    result = result.replace(/{greeting}/g, randomGreeting);
+    result = result.replace(/{closing}/g, randomClosing);
+    
+    if (student) {
+      result = result.replace(/{name}/g, student.name || '');
+      result = result.replace(/{university}/g, student.university || '');
+      result = result.replace(/{major}/g, student.major || student.specialization || '');
+    } else {
+      // Fallback if student not found
+      result = result.replace(/{name}/g, 'عزيزي الطالب');
+      result = result.replace(/{university}/g, '');
+      result = result.replace(/{major}/g, '');
+    }
+    
+    return result;
+  };
+
+  useEffect(() => {
+    localStorage.setItem('wa_greetings', JSON.stringify(greetings));
+  }, [greetings]);
+
+  useEffect(() => {
+    localStorage.setItem('wa_closings', JSON.stringify(closings));
+  }, [closings]);
+
+  useEffect(() => {
+    // 1. Listen to Students
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      const sData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setStudents(sData);
+    });
+
+    // 2. Listen to Presets
+    const unsubPresets = onSnapshot(collection(db, 'sender_presets'), (snap) => {
+      setPresets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubStudents(); unsubPresets(); };
+  }, []);
+
+  useEffect(() => {
+    if (!senderId || senderId === 'auto') {
+      setSenderStatus({ isConnected: true, isAuto: true });
+      return;
+    }
+    const statusRef = ref(rtdb, `wa_status/${senderId}`);
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+      if (snapshot.exists()) setSenderStatus(snapshot.val());
+      else setSenderStatus({ isConnected: false });
+    });
+    return () => unsubscribe();
+  }, [senderId]);
+
+  const handleSavePreset = async () => {
+    if (!presetName.trim()) {
+      alert('يرجى إدخال اسم للقالب أولاً.');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'sender_presets'), {
+        name: presetName,
+        template: messageTemplate,
+        sender: senderId,
+        greetings: greetings,
+        closings: closings,
+        createdAt: new Date().toISOString(),
+        createdBy: auth.currentUser?.uid || 'system'
+      });
+      setPresetName('');
+      alert('تم حفظ القالب في قاعدة البيانات بنجاح!');
+    } catch (err) {
+      alert('فشل حفظ القالب: ' + err.message);
+    }
+  };
+
+  const handleLoadPreset = (preset) => {
+    if (window.confirm(`هل تريد تحميل القالب "${preset.name}"؟ سيؤدي ذلك لاستبدال النص الحالي.`)) {
+      setMessageTemplate(preset.template);
+      setSenderId(preset.sender);
+      if (preset.greetings) setGreetings(preset.greetings);
+      if (preset.closings) setClosings(preset.closings);
+    }
+  };
+
+  const handleDeletePreset = async (id) => {
+    if (window.confirm('هل أنت متأكد من حذف هذا القالب نهائياً؟')) {
+      try {
+        await deleteDoc(doc(db, 'sender_presets', id));
+      } catch (err) {
+        alert('فشل الحذف');
+      }
+    }
+  };
+
+  const handlePreview = () => {
+    const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
+    if (activeQueue.length === 0) {
+      alert('يجب تحديد مجلد أو أرقام أولاً لمعاينة النتيجة.');
+      return;
+    }
+    const firstNum = mode === 'folder' ? getPureNumber(activeQueue[0].name) : activeQueue[0];
+    const content = parseTemplate(messageTemplate, firstNum);
+    setPreviewContent(content);
+    setShowPreview(true);
+  };
+
+  const handleExportLogs = () => {
+    if (logs.length === 0) return;
+    const content = logs.map(l => `[${l.time}] ${l.num}: ${l.msg}`).join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `logs_${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -152,7 +334,7 @@ export default function PhotoSender() {
           const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
           
           // Apply Spintax and Unique Noise to evade hash-based detection
-          let finalMessage = parseSpintax(messageTemplate);
+          let finalMessage = parseTemplate(messageTemplate, targetNumber);
           const noise = " ".repeat(Math.floor(Math.random() * 5)) + (Math.random() > 0.5 ? "\u200B" : "");
           if (finalMessage) finalMessage += noise;
 
@@ -252,7 +434,98 @@ export default function PhotoSender() {
     setIsPaused(false);
     isRunningRef.current = true;
     isPausedRef.current = false;
-    processQueue(currentIndex);
+
+    if (isScheduled) {
+      handleBulkSchedule();
+    } else {
+      processQueue(currentIndex);
+    }
+  };
+
+  const handleBulkSchedule = async () => {
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
+    
+    if (!scheduledTime) {
+      alert('يجب تحديد وقت الجدولة أولاً.');
+      setIsRunning(false);
+      isRunningRef.current = false;
+      return;
+    }
+
+    const scheduledTimestamp = new Date(scheduledTime).getTime();
+    if (scheduledTimestamp <= Date.now()) {
+      alert('يجب اختيار وقت في المستقبل.');
+      setIsRunning(false);
+      isRunningRef.current = false;
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من جدولة ${activeQueue.length} رسالة لوقت ${new Date(scheduledTime).toLocaleString('ar-SA')}؟`)) {
+      setIsRunning(false);
+      isRunningRef.current = false;
+      return;
+    }
+
+    setLogs([{ type: 'info', num: 'System', msg: 'جاري تحضير الرسائل للجدولة...', time: new Date().toLocaleTimeString('ar-SA') }]);
+
+    try {
+      const messagesToSchedule = [];
+      
+      for (let i = 0; i < activeQueue.length; i++) {
+        const item = activeQueue[i];
+        let targetNumber = '';
+        let fileToUpload = null;
+
+        if (mode === 'folder') {
+          targetNumber = getPureNumber(item.name);
+          fileToUpload = item;
+        } else {
+          targetNumber = item;
+          fileToUpload = manualFile;
+        }
+
+        if (!targetNumber || targetNumber.length < 9) continue;
+
+        const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
+        let finalMessage = parseTemplate(messageTemplate, targetNumber);
+        
+        const student = students.find(s => getPureNumber(s.phone) === targetNumber);
+        const studentJid = student?.fullJid || '';
+
+        // Add a small staggered delay for each scheduled message (e.g. 30s apart) to avoid ban
+        const staggeredTime = scheduledTimestamp + (i * 30000);
+
+        messagesToSchedule.push({
+          employeeId: senderId,
+          phoneNumber: targetNumber,
+          fullJid: studentJid,
+          message: finalMessage,
+          base64Image: b64,
+          type: b64 ? 'image' : 'text',
+          scheduledAt: staggeredTime,
+          senderName: auth.currentUser?.displayName || 'المرسل القوي',
+          senderId: auth.currentUser?.uid || 'system'
+        });
+      }
+
+      // Split into chunks if too large for Firestore batch (max 500)
+      const chunkSize = 100;
+      for (let i = 0; i < messagesToSchedule.length; i += chunkSize) {
+        const chunk = messagesToSchedule.slice(i, i + chunkSize);
+        await axios.post(`${BASE_URL}/api/schedule/bulk`, { messages: chunk });
+        setLogs(prev => [{ type: 'success', num: 'System', msg: `تمت جدولة الدفعة ${Math.floor(i/chunkSize) + 1} بنجاح`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+      }
+
+      alert('تمت جدولة جميع الرسائل بنجاح! يمكنك متابعتها من صفحة "الرسائل المجدولة".');
+      setStats(prev => ({ ...prev, pending: 0, sent: activeQueue.length }));
+    } catch (err) {
+      console.error(err);
+      alert('فشل في جدولة الرسائل: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsRunning(false);
+      isRunningRef.current = false;
+    }
   };
 
   const handlePause = () => {
@@ -307,20 +580,63 @@ export default function PhotoSender() {
       </p>
 
       {/* Mode Switches */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '5px', borderRadius: '15px', width: 'fit-content' }}>
-        <button 
-           onClick={() => !isRunning && setMode('folder')}
-           style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: mode === 'folder' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: '0.3s' }}
-        >
-          مجلد صور (أسماء الصور أرقام)
-        </button>
-        <button 
-           onClick={() => !isRunning && setMode('manual')}
-           style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: mode === 'manual' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: '0.3s' }}
-        >
-          أرقام محددة (نص / صور)
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '15px' }}>
+        <div style={{ display: 'flex', gap: '10px', background: 'rgba(255,255,255,0.03)', padding: '5px', borderRadius: '15px' }}>
+            <button 
+                onClick={() => !isRunning && setMode('folder')}
+                style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: mode === 'folder' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: '0.3s' }}
+            >
+            مجلد صور
+            </button>
+            <button 
+                onClick={() => !isRunning && setMode('manual')}
+                style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: mode === 'manual' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: '0.3s' }}
+            >
+            أرقام محددة
+            </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+                <input 
+                    type="text" 
+                    placeholder="اسم القالب لحفظ الإعدادات..." 
+                    className="input-base" 
+                    style={{ padding: '8px 12px', fontSize: '0.8rem', width: '200px' }}
+                    value={presetName}
+                    onChange={(e) => setPresetName(e.target.value)}
+                />
+            </div>
+            <button className="btn-primary" style={{ padding: '8px 15px', fontSize: '0.8rem' }} onClick={handleSavePreset}>
+                <Save size={16} /> حفظ كقالب
+            </button>
+        </div>
       </div>
+
+      {presets.length > 0 && (
+          <div style={{ marginBottom: '1.5rem', display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '15px', background: 'rgba(59,130,246,0.05)', borderRadius: '15px', border: '1px solid rgba(59,130,246,0.1)' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#3b82f6', width: '100%', marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Download size={14} /> القوالب المحفوظة:
+              </span>
+              {presets.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '5px 12px', borderRadius: '10px', gap: '10px', border: '1px solid var(--glass-border)' }}>
+                      <span 
+                        style={{ fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }} 
+                        onClick={() => handleLoadPreset(p)}
+                        title="تحميل الإعدادات"
+                      >
+                          {p.name}
+                      </span>
+                      <X 
+                        size={14} 
+                        style={{ cursor: 'pointer', opacity: 0.5, color: 'var(--danger)' }} 
+                        onClick={() => handleDeletePreset(p.id)} 
+                        title="حذف"
+                      />
+                  </div>
+              ))}
+          </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1fr) 2fr', gap: '2rem', flex: 1 }}>
         <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -346,6 +662,12 @@ export default function PhotoSender() {
                   <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
                 ))}
               </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: senderStatus.isConnected ? '#10b981' : '#ef4444' }} />
+                <span style={{ fontSize: '0.7rem', color: senderStatus.isConnected ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                    {senderStatus.isAuto ? 'التوجيه الذكي مفعل' : (senderStatus.isConnected ? 'متصل وجاهز' : 'الحساب المختار غير متصل حالياً')}
+                </span>
             </div>
           </div>
 
@@ -412,23 +734,123 @@ export default function PhotoSender() {
             </>
           )}
 
-          <div>
-            <label className="input-label">نص الرسالة (دعم Spintax والرموز)</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="input-label">نص الرسالة المصاحب للصور</label>
+                <button 
+                    className="btn-secondary" 
+                    style={{ fontSize: '0.7rem', padding: '4px 10px' }}
+                    onClick={() => setShowVarManager(!showVarManager)}
+                >
+                    {showVarManager ? 'إخفاء مدير المتغيرات' : 'إدارة المتغيرات (ترحيب/وداع)'}
+                </button>
+            </div>
+
+            {showVarManager && (
+                <div className="animate-fade-in-up" style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '0.5rem' }}>نصوص الترحيب المتغيرة {'{greeting}'}</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {greetings.map((g, i) => (
+                                <span key={i} style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    {g} <X size={12} style={{ cursor: 'pointer' }} onClick={() => setGreetings(greetings.filter((_, idx) => idx !== i))} />
+                                </span>
+                            ))}
+                            <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => {
+                                const val = prompt('أدخل نص ترحيبي جديد:');
+                                if (val) setGreetings([...greetings, val]);
+                            }}>+ إضافة</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '0.5rem' }}>نصوص الوداع المتغيرة {'{closing}'}</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {closings.map((c, i) => (
+                                <span key={i} style={{ background: 'rgba(168,85,247,0.1)', color: '#a855f7', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    {c} <X size={12} style={{ cursor: 'pointer' }} onClick={() => setClosings(closings.filter((_, idx) => idx !== i))} />
+                                </span>
+                            ))}
+                            <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => {
+                                const val = prompt('أدخل نص وداع جديد:');
+                                if (val) setClosings([...closings, val]);
+                            }}>+ إضافة</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <textarea 
-              className="input-base" rows="4" value={messageTemplate}
-              placeholder="مثال: {مرحباً|أهلاً|السلام عليكم} نرسل لكم {الملف|الصورة|البيانات}..."
-              onChange={(e) => setMessageTemplate(e.target.value)} disabled={isRunning}
-            ></textarea>
+              className="input-base" 
+              rows={4} 
+              value={messageTemplate}
+              onChange={(e) => setMessageTemplate(e.target.value)}
+              placeholder="اكتب رسالتك هنا..."
+              style={{ lineHeight: 1.6 }}
+            />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '5px' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>المتغيرات المتاحة:</span>
+                {['{name}', '{greeting}', '{university}', '{major}', '{closing}', '{option1|option2}'].map(v => (
+                    <code 
+                        key={v} 
+                        style={{ fontSize: '0.7rem', color: 'var(--brand-secondary)', cursor: 'pointer', background: 'rgba(0,0,0,0.2)', padding: '2px 5px', borderRadius: '4px' }}
+                        onClick={() => setMessageTemplate(prev => prev + ' ' + v)}
+                    >
+                        {v}
+                    </code>
+                ))}
+            </div>
             <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
-              استخدم الصيغة <code style={{ color: 'var(--brand-secondary)' }}>{'{option1|option2}'}</code> للتنويع العشوائي للنص.
+              سيتم استبدال المتغيرات تلقائياً ببيانات الطالب المقابل لكل رقم هاتف.
             </p>
+          </div>
+
+          {/* Scheduling Section */}
+          <div style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: '15px', border: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={isScheduled} 
+                onChange={(e) => setIsScheduled(e.target.checked)}
+                disabled={isRunning}
+                style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+              />
+              <span style={{ fontWeight: 700, color: isScheduled ? 'var(--brand-secondary)' : 'var(--text-primary)' }}>
+                جدولة الإرسال لوقت لاحق 🗓️
+              </span>
+            </label>
+            
+            {isScheduled && (
+              <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label className="input-label" style={{ marginBottom: 0 }}>تاريخ ووقت البدء</label>
+                <div style={{ position: 'relative' }}>
+                  <Clock size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+                  <input 
+                    type="datetime-local" 
+                    className="input-base" 
+                    style={{ paddingRight: '2.8rem' }}
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    disabled={isRunning}
+                  />
+                </div>
+                <p style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: '2px' }}>
+                  * سيتم توزيع الرسائل تلقائياً بفاصل 30 ثانية لتجنب الحظر.
+                </p>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {!isRunning ? (
-              <button className="btn-primary" onClick={handleStart} style={{ padding: '1rem', fontSize: '1.1rem' }}>
-                <Play size={20} fill="#fff" /> البدء بالإرسال المباشر
-              </button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn-primary" onClick={handleStart} style={{ flex: 1, padding: '1rem', fontSize: '1.1rem' }}>
+                    {isScheduled ? <Calendar size={20} /> : <Play size={20} fill="#fff" />} 
+                    {isScheduled ? 'جدولة المهمة الجماعية' : 'البدء بالإرسال المباشر'}
+                </button>
+                <button className="btn-secondary" onClick={handlePreview} style={{ padding: '0 1.2rem' }} title="معاينة نموذج من الرسالة">
+                    <Eye size={22} />
+                </button>
+              </div>
             ) : (
               <div style={{ display: 'flex', gap: '1rem' }}>
                 {isPaused ? (
@@ -440,8 +862,12 @@ export default function PhotoSender() {
                     <Pause size={20} fill="#fff" /> إيقاف مؤقت
                   </button>
                 )}
-                <button onClick={handleReset} style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)', padding: '0 1.5rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <RotateCcw size={20} />
+                <button 
+                    onClick={handleReset} 
+                    style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger)', padding: '0 1.5rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+                    title="إيقاف نهائي وتصفير"
+                >
+                  <Square size={20} fill="currentColor" /> <span style={{ fontWeight: 700 }}>توقف</span>
                 </button>
               </div>
             )}
@@ -488,7 +914,17 @@ export default function PhotoSender() {
           )}
 
           <div className="glass-panel" style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ marginBottom: '1.5rem' }}>السجل الحي للعمليات</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h3 style={{ margin: 0 }}>السجل الحي للعمليات</h3>
+                <button 
+                    className="btn-secondary" 
+                    style={{ fontSize: '0.75rem', padding: '5px 12px', opacity: logs.length > 0 ? 1 : 0.5 }}
+                    onClick={handleExportLogs}
+                    disabled={logs.length === 0}
+                >
+                    <FileOutput size={16} /> تصدير السجل
+                </button>
+            </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
                {logs.length > 0 ? logs.map((log, i) => (
                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', marginBottom: '0.5rem', background: log.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderLeft: `3px solid ${log.type === 'error' ? 'var(--danger)' : 'var(--success)'}` }}>
@@ -508,6 +944,31 @@ export default function PhotoSender() {
           </div>
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {showPreview && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setShowPreview(false)}>
+              <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '500px', padding: '2rem' }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><Eye /> معاينة الرسالة</h3>
+                      <button onClick={() => setShowPreview(false)} style={{ background: 'none', border: 'none', color: '#fff' }}><X size={24} /></button>
+                  </div>
+                  <div style={{ background: '#0f172a', padding: '1.5rem', borderRadius: '15px', border: '1px solid var(--glass-border)', position: 'relative' }}>
+                      <div style={{ position: 'absolute', top: '-10px', right: '20px', background: '#25d366', color: '#fff', fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '5px' }}>WhatsApp Preview</div>
+                      <p style={{ whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6, fontSize: '0.95rem' }}>{previewContent || 'لا يوجد محتوى للمعاينة'}</p>
+                      {manualFile && (
+                          <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem', textAlign: 'center' }}>
+                              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>[سيتم إرفاق الصورة المختارة]</p>
+                          </div>
+                      )}
+                  </div>
+                  <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                      * هذه معاينة لنموذج واحد فقط، المتغيرات ستختلف لكل طالب.
+                  </p>
+                  <button className="btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={() => setShowPreview(false)}>إغلاق المعاينة</button>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, Edit, Trash2, GraduationCap, Phone, User, Lock } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function Students() {
@@ -9,9 +9,15 @@ export default function Students() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
+    const unsub = auth.onAuthStateChanged(async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
       } else {
         setIsAdmin(false);

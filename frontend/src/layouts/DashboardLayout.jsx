@@ -1,26 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio } from 'lucide-react';
-import { rtdb, auth } from '../firebase';
+import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio, Calendar } from 'lucide-react';
+import { rtdb, auth, db } from '../firebase';
 import { ref, onValue, update } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [serverStatus, setServerStatus] = useState('checking'); // 'online', 'offline', 'checking'
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
   const [waStatus, setWaStatus] = useState({ isConnected: false });
 
   // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, user => {
+    const unsubAuth = onAuthStateChanged(auth, async user => {
       if (user) {
-        // GOLDEN KEY: Use auth.uid instead of email parts
         const id = user.uid;
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         setEmployeeId(id);
+        
+        // Initial hardcoded check
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        
+        // Fetch from Firestore for dynamic roles
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', id));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
+          }
+        } catch (e) {
+          console.error("Error checking admin role:", e);
+        }
+        
         setIsAdmin(adminStatus);
       } else {
         setEmployeeId('emp1');
@@ -59,6 +74,21 @@ export default function DashboardLayout() {
     return () => unsubscribe();
   }, [employeeId]);
 
+  useEffect(() => {
+    const checkServer = async () => {
+      try {
+        const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+        await fetch(`${BASE_URL}/api/health`);
+        setServerStatus('online');
+      } catch (e) {
+        setServerStatus('offline');
+      }
+    };
+    checkServer();
+    const interval = setInterval(checkServer, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const markAllAsRead = () => {
@@ -95,6 +125,7 @@ export default function DashboardLayout() {
     { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} />, adminOnly: true },
     { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: true },
     { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true },
+    { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true },
     { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true },
   ];
 
@@ -142,6 +173,17 @@ export default function DashboardLayout() {
         </nav>
         
         <div style={{ padding: '1.5rem', borderTop: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '12px' }}>
+            <div style={{ 
+              width: '10px', height: '10px', borderRadius: '50%', 
+              background: serverStatus === 'online' ? '#10b981' : (serverStatus === 'offline' ? '#ef4444' : '#f59e0b'),
+              boxShadow: serverStatus === 'online' ? '0 0 10px #10b981' : 'none'
+            }} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              حالة الخادم: {serverStatus === 'online' ? 'متصل' : (serverStatus === 'offline' ? 'غير متصل' : 'جاري الفحص...')}
+            </span>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
               <div style={{ 

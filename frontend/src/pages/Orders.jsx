@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Filter, Eye, ChevronRight, CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
 // Maps main status to acceptable sub-statuses
@@ -46,9 +46,15 @@ export default function Orders() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
+    const unsub = auth.onAuthStateChanged(async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
       } else {
         setIsAdmin(false);

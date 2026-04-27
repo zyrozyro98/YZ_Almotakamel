@@ -4,13 +4,13 @@ import {
   MessageCircle, Search, Send, User, CheckCheck, RefreshCw,
   Info, AlertCircle, Smile, ArrowRight, MessageSquare, GraduationCap, School,
   UserPlus, UserCog, Receipt, UserMinus, Zap, X, Save, FileText, ClipboardList,
-  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon, Trash2, Trash, Reply, CornerUpLeft, Quote
+  Eye, EyeOff, ShieldCheck, Key, Paperclip, Image as ImageIcon, Trash2, Trash, Reply, CornerUpLeft, Quote, Clock, Calendar
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { ref, onValue, get, query as rtdbQuery, limitToLast } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast, getDoc } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
 
 export default function WhatsAppChat() {
@@ -46,6 +46,8 @@ export default function WhatsAppChat() {
   const [isSelectingMessage, setIsSelectingMessage] = useState(false);
   const [attachment, setAttachment] = useState(null); // Current selected file
   const [replyingTo, setReplyingTo] = useState(null); // Message being replied to
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState('');
   const fileInputRef = useRef(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -57,12 +59,19 @@ export default function WhatsAppChat() {
   }, []);
 
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, user => {
+    const unsubAuth = onAuthStateChanged(auth, async user => {
       if (user) {
-        setEmployeeId(user.uid);
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        const id = user.uid;
+        setEmployeeId(id);
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', id));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
-        if (!viewingEmployeeId) setViewingEmployeeId(user.uid);
+        if (!viewingEmployeeId) setViewingEmployeeId(id);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
@@ -170,14 +179,25 @@ export default function WhatsAppChat() {
 
   const getMatchKey = (p) => {
     if (!p) return '';
-    // JID System: Extract the identifier part (phone or LID) without stripping country codes
-    let d = String(p).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
     
-    // Auto-prefix local numbers if we know they are likely Yemeni/Saudi for better matching
-    // (Optional but helpful for backwards compatibility with legacy student records)
-    if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
-    else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
-    else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+    // 1. If it's a JID, take the identifier part
+    let d = String(p).split('@')[0].split(':')[0];
+    
+    // 2. Strip all non-digits (handles spaces, symbols, and artifacts)
+    d = d.replace(/\D/g, '');
+    
+    // 3. Smart Normalization
+    // Saudi 05 -> 9665
+    if (/^05\d{8}$/.test(d)) d = '966' + d.substring(1);
+    // Yemeni 07 -> 9677
+    else if (/^07\d{8}$/.test(d)) d = '967' + d.substring(1);
+    // Saudi 5... -> 9665
+    else if (/^5\d{8}$/.test(d)) d = '966' + d;
+    // Yemeni 7... -> 9677
+    else if (/^7\d{8}$/.test(d)) d = '967' + d;
+    
+    // Remove double zeros
+    if (d.startsWith('00')) d = d.substring(2);
 
     return d;
   };
@@ -273,23 +293,55 @@ export default function WhatsAppChat() {
   const handleSend = async () => {
     if (!message.trim() || !selectedChat || isSending) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    const textToSend = message; setMessage(''); setShowEmojiPicker(false); setIsSending(true);
+    const textToSend = message; 
+    setMessage(''); 
+    setShowEmojiPicker(false); 
+    setIsSending(true);
+    
     try {
-      await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-        employeeId: targetId,
-        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
-        message: textToSend,
-        fullJid: selectedChat.fullJid,
-        senderId: employeeId,
-        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف'),
-        quotedMsg: replyingTo ? {
-          id: replyingTo.id,
-          text: replyingTo.text,
-          sender: replyingTo.sender
-        } : null
-      });
+      if (isScheduling && scheduledTime) {
+        const scheduledTimestamp = new Date(scheduledTime).getTime();
+        if (scheduledTimestamp <= Date.now()) {
+            alert('يجب اختيار وقت في المستقبل للجدولة.');
+            setMessage(textToSend);
+            setIsSending(false);
+            return;
+        }
+
+        await axios.post(`${BASE_URL}/api/schedule`, {
+            employeeId: targetId,
+            phoneNumber: selectedChat.phone,
+            message: textToSend,
+            fullJid: selectedChat.fullJid,
+            scheduledAt: scheduledTimestamp,
+            senderId: employeeId,
+            senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف'),
+            type: 'text'
+        });
+        alert('تمت جدولة الرسالة بنجاح ✔️');
+        setIsScheduling(false);
+        setScheduledTime('');
+      } else {
+        await axios.post(`${BASE_URL}/api/whatsapp/send`, {
+          employeeId: targetId,
+          phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
+          message: textToSend,
+          fullJid: selectedChat.fullJid,
+          senderId: employeeId,
+          senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف'),
+          quotedMsg: replyingTo ? {
+            id: replyingTo.id,
+            text: replyingTo.text,
+            sender: replyingTo.sender
+          } : null
+        });
+      }
       setReplyingTo(null);
-    } catch (err) { console.error(err); } finally { setIsSending(false); }
+    } catch (err) { 
+        console.error(err); 
+        setMessage(textToSend); // Restore message on failure
+        alert('فشل الإرسال: ' + (err.response?.data?.error || err.message));
+    } finally { setIsSending(false); }
   };
 
   const handleDeleteMessage = async (msg) => {
@@ -944,6 +996,59 @@ export default function WhatsAppChat() {
                     </button>
                   </div>
                 )}
+                {isScheduling && (
+                  <div className="animate-fade-in-up" style={{
+                    position: 'absolute', bottom: '85px', right: '20px',
+                    background: '#1e293b', padding: '15px', borderRadius: '15px',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.1)',
+                    zIndex: 100, display: 'flex', flexDirection: 'column', gap: '10px',
+                    minWidth: '250px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#fff' }}>جدولة الرسالة</h4>
+                      <X size={16} style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setIsScheduling(false)} />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {[
+                        { label: '+30 دقيقة', val: 30 * 60000 },
+                        { label: '+1 ساعة', val: 60 * 60000 },
+                        { label: '+3 ساعات', val: 180 * 60000 },
+                        { label: 'غداً صباحاً', val: 'tomorrow' }
+                      ].map(btn => (
+                        <button 
+                          key={btn.label}
+                          onClick={() => {
+                            let targetTime = Date.now();
+                            if (btn.val === 'tomorrow') {
+                              const tomorrow = new Date();
+                              tomorrow.setDate(tomorrow.getDate() + 1);
+                              tomorrow.setHours(9, 0, 0, 0);
+                              targetTime = tomorrow.getTime();
+                            } else {
+                              targetTime += btn.val;
+                            }
+                            const date = new Date(targetTime);
+                            const offset = date.getTimezoneOffset() * 60000;
+                            const localISODate = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+                            setScheduledTime(localISODate);
+                          }}
+                          style={{ padding: '6px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', cursor: 'pointer' }}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input 
+                      type="datetime-local" 
+                      className="input-base" 
+                      style={{ padding: '8px', fontSize: '0.8rem' }}
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                    />
+                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>سيتم إرسال الرسالة تلقائياً في الوقت المحدد.</p>
+                  </div>
+                )}
                 {showEmojiPicker && (
                   <div style={{ position: 'absolute', bottom: '85px', right: '20px', zIndex: 1000, boxShadow: '0 10px 40px rgba(0,0,0,0.6)', borderRadius: '15px' }}>
                     <Picker
@@ -971,6 +1076,13 @@ export default function WhatsAppChat() {
                     type="file" ref={fileInputRef} style={{ display: 'none' }}
                     onChange={handleFileSelect}
                   />
+                  <button
+                    onClick={() => setIsScheduling(!isScheduling)}
+                    style={{ background: 'none', border: 'none', color: isScheduling ? '#3b82f6' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}
+                    title="جدولة الرسالة"
+                  >
+                    <Clock size={24} />
+                  </button>
                   <button
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                     style={{ background: 'none', border: 'none', color: showEmojiPicker ? '#34d399' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}

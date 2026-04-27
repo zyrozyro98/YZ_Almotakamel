@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
 // Ensure sessions directory exists for Baileys Multi-Device state
 const sessionsDir = process.env.WA_SESSION_PATH || path.join(__dirname, 'sessions');
@@ -22,6 +24,7 @@ if (!fs.existsSync(uploadsDir)) {
 require('./firebaseAdmin');
 const distributionService = require('./services/distributionService');
 const whatsappService = require('./services/whatsappService');
+const scheduleService = require('./services/scheduleService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,6 +46,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/whatsapp', require('./routes/whatsappRoutes'));
 app.use('/api/employees', require('./routes/employeeRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
+app.use('/api/schedule', require('./routes/scheduleRoutes'));
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -64,6 +68,11 @@ app.listen(PORT, async () => {
   // Start the automated distribution service
   if (distributionService && typeof distributionService.initDistributionListener === 'function') {
     distributionService.initDistributionListener();
+  }
+
+  // Start the schedule service
+  if (scheduleService && typeof scheduleService.init === 'function') {
+    scheduleService.init();
   }
 
   // --- AUTO-BOOT SESSIONS ---
@@ -106,5 +115,19 @@ app.listen(PORT, async () => {
       });
     }
   }, 24 * 60 * 60 * 1000); // Run once every 24 hours
+
+  // --- ANTI-SLEEP (Keep Alive) ---
+  const backendUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';
+  if (backendUrl) {
+    console.log(`[ANTI-SLEEP] Active: Pinging ${backendUrl} every 10 mins.`);
+    setInterval(() => {
+      const protocol = backendUrl.startsWith('https') ? https : http;
+      protocol.get(`${backendUrl}/api/health`, (res) => {
+        console.log(`[ANTI-SLEEP] Heartbeat sent. Status: ${res.statusCode}`);
+      }).on('error', (err) => {
+        console.warn('[ANTI-SLEEP] Heartbeat failed:', err.message);
+      });
+    }, 10 * 60 * 1000); 
+  }
 });
 

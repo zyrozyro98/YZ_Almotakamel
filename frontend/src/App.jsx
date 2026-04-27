@@ -15,6 +15,7 @@ import Reports from './pages/Reports';
 import WhatsAppConfig from './pages/WhatsAppConfig';
 import Employees from './pages/Employees';
 import LiveMonitoring from './pages/LiveMonitoring';
+import ScheduledMessages from './pages/ScheduledMessages';
 import './index.css';
 
 function App() {
@@ -54,6 +55,7 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="whatsapp-config" element={<WhatsAppConfig />} />
           <Route path="live-monitoring" element={<LiveMonitoring />} />
+          <Route path="scheduled-messages" element={<ScheduledMessages />} />
           <Route path="employees" element={<Employees />} />
         </Route>
       </Routes>

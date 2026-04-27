@@ -3,7 +3,7 @@ import { Activity, MessageSquare, User, Clock, Shield, Filter, Search, BarChart3
 import { rtdb, db as firestoreDb, auth } from '../firebase';
 import { ref, onValue, limitToLast, query as rtdbQuery } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query as firestoreQuery } from 'firebase/firestore';
+import { collection, onSnapshot, query as firestoreQuery, getDoc, doc } from 'firebase/firestore';
 
 export default function LiveMonitoring() {
   const [liveMessages, setLiveMessages] = useState([]);
@@ -19,9 +19,15 @@ export default function LiveMonitoring() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, user => {
+    const unsubAuth = onAuthStateChanged(auth, async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(firestoreDb, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
       } else setIsAdmin(false);
     });

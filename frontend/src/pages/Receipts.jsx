@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Search, Filter, CheckCircle, XCircle, FileText, Download, TrendingUp, AlertTriangle, RefreshCw } from 'lucide-react';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function Receipts() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
+    const unsub = auth.onAuthStateChanged(async user => {
       if (user) {
-        const adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().type === 'admin')) {
+            adminStatus = true;
+          }
+        } catch (e) {}
         setIsAdmin(adminStatus);
       } else {
         setIsAdmin(false);
