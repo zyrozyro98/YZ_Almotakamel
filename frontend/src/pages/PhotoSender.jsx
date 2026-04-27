@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User, Clock, Calendar, Square, Save, Trash2, Download, Eye, FileOutput } from 'lucide-react';
+import { ImagePlus, Play, Pause, RotateCcw, AlertTriangle, Send, RefreshCw, User, Clock, Calendar, Square, Save, Trash2, Download, Eye, FileOutput, Zap, CheckCircle, X } from 'lucide-react';
 import axios from 'axios';
 import { db, auth, rtdb } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
