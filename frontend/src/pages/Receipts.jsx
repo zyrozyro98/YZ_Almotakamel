@@ -548,6 +548,19 @@ export default function Receipts() {
                     <p style={{ margin: 0, padding: '1rem', background: '#f8fafc', borderRadius: '8px', fontSize: '0.95rem' }}>{viewingReceipt.note}</p>
                   </div>
                 )}
+                
+                {viewingReceipt.mediaUrl && (
+                  <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                     <span style={{ color: '#64748b', fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' }}>المرفق المرفق (إيصال التحويل):</span>
+                     {viewingReceipt.mediaType === 'image' ? (
+                       <img src={viewingReceipt.mediaUrl} alt="Receipt Attachment" style={{ width: '100%', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                     ) : (
+                       <a href={viewingReceipt.mediaUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--brand-primary)', textDecoration: 'none', fontWeight: 600 }}>
+                          <FileText size={20} /> عرض المستند المرفق
+                       </a>
+                     )}
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>

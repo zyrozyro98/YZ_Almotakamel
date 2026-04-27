@@ -602,6 +602,7 @@ export default function WhatsAppChat() {
   const handleReceiptSave = async (e) => {
     e?.preventDefault();
     if (!formData.amount || !selectedChat) return alert('يرجى إدخال المبلغ');
+    if (!selectedMessage && !formData.note) return alert('يرجى اختيار رسالة الإيصال من الدردشة أو كتابة ملاحظة');
 
     try {
       await addDoc(collection(db, 'receipts'), {
@@ -611,12 +612,15 @@ export default function WhatsAppChat() {
         amount: parseFloat(formData.amount),
         category: formData.category || 'رسوم تسجيل',
         bankAccount: formData.bankAccount || '',
-        note: formData.note || '',
-        status: 'مدفوع', // Receipts from chat are usually paid
+        note: formData.note || selectedMessage?.text || '',
+        // Media Support
+        mediaUrl: selectedMessage?.mediaData || null,
+        mediaType: selectedMessage?.type || 'text',
+        status: 'مدفوع', 
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || 'موظف الدردشة'
       });
-      alert('تم حفظ الإيصال المالي بنجاح ✔️');
+      alert('تم حفظ الإيصال المالي والمرفقات بنجاح ✔️');
       setActiveModal(null);
       setFormData({});
       setSelectedMessage(null);
@@ -1252,13 +1256,35 @@ export default function WhatsAppChat() {
             {activeModal === 'receipt' && (
               <form onSubmit={handleReceiptSave} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ background: 'rgba(59,130,246,0.1)', padding: '15px', borderRadius: '15px', border: '1px dashed #3b82f6' }}>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                     <User size={14} /> للطالب: <strong>{selectedChat.name}</strong>
                   </p>
-                  {selectedMessage && (
-                    <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontStyle: 'italic' }}>
-                      الرسالة المختارة: "{selectedMessage.text.substring(0, 50)}..."
-                    </p>
+                  
+                  {selectedMessage ? (
+                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                       <p style={{ margin: '0 0 8px', fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700 }}>المرفق المختار من الدردشة:</p>
+                       
+                       {selectedMessage.type === 'image' && (
+                         <img src={selectedMessage.mediaData} alt="Preview" style={{ width: '100%', maxHeight: '150px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
+                       )}
+                       
+                       {selectedMessage.type === 'document' && (
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '8px', marginBottom: '8px' }}>
+                            <FileText size={20} color="#3b82f6" />
+                            <span style={{ fontSize: '0.8rem', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedMessage.text || 'مستند بنكي'}</span>
+                         </div>
+                       )}
+
+                       {selectedMessage.text && (
+                         <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)', fontStyle: 'italic', lineHeight: 1.4 }}>
+                           {selectedMessage.text.substring(0, 100)}{selectedMessage.text.length > 100 ? '...' : ''}
+                         </p>
+                       )}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '10px', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '10px' }}>
+                       <p style={{ margin: 0, fontSize: '0.8rem', color: '#ef4444' }}>⚠️ يجب اختيار رسالة السداد (نص أو صورة) من الدردشة</p>
+                    </div>
                   )}
                 </div>
 
@@ -1292,12 +1318,12 @@ export default function WhatsAppChat() {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>ملاحظات أو نص التحويل</label>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>ملاحظات إضافية (اختياري)</label>
                   <textarea 
-                    className="input-base" rows={4} 
-                    value={formData.note || selectedMessage?.text || ''} 
+                    className="input-base" rows={2} 
+                    value={formData.note || ''} 
                     onChange={e => setFormData({ ...formData, note: e.target.value })}
-                    placeholder="الصق نص التحويل هنا أو اكتب ملاحظاتك..."
+                    placeholder="اكتب أي ملاحظات إضافية هنا..."
                   ></textarea>
                 </div>
 
@@ -1305,13 +1331,15 @@ export default function WhatsAppChat() {
                   <button
                     type="button"
                     onClick={() => { setActiveModal(null); setIsSelectingMessage(true); }}
-                    className="btn-secondary" style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '0.85rem' }}
+                    className="btn-secondary" style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '0.85rem', background: '#3b82f61a', color: '#3b82f6', border: '1px solid #3b82f633' }}
                   >
-                    <MessageSquare size={16} /> اختيار من الشات
+                    <MessageSquare size={16} /> {selectedMessage ? 'تغيير الرسالة' : 'اختيار من الشات'}
                   </button>
                   <button
                     type="submit"
-                    className="btn-primary" style={{ flex: 2, padding: '12px', borderRadius: '12px' }}
+                    className="btn-primary" 
+                    style={{ flex: 2, padding: '12px', borderRadius: '12px', opacity: !selectedMessage ? 0.6 : 1 }}
+                    disabled={!selectedMessage && !formData.amount}
                   >
                     <ClipboardList size={20} /> اعتماد وحفظ السند المالي
                   </button>
