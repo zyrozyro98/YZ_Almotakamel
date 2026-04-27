@@ -13,6 +13,7 @@ const admin = require('firebase-admin');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
+const { getRandomBrowser } = require('../utils/antiBan');
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
 async function uploadToStorage(buffer, fileName, mimeType) {
@@ -258,7 +259,7 @@ async function initializeSession(employeeId, onQrGenerated) {
   const sock = makeWASocket({
     version, auth: state, printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: ['YZ_Almotakamel', 'Chrome', '114.0.5735.199'],
+    browser: getRandomBrowser(),
     connectTimeoutMs: 30000,
     generateHighQualityQR: true, 
   });

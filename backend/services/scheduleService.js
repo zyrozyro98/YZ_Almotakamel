@@ -1,6 +1,7 @@
 const { db, rtdb } = require('../firebaseAdmin');
 const whatsappService = require('./whatsappService');
 const { getPureNumber } = require('../utils/numberUtils');
+const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter } = require('../utils/antiBan');
 
 class ScheduleService {
   constructor() {
@@ -51,6 +52,8 @@ class ScheduleService {
       for (const doc of allDocs) {
         const data = doc.data();
         await this.sendScheduledMessage(doc.id, data);
+        // Add a safety gap between messages (4-10 seconds)
+        await new Promise(r => setTimeout(r, 4000 + Math.random() * 6000));
       }
     } catch (error) {
       console.error('[SCHEDULE ERROR] Failed to check messages:', error.message);
@@ -100,18 +103,25 @@ class ScheduleService {
       }
 
       console.log(`[SCHEDULE] Sending message ${id} via ${activeEmpId} to ${targetJid}`);
+      
+      // 1. Verify JID (Safety check)
+      const exists = await verifyJid(sock, targetJid);
+      if (!exists) {
+        throw new Error(`Number ${targetJid} is not on WhatsApp.`);
+      }
 
-      // --- HUMAN SIMULATION ---
-      await sock.sendPresenceUpdate('composing', targetJid);
-      await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
-      await sock.sendPresenceUpdate('paused', targetJid);
+      // 2. Prepare Content (Spintax & Jitter)
+      const finalMessage = addInvisibleJitter(parseSpintax(message || ''));
+
+      // 3. Human Simulation (Typing delay)
+      await simulateHumanTyping(sock, targetJid, finalMessage);
 
       let result;
       if (type === 'image' && base64Image) {
         const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
-        result = await sock.sendMessage(targetJid, { image: buffer, caption: message || "" });
+        result = await sock.sendMessage(targetJid, { image: buffer, caption: finalMessage || "" });
       } else {
-        result = await sock.sendMessage(targetJid, { text: message });
+        result = await sock.sendMessage(targetJid, { text: finalMessage });
       }
 
       // Record in RTDB

@@ -3,6 +3,7 @@ const router = express.Router();
 const whatsappService = require('../services/whatsappService');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
+const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter } = require('../utils/antiBan');
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -61,15 +62,19 @@ router.post('/send', async (req, res) => {
       };
     }
 
-    // --- HUMAN SIMULATION ---
-    // 1. Send 'composing' status (Typing...)
-    await sock.sendPresenceUpdate('composing', targetJid);
-    // 2. Wait for a short "Thinking/Typing" duration (1.5 - 4 seconds)
-    await new Promise(r => setTimeout(r, 1500 + Math.random() * 2500));
-    // 3. Stop Composing
-    await sock.sendPresenceUpdate('paused', targetJid);
+    // 1. Verify JID (Safety check)
+    const exists = await verifyJid(sock, targetJid);
+    if (!exists) {
+      return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
+    }
+
+    // 2. Prepare Content (Spintax & Jitter)
+    const finalMessage = addInvisibleJitter(parseSpintax(message || ''));
+
+    // 3. Human Simulation (Typing delay)
+    await simulateHumanTyping(sock, targetJid, finalMessage);
     
-    const result = await sock.sendMessage(targetJid, { text: message }, sendOptions);
+    const result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
@@ -237,14 +242,19 @@ router.post('/send-image', async (req, res) => {
     let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
 
-    // --- HUMAN SIMULATION ---
-    // 1. Send 'composing' (or 'recording') status
-    await sock.sendPresenceUpdate('composing', targetJid);
-    // 2. Simulated Upload Delay
-    await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
+    // 1. Verify JID (Safety check)
+    const exists = await verifyJid(sock, targetJid);
+    if (!exists) {
+      return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
+    }
+
+    // 2. Prepare Content (Spintax & Jitter)
+    const finalCaption = addInvisibleJitter(parseSpintax(caption || ''));
+
+    // 3. Human Simulation
+    await simulateHumanTyping(sock, targetJid, finalCaption);
     
-    const result = await sock.sendMessage(targetJid, { image: buffer, caption: caption || "" });
-    await sock.sendPresenceUpdate('paused', targetJid);
+    const result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
     
     // FORCE SAVE TO PHONE FOLDER (regardless of LID delivery)
     const finalChatId = getPureNumber(phoneNumber);
@@ -282,6 +292,19 @@ router.post('/send-document', async (req, res) => {
     if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
 
     const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    
+    // 1. Verify JID (Safety check)
+    const exists = await verifyJid(sock, targetJid);
+    if (!exists) {
+      return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
+    }
+
+    // 2. Prepare Content (Spintax & Jitter)
+    const finalCaption = addInvisibleJitter(parseSpintax(caption || ''));
+
+    // 3. Human Simulation
+    await simulateHumanTyping(sock, targetJid, finalCaption);
+
     const buffer = Buffer.from(base64File.split(',')[1], 'base64');
     const mime = base64File.split(';')[0].split(':')[1];
 
@@ -289,7 +312,7 @@ router.post('/send-document', async (req, res) => {
       document: buffer, 
       mimetype: mime, 
       fileName: fileName || "file",
-      caption: caption || "" 
+      caption: finalCaption 
     });
 
     const chatId = getPureNumber(phoneNumber);
@@ -329,11 +352,24 @@ router.post('/send-video', async (req, res) => {
         if (!sock) return res.status(404).json({ error: 'Session not found' });
 
         const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
+        
+        // 1. Verify JID (Safety check)
+        const exists = await verifyJid(sock, targetJid);
+        if (!exists) {
+          return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
+        }
+
+        // 2. Prepare Content (Spintax & Jitter)
+        const finalCaption = addInvisibleJitter(parseSpintax(caption || ''));
+
+        // 3. Human Simulation
+        await simulateHumanTyping(sock, targetJid, finalCaption);
+
         const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
         const result = await sock.sendMessage(targetJid, { 
             video: buffer, 
-            caption: caption || '',
+            caption: finalCaption,
             mimetype: 'video/mp4' // Standard for WhatsApp
         });
         
