@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   DollarSign, Search, Filter, CheckCircle, XCircle, FileText, 
   Download, TrendingUp, AlertTriangle, RefreshCw, Plus, 
   Trash2, Printer, CreditCard, Calendar, User, ClipboardList,
-  ArrowRight, Landmark, Settings
+  ArrowRight, Landmark, Settings, MessageCircle, Phone
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { 
@@ -12,6 +13,7 @@ import {
 } from 'firebase/firestore';
 
 export default function Receipts() {
+  const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [receipts, setReceipts] = useState([]);
@@ -31,6 +33,7 @@ export default function Receipts() {
   // Form State
   const [formData, setFormData] = useState({
     studentName: '',
+    studentPhone: '',
     amount: '',
     category: 'رسوم تسجيل',
     note: '',
@@ -101,7 +104,7 @@ export default function Receipts() {
       });
       setIsAdding(false);
       setFormData({ 
-        studentName: '', amount: '', category: 'رسوم تسجيل', 
+        studentName: '', studentPhone: '', amount: '', category: 'رسوم تسجيل', 
         note: '', status: 'مدفوع', 
         bankAccount: bankAccounts.length > 0 ? bankAccounts[0].name : ''
       });
@@ -153,10 +156,10 @@ export default function Receipts() {
 
   const handleExportCSV = () => {
     let csvContent = "\uFEFF"; 
-    csvContent += "رقم الإيصال,اسم الطالب,المبلغ,الفئة,الحالة,الحساب البنكي,تاريخ التسجيل,ملاحظات\n";
+    csvContent += "رقم الإيصال,اسم الطالب,رقم الهاتف,المبلغ,الفئة,الحالة,الحساب البنكي,تاريخ التسجيل,ملاحظات\n";
     
     filteredReceipts.forEach(r => {
-      const row = `"${r.id}","${r.studentName}","${r.amount}","${r.category}","${r.status}","${r.bankAccount || ''}","${r.date}","${r.note || ''}"`;
+      const row = `"${r.id}","${r.studentName}","${r.studentPhone || ''}","${r.amount}","${r.category}","${r.status}","${r.bankAccount || ''}","${r.date}","${r.note || ''}"`;
       csvContent += row + "\n";
     });
 
@@ -307,7 +310,7 @@ export default function Receipts() {
             <thead>
               <tr>
                 <th>رقم السند</th>
-                <th>الطالب</th>
+                <th>الطالب / الهاتف</th>
                 <th>البنك / النوع</th>
                 <th>المبلغ</th>
                 <th>الحالة</th>
@@ -319,7 +322,14 @@ export default function Receipts() {
               {filteredReceipts.map(receipt => (
                 <tr key={receipt.id}>
                   <td style={{ fontWeight: 800, color: 'var(--brand-secondary)' }}>#{receipt.id.substring(0, 8).toUpperCase()}</td>
-                  <td style={{ fontWeight: 700 }}>{receipt.studentName}</td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                       <span style={{ fontWeight: 700 }}>{receipt.studentName}</span>
+                       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Phone size={12} /> {receipt.studentPhone || 'غير مسجل'}
+                       </span>
+                    </div>
+                  </td>
                   <td>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{receipt.bankAccount || 'غير محدد'}</span>
@@ -342,6 +352,11 @@ export default function Receipts() {
                       <button onClick={() => setViewingReceipt(receipt)} style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--brand-primary)', padding: '6px', borderRadius: '8px' }} title="عرض وطباعة">
                         <FileText size={18} />
                       </button>
+                      {receipt.studentPhone && (
+                        <button onClick={() => navigate(`/chat?select=${receipt.studentPhone}`)} style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '6px', borderRadius: '8px' }} title="فتح الدردشة">
+                          <MessageCircle size={18} />
+                        </button>
+                      )}
                       {receipt.status === 'غير مدفوع' && (
                         <button onClick={() => handleMarkAsPaid(receipt.id)} style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '6px', borderRadius: '8px' }} title="تحصيل">
                           <CheckCircle size={18} />
@@ -388,6 +403,20 @@ export default function Receipts() {
                   </div>
                 </div>
                 <div>
+                  <label className="input-label">رقم هاتف الطالب</label>
+                  <div style={{ position: 'relative' }}>
+                    <Phone size={18} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                    <input 
+                      type="text" className="input-base" style={{ paddingRight: '2.5rem' }}
+                      value={formData.studentPhone} onChange={e => setFormData({...formData, studentPhone: e.target.value})}
+                      placeholder="966..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm-grid-cols-1">
+                <div>
                   <label className="input-label">المبلغ المالي (ر.س)</label>
                   <div style={{ position: 'relative' }}>
                     <DollarSign size={18} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--success)' }} />
@@ -398,9 +427,6 @@ export default function Receipts() {
                     />
                   </div>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm-grid-cols-1">
                 <div>
                   <label className="input-label">فئة السند</label>
                   <select className="input-base" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
@@ -411,6 +437,9 @@ export default function Receipts() {
                     <option value="أخرى">أخرى</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm-grid-cols-1">
                 <div>
                   <label className="input-label">الحساب البنكي</label>
                   <select className="input-base" value={formData.bankAccount} onChange={e => setFormData({...formData, bankAccount: e.target.value})}>
@@ -418,14 +447,13 @@ export default function Receipts() {
                     {bankAccounts.map(bank => <option key={bank.id} value={bank.name}>{bank.name}</option>)}
                   </select>
                 </div>
-              </div>
-
-              <div>
-                <label className="input-label">الحالة الأولية</label>
-                <select className="input-base" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                  <option value="مدفوع">مدفوع (تم الاستلام)</option>
-                  <option value="غير مدفوع">غير مدفوع (مطالبة)</option>
-                </select>
+                <div>
+                  <label className="input-label">الحالة الأولية</label>
+                  <select className="input-base" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                    <option value="مدفوع">مدفوع (تم الاستلام)</option>
+                    <option value="غير مدفوع">غير مدفوع (مطالبة)</option>
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -438,7 +466,7 @@ export default function Receipts() {
               </div>
 
               <button className="btn-primary w-full" type="submit" disabled={loading} style={{ padding: '1rem', marginTop: '1rem' }}>
-                {loading ? <RefreshCw className="animate-spin" /> : <><CheckCircle size={20} /> تأكيد وإصدار السند</>}
+                {loading ? <RefreshCw className="animate-spin" /> : <><CheckCircle size={20} /> تأكيد وإصدار السند مالي</>}
               </button>
             </form>
           </div>

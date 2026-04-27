@@ -48,9 +48,18 @@ export default function WhatsAppChat() {
   const [replyingTo, setReplyingTo] = useState(null); // Message being replied to
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduledTime, setScheduledTime] = useState('');
+  const [bankAccounts, setBankAccounts] = useState([]);
   const fileInputRef = useRef(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const q = query(collection(db, 'bankAccounts'), orderBy('name', 'asc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setBankAccounts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -590,17 +599,31 @@ export default function WhatsAppChat() {
     }
   };
 
-  const handleReceiptSave = async (receiptData) => {
+  const handleReceiptSave = async (e) => {
+    e?.preventDefault();
+    if (!formData.amount || !selectedChat) return alert('يرجى إدخال المبلغ');
+
     try {
       await addDoc(collection(db, 'receipts'), {
         studentId: selectedChat.id || selectedChat.phone,
         studentName: selectedChat.name,
-        ...receiptData,
-        createdAt: Timestamp.now()
+        studentPhone: selectedChat.phone,
+        amount: parseFloat(formData.amount),
+        category: formData.category || 'رسوم تسجيل',
+        bankAccount: formData.bankAccount || '',
+        note: formData.note || '',
+        status: 'مدفوع', // Receipts from chat are usually paid
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.email || 'موظف الدردشة'
       });
-      alert('تم حفظ الإيصال بنجاح');
+      alert('تم حفظ الإيصال المالي بنجاح ✔️');
       setActiveModal(null);
-    } catch (err) { alert('خطأ في حفظ الإيصال'); }
+      setFormData({});
+      setSelectedMessage(null);
+    } catch (err) { 
+      console.error(err);
+      alert('خطأ في حفظ الإيصال'); 
+    }
   };
 
   // Helper to determine the "Cleanest" phone number to show the user
@@ -1227,50 +1250,73 @@ export default function WhatsAppChat() {
             )}
 
             {activeModal === 'receipt' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ background: 'rgba(59,130,246,0.1)', padding: '15px', borderRadius: '15px', border: '1px border-dashed #3b82f6' }}>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6' }}>
-                    {selectedMessage ? `الرسالة المختارة: ${selectedMessage.text.substring(0, 40)}...` : 'لم يتم تحديد رسالة من الدردشة بعد'}
+              <form onSubmit={handleReceiptSave} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: 'rgba(59,130,246,0.1)', padding: '15px', borderRadius: '15px', border: '1px dashed #3b82f6' }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <User size={14} /> للطالب: <strong>{selectedChat.name}</strong>
                   </p>
+                  {selectedMessage && (
+                    <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontStyle: 'italic' }}>
+                      الرسالة المختارة: "{selectedMessage.text.substring(0, 50)}..."
+                    </p>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => { setActiveModal(null); setIsSelectingMessage(true); }}
-                  className="btn-secondary" style={{ padding: '15px', borderRadius: '15px', background: '#3b82f61a', color: '#3b82f6' }}
-                >
-                  <MessageSquare size={18} /> تحديد رسالة الإيصال من الدردشة
-                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>المبلغ المالي (ر.س)</label>
+                    <input 
+                      type="number" className="input-base" required 
+                      value={formData.amount || ''} onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>فئة السند</label>
+                    <select className="input-base" value={formData.category || 'رسوم تسجيل'} onChange={e => setFormData({ ...formData, category: e.target.value })}>
+                      <option value="رسوم تسجيل">رسوم تسجيل</option>
+                      <option value="دفعة قسط">دفعة قسط</option>
+                      <option value="رسوم خدمة إضافية">رسوم خدمة إضافية</option>
+                      <option value="تأمين">تأمين</option>
+                      <option value="أخرى">أخرى</option>
+                    </select>
+                  </div>
+                </div>
 
-                {selectedMessage && (
+                <div>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>الحساب البنكي</label>
+                  <select className="input-base" required value={formData.bankAccount || ''} onChange={e => setFormData({ ...formData, bankAccount: e.target.value })}>
+                    <option value="" disabled>اختر البنك...</option>
+                    {bankAccounts.map(bank => <option key={bank.id} value={bank.name}>{bank.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', marginBottom: '5px' }}>ملاحظات أو نص التحويل</label>
+                  <textarea 
+                    className="input-base" rows={4} 
+                    value={formData.note || selectedMessage?.text || ''} 
+                    onChange={e => setFormData({ ...formData, note: e.target.value })}
+                    placeholder="الصق نص التحويل هنا أو اكتب ملاحظاتك..."
+                  ></textarea>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
                   <button
-                    onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
-                    className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
+                    type="button"
+                    onClick={() => { setActiveModal(null); setIsSelectingMessage(true); }}
+                    className="btn-secondary" style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '0.85rem' }}
                   >
-                    <ClipboardList size={20} /> اعتماد وحفظ كإيصال رسمي
+                    <MessageSquare size={16} /> اختيار من الشات
                   </button>
-                )}
-
-                <div style={{ textAlign: 'center', opacity: 0.3, fontSize: '0.8rem' }}>أو أدخل النص يدوياً</div>
-                <button
-                  onClick={() => handleReceiptSave({ text: selectedMessage?.text || '', fromChat: true })}
-                  className="btn-primary" style={{ padding: '15px', borderRadius: '15px' }}
-                  disabled={!selectedMessage}
-                >
-                  <ClipboardList size={20} /> اعتماد الرسالة المختارة كإيصال
-                </button>
-                <div style={{ textAlign: 'center', opacity: 0.3 }}>أو</div>
-                <textarea
-                  placeholder="الصق نص التحويل يدوياً هنا..." className="input-base" rows={4}
-                  onChange={e => setFormData({ ...formData, manualReceipt: e.target.value })}
-                ></textarea>
-                <button
-                  onClick={() => handleReceiptSave({ text: formData.manualReceipt, fromChat: false })}
-                  className="btn-secondary" style={{ padding: '15px', borderRadius: '15px' }}
-                  disabled={!formData.manualReceipt}
-                >
-                  حفظ النص يدوياً
-                </button>
-              </div>
+                  <button
+                    type="submit"
+                    className="btn-primary" style={{ flex: 2, padding: '12px', borderRadius: '12px' }}
+                  >
+                    <ClipboardList size={20} /> اعتماد وحفظ السند المالي
+                  </button>
+                </div>
+              </form>
             )}
 
             {activeModal === 'withdraw' && (
