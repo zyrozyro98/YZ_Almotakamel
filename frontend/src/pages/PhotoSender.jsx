@@ -686,34 +686,38 @@ export default function PhotoSender() {
 
               {/* Individual Account List */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', paddingRight: '5px' }} className="custom-scrollbar">
-                {[
-                  { id: 'emp1', name: 'الحساب الافتراضي' },
-                  ...(goldenKey ? [{ id: goldenKey, name: 'المفتاح الذهبي (أنا)' }] : []),
-                  ...employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey)
-                ].map(emp => {
-                  const status = allStatuses[emp.id] || {};
-                  const isSelected = senderId === emp.id;
-                  return (
-                    <div 
-                      key={emp.id}
-                      onClick={() => !isRunning && setSenderId(emp.id)}
-                      style={{ 
-                        padding: '10px 15px', borderRadius: '12px', cursor: isRunning ? 'default' : 'pointer',
-                        background: isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
-                        border: isSelected ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--glass-border)',
-                        display: 'flex', alignItems: 'center', gap: '10px',
-                        transition: '0.2s'
-                      }}
-                    >
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: status.isConnected ? 'var(--success)' : 'var(--danger)' }} />
-                      <div style={{ flex: 1 }}>
-                         <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }}>{emp.name}</div>
-                         {status.phoneNumber && <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)' }}>{status.phoneNumber.split(':')[0]}</div>}
+                {(() => {
+                  const currentUserEmp = employees.find(e => e.id === goldenKey);
+                  const currentUserName = currentUserEmp ? `${currentUserEmp.name} (أنا)` : 'حسابي الشخصي (أنا)';
+                  
+                  return [
+                    ...(goldenKey ? [{ id: goldenKey, name: currentUserName }] : []),
+                    ...employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey)
+                  ].map(emp => {
+                    const status = allStatuses[emp.id] || {};
+                    const isSelected = senderId === emp.id;
+                    return (
+                      <div 
+                        key={emp.id}
+                        onClick={() => !isRunning && setSenderId(emp.id)}
+                        style={{ 
+                          padding: '10px 15px', borderRadius: '12px', cursor: isRunning ? 'default' : 'pointer',
+                          background: isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
+                          border: isSelected ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--glass-border)',
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                          transition: '0.2s'
+                        }}
+                      >
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: status.isConnected ? 'var(--success)' : 'var(--danger)' }} />
+                        <div style={{ flex: 1 }}>
+                           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }}>{emp.name}</div>
+                           {status.phoneNumber && <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)' }}>{status.phoneNumber.split(':')[0]}</div>}
+                        </div>
+                        {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-primary)' }} />}
                       </div>
-                      {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-primary)' }} />}
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
