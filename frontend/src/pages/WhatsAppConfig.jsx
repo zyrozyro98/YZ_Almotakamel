@@ -198,20 +198,31 @@ export default function WhatsAppConfig() {
                     <Users size={16} color="var(--brand-primary)" />
                     الموظف المستهدف:
                   </label>
-                  <select 
-                    className="input-base" 
-                    value={targetEmployeeId || ''} 
-                    onChange={(e) => {
-                      setTargetEmployeeId(e.target.value);
-                      setWaStatus('checking');
-                    }}
-                    style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}
-                  >
-                    <option value="">-- اختر موظفاً للإدارة --</option>
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.name} {emp.id === employeeId ? '(أنا)' : ''}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
+                    {employees.map(emp => {
+                      const status = allStatuses[emp.id] || {};
+                      const isSelected = targetEmployeeId === emp.id;
+                      return (
+                        <div 
+                          key={emp.id}
+                          onClick={() => {
+                            setTargetEmployeeId(emp.id);
+                            setWaStatus('checking');
+                          }}
+                          style={{ 
+                            padding: '12px', borderRadius: '15px', cursor: 'pointer',
+                            background: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255,255,255,0.03)',
+                            border: isSelected ? '2px solid var(--brand-primary)' : '1px solid var(--glass-border)',
+                            transition: '0.3s', textAlign: 'center', position: 'relative'
+                          }}
+                        >
+                          <div style={{ position: 'absolute', top: '8px', right: '8px', width: '8px', height: '8px', borderRadius: '50%', background: status.isConnected ? 'var(--success)' : 'var(--danger)' }} />
+                          <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>{emp.name}</div>
+                          <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.2)' }}>{emp.id.substring(0, 8)}...</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               

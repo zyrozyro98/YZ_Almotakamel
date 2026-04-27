@@ -10,9 +10,10 @@ export default function PhotoSender() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [employees, setEmployees] = useState([]);
-  const [senderId, setSenderId] = useState('emp1');
+  const [senderId, setSenderId] = useState('auto');
   const [ goldenKey, setGoldenKey ] = useState(null);
   const [ students, setStudents ] = useState([]);
+  const [allStatuses, setAllStatuses] = useState({});
 
   useEffect(() => {
     // Cache students globally for matching JIDs in PhotoSender
@@ -217,16 +218,22 @@ export default function PhotoSender() {
   }, []);
 
   useEffect(() => {
+    // 3. Listen to All WhatsApp Statuses for the picker
+    const allStatusRef = ref(rtdb, 'wa_status');
+    const unsubAllStatus = onValue(allStatusRef, (snap) => {
+      setAllStatuses(snap.val() || {});
+    });
+
     if (!senderId || senderId === 'auto') {
       setSenderStatus({ isConnected: true, isAuto: true });
-      return;
+      return () => unsubAllStatus();
     }
     const statusRef = ref(rtdb, `wa_status/${senderId}`);
     const unsubscribe = onValue(statusRef, (snapshot) => {
       if (snapshot.exists()) setSenderStatus(snapshot.val());
       else setSenderStatus({ isConnected: false });
     });
-    return () => unsubscribe();
+    return () => { unsubAllStatus(); unsubscribe(); };
   }, [senderId]);
 
   const handleSavePreset = async () => {
@@ -645,31 +652,69 @@ export default function PhotoSender() {
           <h3 style={{ marginBottom: '1rem', color: 'var(--brand-secondary)' }}>إعدادات الإرسال</h3>
 
           <div>
-            <label className="input-label">حساب المرسل (الموظف)</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ background: 'rgba(59,130,246,0.1)', padding: '10px', borderRadius: '10px' }}>
-                <User size={20} color="#3b82f6" />
-              </div>
-              <select 
-                className="input-base" 
-                value={senderId} 
-                onChange={(e) => setSenderId(e.target.value)}
-                disabled={isRunning}
-                style={{ flex: 1 }}
-              >
-                <option value="auto">توجيه ذكي تلقائي للموظف المناسب (مستحسن 🌟)</option>
-                <option value="emp1">الحساب الافتراضي للموظف (emp1)</option>
-                <option value={goldenKey}>المفتاح الذهبي (إرسال من حسابي الشخصي كـ مدير)</option>
-                {employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey).map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: senderStatus.isConnected ? '#10b981' : '#ef4444' }} />
-                <span style={{ fontSize: '0.7rem', color: senderStatus.isConnected ? '#10b981' : '#ef4444', fontWeight: 700 }}>
-                    {senderStatus.isAuto ? 'التوجيه الذكي مفعل' : (senderStatus.isConnected ? 'متصل وجاهز' : 'الحساب المختار غير متصل حالياً')}
+            <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>حساب المرسل (الموظف)</span>
+              {senderStatus.isConnected && (
+                <span className="badge-success" style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px' }}>
+                  {senderStatus.isAuto ? 'توجيه نشط' : 'متصل'}
                 </span>
+              )}
+            </label>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* Specialized Auto Option Card */}
+              <div 
+                onClick={() => !isRunning && setSenderId('auto')}
+                style={{ 
+                  padding: '12px 15px', borderRadius: '16px', cursor: isRunning ? 'default' : 'pointer',
+                  background: senderId === 'auto' ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(6, 182, 212, 0.2) 100%)' : 'rgba(255,255,255,0.03)',
+                  border: senderId === 'auto' ? '2px solid var(--brand-primary)' : '2px solid transparent',
+                  transition: '0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  boxShadow: senderId === 'auto' ? '0 10px 25px -5px rgba(59, 130, 246, 0.3)' : 'none'
+                }}
+              >
+                <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                  <Zap size={20} fill={senderId === 'auto' ? '#fff' : 'none'} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: senderId === 'auto' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>توجيه ذكي تلقائي 🌟</div>
+                  <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>اختيار الحساب المتصل والأقل ضغطاً آلياً</div>
+                </div>
+                {senderId === 'auto' && <CheckCircle size={18} color="var(--brand-primary)" />}
+              </div>
+
+              {/* Individual Account List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', paddingRight: '5px' }} className="custom-scrollbar">
+                {[
+                  { id: 'emp1', name: 'الحساب الافتراضي' },
+                  ...(goldenKey ? [{ id: goldenKey, name: 'المفتاح الذهبي (أنا)' }] : []),
+                  ...employees.filter(e => e.id !== 'emp1' && e.id !== goldenKey)
+                ].map(emp => {
+                  const status = allStatuses[emp.id] || {};
+                  const isSelected = senderId === emp.id;
+                  return (
+                    <div 
+                      key={emp.id}
+                      onClick={() => !isRunning && setSenderId(emp.id)}
+                      style={{ 
+                        padding: '10px 15px', borderRadius: '12px', cursor: isRunning ? 'default' : 'pointer',
+                        background: isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
+                        border: isSelected ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--glass-border)',
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        transition: '0.2s'
+                      }}
+                    >
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: status.isConnected ? 'var(--success)' : 'var(--danger)' }} />
+                      <div style={{ flex: 1 }}>
+                         <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }}>{emp.name}</div>
+                         {status.phoneNumber && <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)' }}>{status.phoneNumber.split(':')[0]}</div>}
+                      </div>
+                      {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-primary)' }} />}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
