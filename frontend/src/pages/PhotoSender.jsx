@@ -293,6 +293,8 @@ export default function PhotoSender() {
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  const getBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
