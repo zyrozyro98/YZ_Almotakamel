@@ -236,10 +236,10 @@ export default function WhatsAppConfig() {
                   <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>الحالة الحالية</h2>
                   <div style={{ 
                     padding: '8px 20px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, marginBottom: '30px', 
-                    background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : ((waStatus === 'connecting' || waStatus === 'reconnecting') ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'), 
-                    color: waStatus === 'connected' ? '#4ade80' : ((waStatus === 'connecting' || waStatus === 'reconnecting') ? '#fbbf24' : '#f87171') 
+                    background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : ((waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting') ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'), 
+                    color: waStatus === 'connected' ? '#4ade80' : ((waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting') ? '#fbbf24' : '#f87171') 
                   }}>
-                    {waStatus === 'connected' ? 'متصل بنجاح' : (waStatus === 'qr_needed' ? 'انتظار المسح...' : (waStatus === 'connecting' || waStatus === 'reconnecting' ? 'جاري الربط...' : 'غير مرتبط'))}
+                    {waStatus === 'connected' ? 'متصل بنجاح' : (waStatus === 'qr_needed' || waStatus === 'qr_ready' ? 'بانتظار المسح...' : (waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting' ? 'جاري التجهيز...' : 'غير مرتبط'))}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -265,9 +265,9 @@ export default function WhatsAppConfig() {
           </div>
 
           {/* Right Panel: Display Area (QR or Success) */}
-          <div style={{ gridColumn: 'span 8' }}>
+           <div style={{ gridColumn: 'span 8' }}>
             <div className="glass-panel" style={{ height: '100%', minHeight: '450px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', position: 'relative' }}>
-              {waStatus === 'qr_needed' && qrCode ? (
+              {(waStatus === 'qr_needed' || waStatus === 'qr_ready') && qrCode ? (
                 <div className="animate-scale-in" style={{ textAlign: 'center' }}>
                   <div style={{ marginBottom: '25px' }}>
                     <h3 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', marginBottom: '10px' }}>امسح الرمز ضوئياً</h3>
@@ -280,6 +280,15 @@ export default function WhatsAppConfig() {
                     <RefreshCw size={16} className="animate-spin" />
                     <span style={{ fontWeight: 700 }}>يتم التحديث تلقائياً عند المسح</span>
                   </div>
+                </div>
+              ) : (waStatus === 'connecting' || waStatus === 'restarting' || (loading && waStatus !== 'connected')) ? (
+                <div style={{ textAlign: 'center' }}>
+                  <div className="spinner" style={{ width: '60px', height: '60px', border: '5px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', margin: '0 auto 20px', animation: 'spin 1s linear infinite' }}></div>
+                  <style>{`
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                  `}</style>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>جاري التحضير...</h3>
+                  <p style={{ color: 'rgba(255,255,255,0.4)' }}>يرجى الانتظار بينما نقوم بتجهيز اتصال الواتساب</p>
                 </div>
               ) : waStatus === 'connected' ? (
                 <div className="animate-scale-in" style={{ textAlign: 'center' }}>
