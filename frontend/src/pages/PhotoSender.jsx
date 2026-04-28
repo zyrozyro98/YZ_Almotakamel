@@ -130,6 +130,16 @@ export default function PhotoSender() {
     setIsPaused(false);
   };
 
+  const fetchAllStatuses = async () => {
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    try {
+      await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
+      console.log('Status synchronization complete');
+    } catch (err) {
+      console.error('Status sync failed:', err);
+    }
+  };
+
   const getPureNumber = (raw) => {
     if (!raw) return "";
     
@@ -238,8 +248,12 @@ export default function PhotoSender() {
       
       // If we are in Auto mode, update senderStatus based on ANY connected employee
       if (senderId === 'auto') {
-        const anyConnected = Object.values(data).some(s => s.isConnected);
-        setSenderStatus({ isConnected: anyConnected, isAuto: true });
+        const connectedCount = Object.values(data).filter(s => s && s.isConnected).length;
+        setSenderStatus({ 
+          isConnected: connectedCount > 0, 
+          isAuto: true, 
+          count: connectedCount 
+        });
       }
     });
 
@@ -712,11 +726,19 @@ export default function PhotoSender() {
                     توجيه ذكي تلقائي 🌟
                     {senderId === 'auto' && (
                       <span style={{ fontSize: '0.6rem', marginLeft: '8px', color: senderStatus.isConnected ? 'var(--success)' : 'var(--danger)' }}>
-                        ({senderStatus.isConnected ? 'جاهز' : 'غير متوفر - لا يوجد اتصال'})
+                        ({senderStatus.isConnected ? `جاهز (${senderStatus.count} متصل)` : 'غير متوفر - لا يوجد اتصال'})
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>اختيار الحساب المتصل والأقل ضغطاً آلياً</div>
+                  <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span>اختيار الحساب المتصل والأقل ضغطاً آلياً</span>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); fetchAllStatuses(); }} 
+                      style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', cursor: 'pointer', fontSize: '0.65rem', padding: 0, fontWeight: 700, textDecoration: 'underline' }}
+                    >
+                      مزامنة الحالة
+                    </button>
+                  </div>
                 </div>
                 {senderId === 'auto' && <CheckCircle size={18} color="var(--brand-primary)" />}
               </div>
