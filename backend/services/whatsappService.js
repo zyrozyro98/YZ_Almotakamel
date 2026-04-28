@@ -297,7 +297,7 @@ async function initializeSession(employeeId, onQrGenerated) {
       }
     } else if (connection === 'open') {
       qrCache.delete(employeeId);
-      rtdb.ref(`wa_status/${employeeId}`).set({ 
+      rtdb.ref(`wa_status/${employeeId}`).update({ 
         isConnected: true, 
         qr: null, 
         lastUpdate: Date.now(),

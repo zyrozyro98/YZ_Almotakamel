@@ -111,9 +111,24 @@ router.post('/send', async (req, res) => {
 });
 
 // Connection Status
-router.get('/status/:employeeId', (req, res) => {
+router.get('/status/:employeeId', async (req, res) => {
   try {
-    const status = whatsappService.getConnectionStatus(req.params.employeeId);
+    const employeeId = req.params.employeeId;
+    const status = whatsappService.getConnectionStatus(employeeId);
+    const sock = whatsappService.getSession(employeeId);
+    
+    const updatePayload = {
+      isConnected: status.isConnected,
+      lastUpdate: Date.now(),
+      status: status.isConnected ? 'online' : (status.qr ? 'qr_ready' : 'disconnected')
+    };
+
+    if (status.isConnected && sock?.user?.id) {
+        updatePayload.phoneNumber = sock.user.id.split(':')[0];
+    }
+
+    await rtdb.ref(`wa_status/${employeeId}`).update(updatePayload).catch(e => console.error('RTDB Sync failed:', e.message));
+
     res.status(200).json(status);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -126,6 +141,7 @@ router.get('/status-all', async (req, res) => {
     const employeesSnap = await db.collection('employees').get();
     const statuses = [];
     
+    const updates = {};
     for (const doc of employeesSnap.docs) {
       const emp = doc.data();
       const status = whatsappService.getConnectionStatus(doc.id);
@@ -134,6 +150,15 @@ router.get('/status-all', async (req, res) => {
         name: emp.name,
         ...status
       });
+
+      // Prepare batch update for self-healing
+      updates[`${doc.id}/isConnected`] = status.isConnected;
+      updates[`${doc.id}/lastUpdate`] = Date.now();
+    }
+    
+    // Apply self-healing batch
+    if (Object.keys(updates).length > 0) {
+      await rtdb.ref('wa_status').update(updates).catch(() => {});
     }
     
     res.json(statuses);

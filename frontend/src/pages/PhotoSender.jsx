@@ -30,7 +30,19 @@ export default function PhotoSender() {
         const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setEmployees(emps);
       });
-      return () => unsub();
+
+      // Background Self-Healing Sync
+      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const sync = async () => {
+        try { await axios.get(`${BASE_URL}/api/whatsapp/status-all`); } catch (e) {}
+      };
+      sync();
+      const interval = setInterval(sync, 30000);
+      
+      return () => { 
+        unsub(); 
+        clearInterval(interval); 
+      };
     }
   }, [isAdmin]);
 
