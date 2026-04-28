@@ -186,7 +186,7 @@ router.post('/send-image', async (req, res) => {
 
     // Auto-Routing: Find best employee session if requested
     if (employeeId === 'auto') {
-      employeeId = 'emp1'; // fallback default
+      employeeId = null; 
       try {
         const chatsSnap = await rtdb.ref('chats').once('value');
         if (chatsSnap.exists()) {
@@ -200,7 +200,7 @@ router.post('/send-image', async (req, res) => {
           if (waStatusSnap.exists()) {
             const statuses = waStatusSnap.val();
             for (const key in statuses) {
-              if (statuses[key].isConnected) connectedEmps.push(key);
+              if (statuses[key].isConnected && key !== 'emp1') connectedEmps.push(key);
             }
           }
 
@@ -222,10 +222,7 @@ router.post('/send-image', async (req, res) => {
           } else if (connectedEmps.length > 0) {
              // Prefer goldenKey (Admin) or just the first connected if available
              employeeId = connectedEmps[0];
-          } else {
-             // Let it fail naturally if absolutely nobody is connected
-             employeeId = 'emp1';
-          }
+          } 
 
         }
       } catch(e) { console.error('Auto validation failed', e); }
@@ -233,7 +230,8 @@ router.post('/send-image', async (req, res) => {
 
     // Enforce default fallback if somehow undefined
     if (!employeeId) {
-      employeeId = 'emp1';
+      // If auto failed or no employee specified, we don't have a valid session
+      return res.status(400).json({ error: 'لم يتم العثور على موظف متصل للإرسال التلقائي.' });
     }
 
     const sock = whatsappService.getSession(employeeId);

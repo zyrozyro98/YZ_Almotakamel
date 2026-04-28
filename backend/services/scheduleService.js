@@ -80,7 +80,7 @@ class ScheduleService {
         if (waStatusSnap.exists()) {
           const statuses = waStatusSnap.val();
           for (const key in statuses) {
-            if (statuses[key].isConnected) {
+            if (statuses[key].isConnected && key !== 'emp1') {
               activeEmpId = key;
               sock = whatsappService.getSession(activeEmpId);
               break;

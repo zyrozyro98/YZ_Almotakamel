@@ -10,11 +10,15 @@ async function findBestEmployee() {
     // 1. Fetch all real employees from Firestore
     const employeesSnap = await db.collection('employees').get();
     if (employeesSnap.empty) {
-      console.warn('[DISTRIBUTION] No employees found in Firestore. Falling back to default emp1');
-      return 'emp1';
+      console.warn('[DISTRIBUTION] No employees found in Firestore.');
+      return null;
     }
 
-    const employeeIds = employeesSnap.docs.map(doc => doc.id);
+    const employeeIds = employeesSnap.docs.map(doc => doc.id).filter(id => id !== 'emp1');
+    if (employeeIds.length === 0) {
+      console.warn('[DISTRIBUTION] No valid employees (excluding emp1) found.');
+      return null;
+    }
     const loads = {};
 
     // 2. Calculate loads for each real employee
@@ -41,7 +45,7 @@ async function findBestEmployee() {
     return bestEmp;
   } catch (error) {
     console.error('[DISTRIBUTION ERROR]', error.message);
-    return 'emp1'; // Safe fallback
+    return null; // Safe fallback
   }
 }
 
@@ -64,6 +68,11 @@ function initDistributionListener() {
 
         // Perform Smart Distribution
         const assignedEmp = await findBestEmployee();
+
+        if (!assignedEmp) {
+          console.warn(`[DISTRIBUTION] Could not find a valid employee to assign student ${student.name}`);
+          return;
+        }
 
         // Update the document to lock assignment
         await db.collection('students').doc(docId).update({
