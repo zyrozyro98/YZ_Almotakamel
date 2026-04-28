@@ -435,6 +435,12 @@ export default function PhotoSender() {
   };
 
   const handleStart = () => {
+    // Connection Check for Auto-routing
+    if (senderId === 'auto' && !senderStatus.isConnected) {
+      alert('⚠️ لا يوجد أي موظف متصل حالياً للقيام بالإرسال التلقائي.\nيرجى التأكد من ربط حساب واحد على الأقل من صفحة الإعدادات.');
+      return;
+    }
+
     if (mode === 'folder') {
       if (filesQueue.length === 0) { alert('يجب تحديد المجلد أولاً.'); return; }
     } else {
@@ -690,7 +696,14 @@ export default function PhotoSender() {
                   <Zap size={20} fill={senderId === 'auto' ? '#fff' : 'none'} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: senderId === 'auto' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>توجيه ذكي تلقائي 🌟</div>
+                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: senderId === 'auto' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    توجيه ذكي تلقائي 🌟
+                    {senderId === 'auto' && (
+                      <span style={{ fontSize: '0.6rem', marginLeft: '8px', color: senderStatus.isConnected ? 'var(--success)' : 'var(--danger)' }}>
+                        ({senderStatus.isConnected ? 'جاهز' : 'غير متوفر - لا يوجد اتصال'})
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>اختيار الحساب المتصل والأقل ضغطاً آلياً</div>
                 </div>
                 {senderId === 'auto' && <CheckCircle size={18} color="var(--brand-primary)" />}

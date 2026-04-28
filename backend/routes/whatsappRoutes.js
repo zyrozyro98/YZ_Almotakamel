@@ -193,10 +193,11 @@ async function getAutoEmployeeId(chatId) {
     // 1. Get all connected employees first
     let connectedEmps = [];
     const waStatusSnap = await rtdb.ref('wa_status').once('value');
+    
     if (waStatusSnap.exists()) {
       const statuses = waStatusSnap.val();
       for (const key in statuses) {
-        // Double verification: Marked connected in DB AND Session is live in memory
+        // Exclude emp1 (admin/system) and verify connection/memory state
         if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
           connectedEmps.push(key);
         }
@@ -204,7 +205,6 @@ async function getAutoEmployeeId(chatId) {
     }
 
     if (connectedEmps.length === 0) {
-      console.warn('[AUTO-ROUTING] No connected employees available.');
       return null;
     }
 

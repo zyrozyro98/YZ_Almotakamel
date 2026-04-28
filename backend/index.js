@@ -99,16 +99,16 @@ app.listen(PORT, async () => {
   const sessionsParentDir = process.env.WA_SESSION_PATH || path.join(__dirname, 'sessions');
   if (fs.existsSync(sessionsParentDir)) {
     const files = fs.readdirSync(sessionsParentDir);
+    console.log(`[AUTO-BOOT] Found ${files.filter(f => f.startsWith('session-')).length} potential sessions.`);
+    
     for (const file of files) {
       if (file.startsWith('session-')) {
         const employeeId = file.replace('session-', '');
         console.log(`[AUTO-BOOT] Restoring session for: ${employeeId}`);
-        try {
-          // Initialize without a QR callback since they should already be connected
-          await whatsappService.initializeSession(employeeId);
-        } catch (err) {
-          console.error(`[AUTO-BOOT] Failed to restore ${employeeId}:`, err.message);
-        }
+        // Initialize sessions in background to avoid blocking server startup
+        whatsappService.initializeSession(employeeId).catch(err => {
+          console.error(`[AUTO-BOOT ERROR] Failed for ${employeeId}:`, err.message);
+        });
       }
     }
   }
