@@ -31,7 +31,7 @@ router.post('/init', async (req, res) => {
 
 // THE REPAIRED SEND ROUTE
 router.post('/send', async (req, res) => {
-  const { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
   
   if (!employeeId || !phoneNumber || !message) {
     return res.status(400).json({ error: 'Missing required parameters (employeeId, phoneNumber, message).' });
@@ -190,23 +190,30 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
 // Helper for Smart Auto-Routing (Excludes emp1)
 async function getAutoEmployeeId(chatId) {
   try {
+    // 1. Get all connected employees first
+    let connectedEmps = [];
+    const waStatusSnap = await rtdb.ref('wa_status').once('value');
+    if (waStatusSnap.exists()) {
+      const statuses = waStatusSnap.val();
+      for (const key in statuses) {
+        // Double verification: Marked connected in DB AND Session is live in memory
+        if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
+          connectedEmps.push(key);
+        }
+      }
+    }
+
+    if (connectedEmps.length === 0) {
+      console.warn('[AUTO-ROUTING] No connected employees available.');
+      return null;
+    }
+
+    // 2. Try to find who this student chatted with before
     const chatsSnap = await rtdb.ref('chats').once('value');
     if (chatsSnap.exists()) {
       const allChats = chatsSnap.val();
       let bestEmp = null;
       let latestTime = 0;
-      let connectedEmps = [];
-
-      const waStatusSnap = await rtdb.ref('wa_status').once('value');
-      if (waStatusSnap.exists()) {
-        const statuses = waStatusSnap.val();
-        for (const key in statuses) {
-          // Double verification: Marked connected in DB AND Session is live in memory
-          if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
-            connectedEmps.push(key);
-          }
-        }
-      }
 
       for (const empKey in allChats) {
         if (allChats[empKey][chatId]) {
@@ -217,10 +224,11 @@ async function getAutoEmployeeId(chatId) {
           }
         }
       }
-
       if (bestEmp) return bestEmp;
-      if (connectedEmps.length > 0) return connectedEmps[0];
     }
+
+    // 3. Fallback: Return the first connected employee
+    return connectedEmps[0];
   } catch (e) {
     console.error('[AUTO-ROUTING ERROR]', e.message);
   }
@@ -294,7 +302,7 @@ router.post('/send-image', async (req, res) => {
 
 // Send Document
 router.post('/send-document', async (req, res) => {
-  const { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
   if (employeeId === 'auto') {
     employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber));
   }
@@ -360,7 +368,7 @@ router.post('/send-document', async (req, res) => {
 
 // 3. Send Video
 router.post('/send-video', async (req, res) => {
-    const { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
+    let { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
     if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
 
     if (employeeId === 'auto') {

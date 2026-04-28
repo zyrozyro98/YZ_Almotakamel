@@ -218,22 +218,34 @@ export default function PhotoSender() {
   }, []);
 
   useEffect(() => {
-    // 3. Listen to All WhatsApp Statuses for the picker
+    // 1. Listen to All WhatsApp Statuses for the picker and Auto-routing state
     const allStatusRef = ref(rtdb, 'wa_status');
     const unsubAllStatus = onValue(allStatusRef, (snap) => {
-      setAllStatuses(snap.val() || {});
+      const data = snap.val() || {};
+      setAllStatuses(data);
+      
+      // If we are in Auto mode, update senderStatus based on ANY connected employee
+      if (senderId === 'auto') {
+        const anyConnected = Object.values(data).some(s => s.isConnected);
+        setSenderStatus({ isConnected: anyConnected, isAuto: true });
+      }
     });
 
     if (!senderId || senderId === 'auto') {
-      setSenderStatus({ isConnected: true, isAuto: true });
       return () => unsubAllStatus();
     }
+
+    // 2. Listen to specific employee status if selected
     const statusRef = ref(rtdb, `wa_status/${senderId}`);
     const unsubscribe = onValue(statusRef, (snapshot) => {
       if (snapshot.exists()) setSenderStatus(snapshot.val());
       else setSenderStatus({ isConnected: false });
     });
-    return () => { unsubAllStatus(); unsubscribe(); };
+
+    return () => { 
+      unsubAllStatus(); 
+      unsubscribe(); 
+    };
   }, [senderId]);
 
   const handleSavePreset = async () => {
