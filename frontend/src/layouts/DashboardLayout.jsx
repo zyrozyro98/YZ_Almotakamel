@@ -296,12 +296,11 @@ export default function DashboardLayout() {
             >
               <div style={{ 
                 width: '10px', height: '10px', borderRadius: '50%', 
-                background: waStatus.isConnected ? 'var(--success)' : 'var(--danger)',
-                boxShadow: waStatus.isConnected ? '0 0 8px var(--success)' : '0 0 8px var(--danger)',
-                animation: waStatus.isConnected ? 'none' : 'pulse-red 2s infinite'
-              }}></div>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>
-                {waStatus.isConnected ? 'متصل' : 'غير مرتبط'}
+                background: waStatus.isConnected ? 'var(--success)' : ((waStatus.status === 'connecting' || waStatus.status === 'reconnecting') ? '#f59e0b' : 'var(--danger)'),
+                boxShadow: waStatus.isConnected ? '0 0 10px rgba(16,185,129,0.4)' : 'none'
+              }} />
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fff' }}>
+                {waStatus.isConnected ? 'متصل' : ((waStatus.status === 'connecting' || waStatus.status === 'reconnecting') ? 'جاري الربط...' : 'غير مرتبط')}
               </span>
               <Smartphone size={16} color={waStatus.isConnected ? 'var(--success)' : 'var(--text-secondary)'} />
             </div>

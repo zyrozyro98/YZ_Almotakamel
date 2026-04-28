@@ -237,8 +237,12 @@ export default function WhatsAppConfig() {
                     {waStatus === 'connected' ? <ShieldCheck size={40} /> : <Smartphone size={40} />}
                   </div>
                   <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>الحالة الحالية</h2>
-                  <div style={{ padding: '8px 20px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, marginBottom: '30px', background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: waStatus === 'connected' ? '#4ade80' : '#f87171' }}>
-                    {waStatus === 'connected' ? 'متصل بنجاح' : (waStatus === 'checking' ? 'جاري الفحص...' : 'غير متصل')}
+                  <div style={{ 
+                    padding: '8px 20px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, marginBottom: '30px', 
+                    background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : ((waStatus === 'connecting' || waStatus === 'reconnecting') ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'), 
+                    color: waStatus === 'connected' ? '#4ade80' : ((waStatus === 'connecting' || waStatus === 'reconnecting') ? '#fbbf24' : '#f87171') 
+                  }}>
+                    {waStatus === 'connected' ? 'متصل بنجاح' : (waStatus === 'qr_needed' ? 'انتظار المسح...' : (waStatus === 'connecting' || waStatus === 'reconnecting' ? 'جاري الربط...' : 'غير مرتبط'))}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

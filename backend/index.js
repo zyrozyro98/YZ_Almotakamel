@@ -65,6 +65,25 @@ process.on('uncaughtException', (err) => {
 app.listen(PORT, async () => {
   console.log(`[SERVER] Running on http://localhost:${PORT}`);
   
+  // --- STARTUP STATUS RESET ---
+  // Ensure we don't show stale "connected" statuses if the server restarted
+  try {
+    const { rtdb } = require('./firebaseAdmin');
+    const waStatusRef = rtdb.ref('wa_status');
+    const snap = await waStatusRef.once('value');
+    if (snap.exists()) {
+      const updates = {};
+      Object.keys(snap.val()).forEach(key => {
+        updates[`${key}/isConnected`] = false;
+        updates[`${key}/status`] = 'restarting';
+      });
+      await waStatusRef.update(updates);
+      console.log('[SYSTEM] Reset stale WhatsApp statuses');
+    }
+  } catch (err) {
+    console.error('[SYSTEM] Failed to reset statuses:', err.message);
+  }
+  
   // Start the automated distribution service
   if (distributionService && typeof distributionService.initDistributionListener === 'function') {
     distributionService.initDistributionListener();

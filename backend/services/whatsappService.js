@@ -271,13 +271,25 @@ async function initializeSession(employeeId, onQrGenerated) {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
       qrCache.set(employeeId, qr);
-      rtdb.ref(`wa_status/${employeeId}`).update({ qr, lastUpdate: Date.now(), isConnected: false });
+      rtdb.ref(`wa_status/${employeeId}`).update({ 
+        qr, 
+        lastUpdate: Date.now(), 
+        isConnected: false,
+        status: 'qr_ready'
+      });
       if (onQrGenerated) onQrGenerated(qr); 
+    }
+    if (connection === 'connecting') {
+      rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false });
     }
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      rtdb.ref(`wa_status/${employeeId}`).update({ isConnected: false, lastUpdate: Date.now() });
+      rtdb.ref(`wa_status/${employeeId}`).update({ 
+        isConnected: false, 
+        lastUpdate: Date.now(),
+        status: shouldReconnect ? 'reconnecting' : 'disconnected'
+      });
       if (shouldReconnect) initializeSession(employeeId, onQrGenerated);
       else {
         sessions.delete(employeeId);
@@ -289,6 +301,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         isConnected: true, 
         qr: null, 
         lastUpdate: Date.now(),
+        status: 'online',
         phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id 
       });
     }
