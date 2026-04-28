@@ -34,13 +34,21 @@ router.post('/send', async (req, res) => {
   const { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
   
   if (!employeeId || !phoneNumber || !message) {
-    return res.status(400).json({ error: 'Missing required parameters.' });
+    return res.status(400).json({ error: 'Missing required parameters (employeeId, phoneNumber, message).' });
+  }
+
+  if (employeeId === 'auto') {
+    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber));
+  }
+
+  if (!employeeId) {
+    return res.status(400).json({ error: 'لم يتم العثور على موظف متصل للإرسال التلقائي.' });
   }
 
   try {
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) {
-      return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
+      return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
     }
 
     // 1. Resolve Target JID using unified logic
@@ -179,6 +187,44 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   return targetJid;
 }
 
+// Helper for Smart Auto-Routing (Excludes emp1)
+async function getAutoEmployeeId(chatId) {
+  try {
+    const chatsSnap = await rtdb.ref('chats').once('value');
+    if (chatsSnap.exists()) {
+      const allChats = chatsSnap.val();
+      let bestEmp = null;
+      let latestTime = 0;
+      let connectedEmps = [];
+
+      const waStatusSnap = await rtdb.ref('wa_status').once('value');
+      if (waStatusSnap.exists()) {
+        const statuses = waStatusSnap.val();
+        for (const key in statuses) {
+          if (statuses[key].isConnected && key !== 'emp1') connectedEmps.push(key);
+        }
+      }
+
+      for (const empKey in allChats) {
+        if (allChats[empKey][chatId]) {
+          const t = allChats[empKey][chatId].timestamp || 0;
+          if (t > latestTime && connectedEmps.includes(empKey)) {
+            latestTime = t;
+            bestEmp = empKey;
+          }
+        }
+      }
+
+      if (bestEmp) return bestEmp;
+      if (connectedEmps.length > 0) return connectedEmps[0];
+    }
+  } catch (e) {
+    console.error('[AUTO-ROUTING ERROR]', e.message);
+  }
+  return null;
+}
+
+
 router.post('/send-image', async (req, res) => {
   let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
   try {
@@ -186,46 +232,7 @@ router.post('/send-image', async (req, res) => {
 
     // Auto-Routing: Find best employee session if requested
     if (employeeId === 'auto') {
-      employeeId = null; 
-      try {
-        const chatsSnap = await rtdb.ref('chats').once('value');
-        if (chatsSnap.exists()) {
-          const allChats = chatsSnap.val();
-          let bestEmp = null;
-          let latestTime = 0;
-          let connectedEmps = []; // Track who is actually online
-
-          // Find all connected sessions to use as fallback
-          const waStatusSnap = await rtdb.ref('wa_status').once('value');
-          if (waStatusSnap.exists()) {
-            const statuses = waStatusSnap.val();
-            for (const key in statuses) {
-              if (statuses[key].isConnected && key !== 'emp1') connectedEmps.push(key);
-            }
-          }
-
-          // Search for the latest chat
-          for (const empKey in allChats) {
-            if (allChats[empKey][chatId]) {
-              const t = allChats[empKey][chatId].timestamp || 0;
-              // Only pick this employee if they are actually connected!
-              if (t > latestTime && connectedEmps.includes(empKey)) {
-                latestTime = t;
-                bestEmp = empKey;
-              }
-            }
-          }
-
-          // If the most recent employee is disconnected (or no prior chat), smartly fallback to ANY connected employee
-          if (bestEmp) {
-            employeeId = bestEmp;
-          } else if (connectedEmps.length > 0) {
-             // Prefer goldenKey (Admin) or just the first connected if available
-             employeeId = connectedEmps[0];
-          } 
-
-        }
-      } catch(e) { console.error('Auto validation failed', e); }
+      employeeId = await getAutoEmployeeId(chatId);
     }
 
     // Enforce default fallback if somehow undefined
@@ -285,9 +292,17 @@ router.post('/send-image', async (req, res) => {
 // Send Document
 router.post('/send-document', async (req, res) => {
   const { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
+  if (employeeId === 'auto') {
+    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber));
+  }
+
+  if (!employeeId) {
+    return res.status(400).json({ error: 'لم يتم العثور على موظف متصل للإرسال التلقائي.' });
+  }
+
   try {
     const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) return res.status(401).json({ error: 'جلسة الواتساب غير متصلة.' });
+    if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
 
     const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     
@@ -345,9 +360,17 @@ router.post('/send-video', async (req, res) => {
     const { employeeId, phoneNumber, fullJid, base64Video, caption, senderName, senderId } = req.body;
     if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
 
+    if (employeeId === 'auto') {
+        employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber || fullJid));
+    }
+
+    if (!employeeId) {
+        return res.status(400).json({ error: 'لم يتم العثور على موظف متصل للإرسال التلقائي.' });
+    }
+
     try {
         const sock = whatsappService.getSession(employeeId);
-        if (!sock) return res.status(404).json({ error: 'Session not found' });
+        if (!sock) return res.status(404).json({ error: `Session ${employeeId} not found` });
 
         const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
         
