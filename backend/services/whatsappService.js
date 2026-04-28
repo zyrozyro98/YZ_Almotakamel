@@ -254,7 +254,16 @@ async function initializeSession(employeeId, onQrGenerated) {
   if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-  const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1017531287] }));
+  // Fetch version with a 5s timeout to prevent hanging
+  const fetchVersionWithTimeout = async () => {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
+    return Promise.race([fetchLatestBaileysVersion(), timeout]);
+  };
+
+  const { version } = await fetchVersionWithTimeout().catch((err) => {
+    console.warn(`[BAILEYS] Version fetch failed or timed out (${err.message}). Using fallback version.`);
+    return { version: [2, 3000, 1017531287] };
+  });
 
   const sock = makeWASocket({
     version, auth: state, printQRInTerminal: false,

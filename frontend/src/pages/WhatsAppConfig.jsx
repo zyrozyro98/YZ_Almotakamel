@@ -52,16 +52,13 @@ export default function WhatsAppConfig() {
       if (data) {
         if (data.isConnected) {
           setWaStatus('connected');
-          setQrCode(null);
-        } else if (data.qr) {
-          setWaStatus('qr_needed');
-          setQrCode(data.qr);
         } else {
-          setWaStatus('checking');
-          setQrCode(null);
+          setWaStatus(data.status || 'checking');
         }
+        if (data.qr) setQrCode(data.qr);
+        else setQrCode(null);
       } else {
-        setWaStatus('checking');
+        setWaStatus('disconnected');
         setQrCode(null);
       }
     });
