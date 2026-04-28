@@ -352,4 +352,9 @@ function getConnectionStatus(employeeId) {
   return { isConnected, qr: qrCache.get(employeeId) || null, employeeId };
 }
 
-module.exports = { initializeSession, getSession, getConnectionStatus, logout };
+function isSessionActive(employeeId) {
+  const sock = sessions.get(employeeId);
+  return !!(sock && (sock.user || sock.authState?.creds?.me));
+}
+
+module.exports = { initializeSession, getSession, getConnectionStatus, logout, isSessionActive };

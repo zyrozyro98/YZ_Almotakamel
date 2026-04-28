@@ -201,7 +201,10 @@ async function getAutoEmployeeId(chatId) {
       if (waStatusSnap.exists()) {
         const statuses = waStatusSnap.val();
         for (const key in statuses) {
-          if (statuses[key].isConnected && key !== 'emp1') connectedEmps.push(key);
+          // Double verification: Marked connected in DB AND Session is live in memory
+          if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
+            connectedEmps.push(key);
+          }
         }
       }
 
