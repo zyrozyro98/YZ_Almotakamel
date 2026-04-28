@@ -100,6 +100,14 @@ export default function PhotoSender() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
   
+  // Derived state for auto routing
+  const activeAutoStatus = {
+    isConnected: Object.values(allStatuses).some(s => s && s.isConnected),
+    isAuto: true,
+    count: Object.values(allStatuses).filter(s => s && s.isConnected).length
+  };
+  const currentSenderStatus = senderId === 'auto' ? activeAutoStatus : senderStatus;
+  
   // Real stats
   const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0, pending: 0 });
   const fileInputRef = useRef(null);
@@ -245,16 +253,6 @@ export default function PhotoSender() {
     const unsubAllStatus = onValue(allStatusRef, (snap) => {
       const data = snap.val() || {};
       setAllStatuses(data);
-      
-      // If we are in Auto mode, update senderStatus based on ANY connected employee
-      if (senderId === 'auto') {
-        const connectedCount = Object.values(data).filter(s => s && s.isConnected).length;
-        setSenderStatus({ 
-          isConnected: connectedCount > 0, 
-          isAuto: true, 
-          count: connectedCount 
-        });
-      }
     });
 
     if (!senderId || senderId === 'auto') {
@@ -462,7 +460,7 @@ export default function PhotoSender() {
 
   const handleStart = () => {
     // Connection Check for Auto-routing
-    if (senderId === 'auto' && !senderStatus.isConnected) {
+    if (senderId === 'auto' && !currentSenderStatus.isConnected) {
       alert('⚠️ لا يوجد أي موظف متصل حالياً للقيام بالإرسال التلقائي.\nيرجى التأكد من ربط حساب واحد على الأقل من صفحة الإعدادات.');
       return;
     }
@@ -698,9 +696,9 @@ export default function PhotoSender() {
           <div>
             <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>حساب المرسل (الموظف)</span>
-              {senderStatus.isConnected && (
+              {currentSenderStatus.isConnected && (
                 <span className="badge-success" style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px' }}>
-                  {senderStatus.isAuto ? 'توجيه نشط' : 'متصل'}
+                  {currentSenderStatus.isAuto ? 'توجيه نشط' : 'متصل'}
                 </span>
               )}
             </label>
@@ -725,8 +723,8 @@ export default function PhotoSender() {
                   <div style={{ fontWeight: 800, fontSize: '0.9rem', color: senderId === 'auto' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                     توجيه ذكي تلقائي 🌟
                     {senderId === 'auto' && (
-                      <span style={{ fontSize: '0.6rem', marginLeft: '8px', color: senderStatus.isConnected ? 'var(--success)' : 'var(--danger)' }}>
-                        ({senderStatus.isConnected ? `جاهز (${senderStatus.count} متصل)` : 'غير متوفر - لا يوجد اتصال'})
+                      <span style={{ fontSize: '0.6rem', marginLeft: '8px', color: currentSenderStatus.isConnected ? 'var(--success)' : 'var(--danger)' }}>
+                        ({currentSenderStatus.isConnected ? `جاهز (${currentSenderStatus.count} متصل)` : 'غير متوفر - لا يوجد اتصال'})
                       </span>
                     )}
                   </div>
