@@ -95,8 +95,6 @@ export default function PhotoSender() {
   // Presets
   const [presets, setPresets] = useState([]);
   const [presetName, setPresetName] = useState('');
-  
-  const [senderStatus, setSenderStatus] = useState({ isConnected: false });
   const [showPreview, setShowPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
   
@@ -106,7 +104,7 @@ export default function PhotoSender() {
     isAuto: true,
     count: Object.values(allStatuses).filter(s => s && s.isConnected).length
   };
-  const currentSenderStatus = senderId === 'auto' ? activeAutoStatus : senderStatus;
+  const currentSenderStatus = senderId === 'auto' ? activeAutoStatus : (allStatuses[senderId] || { isConnected: false });
   
   // Real stats
   const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0, pending: 0 });
@@ -248,29 +246,15 @@ export default function PhotoSender() {
   }, []);
 
   useEffect(() => {
-    // 1. Listen to All WhatsApp Statuses for the picker and Auto-routing state
+    // Listen to All WhatsApp Statuses continuously
     const allStatusRef = ref(rtdb, 'wa_status');
     const unsubAllStatus = onValue(allStatusRef, (snap) => {
       const data = snap.val() || {};
       setAllStatuses(data);
     });
 
-    if (!senderId || senderId === 'auto') {
-      return () => unsubAllStatus();
-    }
-
-    // 2. Listen to specific employee status if selected
-    const statusRef = ref(rtdb, `wa_status/${senderId}`);
-    const unsubscribe = onValue(statusRef, (snapshot) => {
-      if (snapshot.exists()) setSenderStatus(snapshot.val());
-      else setSenderStatus({ isConnected: false });
-    });
-
-    return () => { 
-      unsubAllStatus(); 
-      unsubscribe(); 
-    };
-  }, [senderId]);
+    return () => unsubAllStatus();
+  }, []);
 
   const handleSavePreset = async () => {
     if (!presetName.trim()) {
