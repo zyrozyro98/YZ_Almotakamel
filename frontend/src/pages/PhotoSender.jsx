@@ -97,6 +97,8 @@ export default function PhotoSender() {
   const [presetName, setPresetName] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
+  const [autoIncludedAccounts, setAutoIncludedAccounts] = useState([]);
+  const [autoMessagesPerSwitch, setAutoMessagesPerSwitch] = useState(5);
   
   // Derived state for auto routing
   const activeAutoStatus = {
@@ -118,6 +120,13 @@ export default function PhotoSender() {
     isRunningRef.current = isRunning;
     isPausedRef.current = isPaused;
   }, [isRunning, isPaused]);
+
+  useEffect(() => {
+    const connected = Object.keys(allStatuses).filter(key => allStatuses[key]?.isConnected && key !== 'emp1');
+    if (autoIncludedAccounts.length === 0 && connected.length > 0) {
+      setAutoIncludedAccounts(connected);
+    }
+  }, [allStatuses]);
 
   const handleFolderSelection = (e) => {
     const rawFiles = Array.from(e.target.files || []);
@@ -335,6 +344,9 @@ export default function PhotoSender() {
     const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
     const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
 
+    let currentAutoIndex = 0;
+    let messagesSentOnCurrentAuto = 0;
+
     while (current < activeQueue.length) {
       if (!isRunningRef.current || isPausedRef.current) return;
 
@@ -370,9 +382,20 @@ export default function PhotoSender() {
           const student = students.find(s => getPureNumber(s.phone) === targetNumber);
           const studentJid = student?.fullJid || '';
 
+          let finalSenderId = senderId;
+          if (senderId === 'auto') {
+            if (autoIncludedAccounts.length === 0) {
+              alert('لا توجد حسابات محددة للتوجيه التلقائي! تم إيقاف العملية.');
+              setIsRunning(false);
+              setIsPaused(false);
+              return;
+            }
+            finalSenderId = autoIncludedAccounts[currentAutoIndex];
+          }
+
           if (b64) {
              await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
-               employeeId: senderId,
+               employeeId: finalSenderId,
                phoneNumber: targetNumber,
                fullJid: studentJid,
                base64Image: b64,
@@ -382,13 +405,21 @@ export default function PhotoSender() {
              });
           } else if (finalMessage) {
              await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-               employeeId: senderId,
+               employeeId: finalSenderId,
                phoneNumber: targetNumber,
                fullJid: studentJid,
                message: finalMessage,
                senderName: auth.currentUser?.displayName || 'المرسل القوي',
                senderId: auth.currentUser?.uid || 'system'
              });
+          }
+          
+          if (senderId === 'auto') {
+            messagesSentOnCurrentAuto++;
+            if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
+              messagesSentOnCurrentAuto = 0;
+              currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
+            }
           }
           
           setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال المحتوى بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
@@ -506,6 +537,8 @@ export default function PhotoSender() {
 
     try {
       const messagesToSchedule = [];
+      let currentAutoIndex = 0;
+      let messagesSentOnCurrentAuto = 0;
       
       for (let i = 0; i < activeQueue.length; i++) {
         const item = activeQueue[i];
@@ -531,8 +564,21 @@ export default function PhotoSender() {
         // Add a small staggered delay for each scheduled message (e.g. 30s apart) to avoid ban
         const staggeredTime = scheduledTimestamp + (i * 30000);
 
+        let finalSenderId = senderId;
+        if (senderId === 'auto') {
+          if (autoIncludedAccounts.length === 0) {
+            throw new Error('لا توجد حسابات محددة للتوجيه التلقائي!');
+          }
+          finalSenderId = autoIncludedAccounts[currentAutoIndex];
+          messagesSentOnCurrentAuto++;
+          if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
+            messagesSentOnCurrentAuto = 0;
+            currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
+          }
+        }
+
         messagesToSchedule.push({
-          employeeId: senderId,
+          employeeId: finalSenderId,
           phoneNumber: targetNumber,
           fullJid: studentJid,
           message: finalMessage,
@@ -724,6 +770,51 @@ export default function PhotoSender() {
                 </div>
                 {senderId === 'auto' && <CheckCircle size={18} color="var(--brand-primary)" />}
               </div>
+
+              {senderId === 'auto' && (
+                <div className="animate-fade-in-up" style={{ padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--brand-primary)' }}>⚙️ إعدادات التوجيه الذكي:</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>التبديل إلى الحساب التالي بعد إرسال:</span>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      value={autoMessagesPerSwitch} 
+                      onChange={e => setAutoMessagesPerSwitch(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={{ width: '60px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: '#fff', textAlign: 'center' }}
+                      disabled={isRunning}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>رسائل</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '5px' }}>تحديد الحسابات المشاركة في التوجيه:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {employees.filter(e => e.id !== 'emp1').map(emp => {
+                      const isConnected = allStatuses[emp.id]?.isConnected;
+                      if (!isConnected) return null;
+                      const isSelected = autoIncludedAccounts.includes(emp.id);
+                      return (
+                        <label key={emp.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: isSelected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)', padding: '4px 10px', borderRadius: '8px', cursor: isRunning ? 'default' : 'pointer', border: `1px solid ${isSelected ? 'var(--success)' : 'transparent'}`, opacity: isRunning ? 0.7 : 1 }}>
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            disabled={isRunning}
+                            onChange={(e) => {
+                              if (e.target.checked) setAutoIncludedAccounts([...autoIncludedAccounts, emp.id]);
+                              else setAutoIncludedAccounts(autoIncludedAccounts.filter(id => id !== emp.id));
+                            }}
+                            style={{ display: 'none' }}
+                          />
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isSelected ? 'var(--success)' : 'transparent', border: isSelected ? 'none' : '1px solid var(--glass-border)' }}></div>
+                          <span style={{ fontSize: '0.75rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }}>{emp.name}</span>
+                        </label>
+                      );
+                    })}
+                    {Object.values(allStatuses).filter(s => s && s.isConnected).length === 0 && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--danger)' }}>لا يوجد أي حساب متصل حالياً.</span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Individual Account List */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', paddingRight: '5px' }} className="custom-scrollbar">

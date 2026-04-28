@@ -285,11 +285,11 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastUpdate: Date.now(), 
         isConnected: false,
         status: 'qr_ready'
-      });
+      }).catch(e => console.error('[WA] QR RTDB Update Error:', e.message));
       if (onQrGenerated) onQrGenerated(qr); 
     }
     if (connection === 'connecting') {
-      rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false });
+      rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false }).catch(e => console.error('[WA] Connecting RTDB Update Error:', e.message));
     }
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
@@ -298,7 +298,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         isConnected: false, 
         lastUpdate: Date.now(),
         status: shouldReconnect ? 'reconnecting' : 'disconnected'
-      });
+      }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
       if (shouldReconnect) initializeSession(employeeId, onQrGenerated);
       else {
         sessions.delete(employeeId);
@@ -311,8 +311,8 @@ async function initializeSession(employeeId, onQrGenerated) {
         qr: null, 
         lastUpdate: Date.now(),
         status: 'online',
-        phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id 
-      });
+        phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id || null
+      }).catch(e => console.error('[WA] Open RTDB Update Error:', e.message));
     }
   });
 
@@ -370,7 +370,16 @@ async function logout(employeeId) {
 
 function getConnectionStatus(employeeId) {
   const sock = sessions.get(employeeId);
-  const isConnected = !!(sock && (sock.user || sock.authState?.creds?.me));
+  let isConnected = false;
+  if (sock) {
+    isConnected = !!(sock.user || sock.authState?.creds?.me);
+  } else {
+    // If the server restarted, the RAM session is gone, but the creds might still exist.
+    const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+    if (fs.existsSync(path.join(sessionPath, 'creds.json'))) {
+      isConnected = true;
+    }
+  }
   return { isConnected, qr: qrCache.get(employeeId) || null, employeeId };
 }
 
