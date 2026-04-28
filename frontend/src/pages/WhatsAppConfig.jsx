@@ -76,23 +76,36 @@ export default function WhatsAppConfig() {
       setEmployees(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Get All Statuses from RTDB (Real-time overview)
-    const allStatusRef = ref(rtdb, 'wa_status');
-    const unsubStatus = onValue(allStatusRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      setAllStatuses(data);
+    return () => unsubEmp();
+  }, [isAdmin]);
+
+  // Listen to individual statuses to bypass Firebase root-read restrictions
+  useEffect(() => {
+    if (!isAdmin || employees.length === 0) return;
+    
+    const unsubs = employees.map(emp => {
+      const empRef = ref(rtdb, `wa_status/${emp.id}`);
+      return onValue(empRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setAllStatuses(prev => ({ ...prev, [emp.id]: data }));
+        }
+      });
     });
 
-    return () => { unsubEmp(); unsubStatus(); };
-  }, [isAdmin]);
+    return () => {
+      unsubs.forEach(u => u());
+    };
+  }, [employees, isAdmin]);
 
   const fetchAllStatuses = async () => {
     if (!isAdmin) return;
     setLoading(true);
     try {
       const res = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
-      // We don't necessarily need to store this in state if we have RTDB, 
-      // but it helps force a refresh of the internal memory of the backend.
+      const statusMap = {};
+      res.data.forEach(s => { statusMap[s.id] = s; });
+      setAllStatuses(prev => ({ ...prev, ...statusMap }));
       console.log('Backend sync complete');
     } catch (err) {
       console.error('Failed to sync statuses:', err);

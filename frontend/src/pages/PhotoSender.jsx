@@ -34,7 +34,12 @@ export default function PhotoSender() {
       // Background Self-Healing Sync
       const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
       const sync = async () => {
-        try { await axios.get(`${BASE_URL}/api/whatsapp/status-all`); } catch (e) {}
+        try {
+          const res = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
+          const statusMap = {};
+          res.data.forEach(s => { statusMap[s.id] = s; });
+          setAllStatuses(prev => ({ ...prev, ...statusMap }));
+        } catch (e) {}
       };
       sync();
       const interval = setInterval(sync, 30000);
@@ -45,6 +50,28 @@ export default function PhotoSender() {
       };
     }
   }, [isAdmin]);
+
+  // Listen to individual statuses to bypass Firebase root-read restrictions
+  useEffect(() => {
+    const idsToListen = new Set(employees.map(e => e.id));
+    if (goldenKey) idsToListen.add(goldenKey);
+    
+    if (idsToListen.size === 0) return;
+    
+    const unsubs = Array.from(idsToListen).map(id => {
+      const empRef = ref(rtdb, `wa_status/${id}`);
+      return onValue(empRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setAllStatuses(prev => ({ ...prev, [id]: data }));
+        }
+      });
+    });
+
+    return () => {
+      unsubs.forEach(u => u());
+    };
+  }, [employees, goldenKey]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async user => {
@@ -148,7 +175,10 @@ export default function PhotoSender() {
   const fetchAllStatuses = async () => {
     const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
     try {
-      await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
+      const res = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
+      const statusMap = {};
+      res.data.forEach(s => { statusMap[s.id] = s; });
+      setAllStatuses(prev => ({ ...prev, ...statusMap }));
       console.log('Status synchronization complete');
     } catch (err) {
       console.error('Status sync failed:', err);
