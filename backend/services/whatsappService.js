@@ -13,7 +13,7 @@ const admin = require('firebase-admin');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
-const { getRandomBrowser } = require('../utils/antiBan');
+const { getRandomBrowser, getStableBrowser } = require('../utils/antiBan');
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
 async function uploadToStorage(buffer, fileName, mimeType) {
@@ -266,13 +266,13 @@ async function initializeSession(employeeId, onQrGenerated) {
 
   const { version } = await fetchVersionWithTimeout().catch((err) => {
     console.warn(`[BAILEYS] Version fetch failed or timed out (${err.message}). Using fallback version.`);
-    return { version: [2, 3000, 1017531287] };
+    return { version: [2, 2413, 1] };
   });
 
   const sock = makeWASocket({
     version, auth: state, printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: getRandomBrowser(),
+    browser: getStableBrowser(employeeId),
     connectTimeoutMs: 30000,
     generateHighQualityQR: true,
   });

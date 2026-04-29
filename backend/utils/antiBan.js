@@ -4,13 +4,11 @@
  */
 
 const BROWSERS = [
-  ['Ubuntu', 'Chrome', '114.0.5735.199'],
-  ['Windows', 'Chrome', '115.0.0.0'],
-  ['Mac OS', 'Safari', '16.5'],
-  ['Linux', 'Firefox', '114.0'],
-  ['Windows', 'Edge', '114.0.1823.67'],
-  ['Android', 'Chrome', '114.0.5735.196'],
-  ['iPhone', 'Safari', '16.5']
+  ['Windows', 'Chrome', '122.0.6261.129'],
+  ['Mac OS', 'Chrome', '122.0.6261.129'],
+  ['Windows', 'Edge', '122.0.2365.92'],
+  ['Mac OS', 'Safari', '17.3.1'],
+  ['Linux', 'Firefox', '123.0']
 ];
 
 /**
@@ -18,6 +16,14 @@ const BROWSERS = [
  */
 function getRandomBrowser() {
   return BROWSERS[Math.floor(Math.random() * BROWSERS.length)];
+}
+
+/**
+ * Returns a stable browser for a specific ID to ensure consistency
+ */
+function getStableBrowser(id) {
+  const index = Math.abs(id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % BROWSERS.length;
+  return BROWSERS[index];
 }
 
 /**
@@ -189,6 +195,7 @@ function checkFrequency(empId, limit = 100, timeframe = 3600000) {
 
 module.exports = {
   getRandomBrowser,
+  getStableBrowser,
   getTypingDelay,
   parseSpintax,
   addInvisibleJitter,
