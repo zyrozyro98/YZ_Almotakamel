@@ -159,6 +159,25 @@ export default function PhotoSender() {
     }
   }, [allStatuses]);
 
+  const calculateSafetyScore = () => {
+    let score = 0;
+    if (isSafeMode) score += 40;
+    const hasVariables = /\{greeting\}|\{name\}|\{university\}|\{major\}|\{closing\}/.test(messageTemplate);
+    const hasSpintax = /\{[^}]+\|[^}]+\}/.test(messageTemplate);
+    if (hasVariables) score += 20;
+    if (hasSpintax) score += 20;
+    if (messageTemplate.length > 30) score += 10;
+    if (dailyLimit <= 150) score += 10;
+    return score;
+  };
+
+  const getSafetyColor = (score) => {
+    if (score >= 80) return '#10b981'; // Success
+    if (score >= 50) return '#f59e0b'; // Warning
+    return '#ef4444'; // Danger
+  };
+
+
   const handleFolderSelection = (e) => {
     const rawFiles = Array.from(e.target.files || []);
     const validImages = rawFiles.filter(f => f.type.startsWith('image/'));
@@ -1098,8 +1117,30 @@ export default function PhotoSender() {
               value={messageTemplate}
               onChange={(e) => setMessageTemplate(e.target.value)}
               placeholder="اكتب رسالتك هنا..."
-              style={{ lineHeight: 1.6 }}
+              style={{ fontSize: '0.9rem', lineHeight: '1.5' }}
             />
+            
+            <div style={{ 
+                marginTop: '1rem', padding: '1rem', borderRadius: '12px', 
+                background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Shield size={20} color={getSafetyColor(calculateSafetyScore())} />
+                    <div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800 }}>مؤشر أمان الإرسال: {calculateSafetyScore()}%</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                            {calculateSafetyScore() >= 80 ? 'إعداداتك آمنة جداً ومحاكاة ممتازة للبشر.' : 
+                             calculateSafetyScore() >= 50 ? 'إعدادات متوسطة، يفضل إضافة متغيرات {greeting} أو {closing}.' : 
+                             'تحذير: إعداداتك خطيرة وقد تعرض حسابك للحظر السريع!'}
+                        </div>
+                    </div>
+                </div>
+                <div style={{ width: '60px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${calculateSafetyScore()}%`, height: '100%', background: getSafetyColor(calculateSafetyScore()), transition: 'all 0.5s' }}></div>
+                </div>
+            </div>
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '5px' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>المتغيرات المتاحة:</span>
                 {['{name}', '{greeting}', '{university}', '{major}', '{closing}', '{option1|option2}'].map(v => (

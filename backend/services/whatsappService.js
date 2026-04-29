@@ -14,6 +14,8 @@ const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
 const { getRandomBrowser, getStableBrowser } = require('../utils/antiBan');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
 async function uploadToStorage(buffer, fileName, mimeType) {
@@ -257,6 +259,23 @@ async function initializeSession(employeeId, onQrGenerated) {
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
 
+  // 1. Fetch Proxy Configuration from Firestore
+  let agent;
+  try {
+    const empDoc = await db.collection('employees').doc(employeeId).get();
+    if (empDoc.exists) {
+      const data = empDoc.data();
+      if (data.proxy && data.proxy.host) {
+        const { host, port, user, pass, protocol = 'http' } = data.proxy;
+        const proxyUrl = user ? `${protocol}://${user}:${pass}@${host}:${port}` : `${protocol}://${host}:${port}`;
+        agent = new HttpsProxyAgent(proxyUrl);
+        console.log(`[WA] Using proxy for ${employeeId}: ${host}:${port}`);
+      }
+    }
+  } catch (err) {
+    console.error(`[WA] Proxy fetch error for ${employeeId}:`, err.message);
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   // Fetch version with a 5s timeout to prevent hanging
   const fetchVersionWithTimeout = async () => {
@@ -275,6 +294,7 @@ async function initializeSession(employeeId, onQrGenerated) {
     browser: getStableBrowser(employeeId),
     connectTimeoutMs: 30000,
     generateHighQualityQR: true,
+    agent
   });
 
   sessions.set(employeeId, sock);

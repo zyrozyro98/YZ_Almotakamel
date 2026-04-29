@@ -82,27 +82,39 @@ function addInvisibleJitter(text) {
 
 /**
  * Simulates a realistic human typing flow with presence updates
+ * Incorporates "Burst Typing" and "Proofreading Pauses"
  */
 async function simulateHumanTyping(sock, jid, text = '') {
   try {
-    // 1. Initial delay before starting to type (Thinking)
-    await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
+    if (!sock || !jid) return;
+
+    // 1. Initial "Thinking" delay
+    const initialDelay = 800 + Math.random() * 1500;
+    await new Promise(r => setTimeout(r, initialDelay));
     
     // 2. Composing state
     await sock.sendPresenceUpdate('composing', jid);
-    const delay = getTypingDelay(text);
     
-    // Split delay into segments to handle "burst" typing
-    const segments = 3;
-    for (let i = 0; i < segments; i++) {
-        await new Promise(r => setTimeout(r, delay / segments));
-        // Small chance of "pausing" to think during typing
-        if (Math.random() > 0.8) await new Promise(r => setTimeout(r, 1000 + Math.random() * 1500));
+    // 3. Burst Typing simulation
+    const totalDelay = getTypingDelay(text);
+    const words = text.split(' ');
+    const numBursts = Math.max(1, Math.floor(words.length / 5)); // Burst every ~5 words
+    
+    for (let i = 0; i < numBursts; i++) {
+        // Typing burst
+        await new Promise(r => setTimeout(r, (totalDelay * 0.7) / numBursts));
+        
+        // Proofreading / Thinking pause (Randomly)
+        if (Math.random() > 0.7) {
+            await sock.sendPresenceUpdate('paused', jid);
+            await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
+            await sock.sendPresenceUpdate('composing', jid);
+        }
     }
     
-    // 3. Pause state before sending
+    // 4. Final hesitation before hit send
     await sock.sendPresenceUpdate('paused', jid);
-    await new Promise(r => setTimeout(r, 300 + Math.random() * 700));
+    await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
   } catch (e) {
     console.warn('[ANTIBAN] Presence update failed:', e.message);
   }

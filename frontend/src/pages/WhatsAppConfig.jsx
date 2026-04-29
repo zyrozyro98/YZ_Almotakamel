@@ -4,7 +4,9 @@ import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot, query, orderBy, getDoc, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDoc, doc, updateDoc } from 'firebase/firestore';
+import { Globe, Shield, Save } from 'lucide-react';
+
 
 export default function WhatsAppConfig() {
   const [waStatus, setWaStatus] = useState('checking'); // 'checking', 'connected', 'qr_needed', 'error'
@@ -16,6 +18,9 @@ export default function WhatsAppConfig() {
   const [targetEmployeeId, setTargetEmployeeId] = useState(null);
   const [allStatuses, setAllStatuses] = useState([]);
   const [activeTab, setActiveTab] = useState('single'); // 'single', 'dashboard'
+  const [proxy, setProxy] = useState({ host: '', port: '', user: '', pass: '', protocol: 'http' });
+  const [showProxy, setShowProxy] = useState(false);
+
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -65,6 +70,25 @@ export default function WhatsAppConfig() {
 
     return () => unsub();
   }, [employeeId, targetEmployeeId, isAdmin]);
+
+  // Load Proxy Data
+  useEffect(() => {
+    const activeTarget = isAdmin ? targetEmployeeId : employeeId;
+    if (!activeTarget) return;
+
+    const loadProxy = async () => {
+        try {
+            const snap = await getDoc(doc(db, 'employees', activeTarget));
+            if (snap.exists() && snap.data().proxy) {
+                setProxy(snap.data().proxy);
+            } else {
+                setProxy({ host: '', port: '', user: '', pass: '', protocol: 'http' });
+            }
+        } catch (e) {}
+    };
+    loadProxy();
+  }, [targetEmployeeId, employeeId, isAdmin]);
+
 
   // 3. Admin Data: Employees & Global Status
   useEffect(() => {
@@ -145,6 +169,11 @@ export default function WhatsAppConfig() {
     }
   };
 
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCleanup = async () => {
     const activeTarget = isAdmin ? targetEmployeeId : employeeId;
     if (!activeTarget) return;
@@ -159,6 +188,23 @@ export default function WhatsAppConfig() {
       setLoading(false);
     }
   };
+
+  const saveProxy = async () => {
+    const activeTarget = isAdmin ? targetEmployeeId : employeeId;
+    if (!activeTarget) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'employees', activeTarget), {
+        proxy: proxy
+      });
+      alert('تم حفظ إعدادات البروكسي بنجاح لهذه الجلسة.');
+    } catch (err) {
+      alert('فشل حفظ الإعدادات: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   if (!employeeId) {
     return <div style={{ color: '#fff', padding: '100px', textAlign: 'center' }}>جاري التحقق من الهوية...</div>;
@@ -270,6 +316,47 @@ export default function WhatsAppConfig() {
                       <button onClick={() => handleLogout()} disabled={loading} style={{ background: 'transparent', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '12px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontWeight: 700 }}>
                         <LogOut size={18} /> قطع اتصال الجلسة
                       </button>
+                    )}
+                  </div>
+
+                  {/* Proxy Section */}
+                  <div style={{ marginTop: '20px', textAlign: 'right' }}>
+                    <button 
+                        onClick={() => setShowProxy(!showProxy)}
+                        style={{ background: 'none', border: 'none', color: 'var(--brand-primary)', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', margin: '0 0 10px auto' }}
+                    >
+                        <Globe size={14} /> {showProxy ? 'إخفاء إعدادات البروكسي' : 'إعدادات البروكسي (اختياري)'}
+                    </button>
+                    
+                    {showProxy && (
+                        <div className="animate-fade-in-up" style={{ padding: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '15px', border: '1px solid var(--glass-border)', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', color: '#fff', fontSize: '0.9rem', fontWeight: 800 }}>
+                                <Shield size={16} color="var(--brand-primary)" /> حماية الـ IP (Proxy)
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                <div>
+                                    <label className="input-label" style={{ fontSize: '0.7rem' }}>المضيف (Host)</label>
+                                    <input type="text" className="input-base" style={{ fontSize: '0.8rem', padding: '8px' }} value={proxy.host} onChange={e => setProxy({...proxy, host: e.target.value})} placeholder="example.proxy.com" />
+                                </div>
+                                <div>
+                                    <label className="input-label" style={{ fontSize: '0.7rem' }}>المنفذ (Port)</label>
+                                    <input type="text" className="input-base" style={{ fontSize: '0.8rem', padding: '8px' }} value={proxy.port} onChange={e => setProxy({...proxy, port: e.target.value})} placeholder="8080" />
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+                                <div>
+                                    <label className="input-label" style={{ fontSize: '0.7rem' }}>المستخدم (User)</label>
+                                    <input type="text" className="input-base" style={{ fontSize: '0.8rem', padding: '8px' }} value={proxy.user} onChange={e => setProxy({...proxy, user: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="input-label" style={{ fontSize: '0.7rem' }}>كلمة المرور (Pass)</label>
+                                    <input type="password" className="input-base" style={{ fontSize: '0.8rem', padding: '8px' }} value={proxy.pass} onChange={e => setProxy({...proxy, pass: e.target.value})} />
+                                </div>
+                            </div>
+                            <button onClick={saveProxy} disabled={loading} className="btn-primary" style={{ width: '100%', padding: '10px', fontSize: '0.8rem' }}>
+                                <Save size={16} /> حفظ إعدادات البروكسي
+                            </button>
+                        </div>
                     )}
                   </div>
                 </>
