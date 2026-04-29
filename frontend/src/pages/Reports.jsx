@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, 
   QrCode, TrendingUp, BarChart3, Clock, MessageSquare, 
-  CheckCircle, Zap, UserCheck, AlertCircle, RefreshCcw
+  CheckCircle, Zap, UserCheck, AlertCircle, RefreshCcw, Lock
 } from 'lucide-react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -23,6 +23,9 @@ export default function Reports() {
   const [employeeStatuses, setEmployeeStatuses] = useState({});
   const [employees, setEmployees] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+  const [solverSystemLocked, setSolverSystemLocked] = useState(false);
+  const [solverSubmissions, setSolverSubmissions] = useState([]);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -89,6 +92,21 @@ export default function Reports() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch Solver System Status & Submissions
+  useEffect(() => {
+    const unsubLock = onSnapshot(doc(db, 'system_settings', 'global'), (docSnap) => {
+      if (docSnap.exists()) {
+        setSolverSystemLocked(docSnap.data().solverSystemLocked === true);
+      }
+    });
+
+    const unsubSubmissions = onSnapshot(query(collection(db, 'solver_submissions'), orderBy('timestamp', 'desc')), (snapshot) => {
+      setSolverSubmissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubLock(); unsubSubmissions(); };
+  }, []);
+
   // Fetch Real-time Message Stats from RTDB
   useEffect(() => {
     const chatsRef = ref(rtdb, 'chats');
@@ -147,6 +165,24 @@ export default function Reports() {
       alert('حدث خطأ أثناء توليد الباركود. تأكد من تشغيل الباك إند.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleToggleSolverSystem = async () => {
+    try {
+      await updateDoc(doc(db, 'system_settings', 'global'), {
+        solverSystemLocked: !solverSystemLocked
+      });
+    } catch (err) {
+      if (err.code === 'not-found') {
+         const { setDoc } = await import('firebase/firestore');
+         await setDoc(doc(db, 'system_settings', 'global'), {
+           solverSystemLocked: !solverSystemLocked
+         });
+      } else {
+         console.error('Error toggling system:', err);
+         alert('حدث خطأ أثناء تعديل حالة النظام.');
+      }
     }
   };
 
@@ -270,6 +306,30 @@ export default function Reports() {
           </button>
         </div>
 
+        {/* Solver Control Panel */}
+        <div className="glass-panel" style={{ padding: '2rem', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+          <div className="flex items-center gap-4 mb-6">
+            <div style={{ padding: '0.8rem', background: 'rgba(139, 92, 246, 0.1)', borderRadius: '12px', color: '#8b5cf6' }}><Lock size={24} /></div>
+            <div>
+              <h3 style={{ margin: 0 }}>نظام حل الاختبارات</h3>
+              <p style={{ margin: 0, fontSize: '0.85rem' }}>التحكم في وصول حلالي الاختبارات للنظام</p>
+            </div>
+          </div>
+          
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', marginBottom: '1.5rem', border: '1px dashed var(--glass-border)' }}>
+             <p style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+               حالة النظام الحالي: <strong style={{ color: solverSystemLocked ? 'var(--danger)' : 'var(--success)' }}>{solverSystemLocked ? 'مقفل (لا يمكنهم الدخول)' : 'نشط ومفتوح'}</strong>
+             </p>
+             <button 
+                onClick={handleToggleSolverSystem} 
+                className="btn-primary w-full" 
+                style={{ background: solverSystemLocked ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #ef4444, #dc2626)' }}
+             >
+               <Lock size={20} /> {solverSystemLocked ? 'فتح النظام للسماح بالحل' : 'إقفال النظام فوراً'}
+             </button>
+          </div>
+        </div>
+
         {/* WhatsApp QR Panel */}
         <div className="glass-panel" style={{ padding: '2rem', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
           <div className="flex items-center gap-4 mb-6">
@@ -391,6 +451,64 @@ export default function Reports() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Solver Submissions Monitoring */}
+      <div className="glass-panel" style={{ flex: 1, padding: 0, overflow: 'hidden', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+        <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139, 92, 246, 0.05)' }}>
+          <div className="flex items-center gap-3">
+            <CheckCircle size={22} color="#8b5cf6" />
+            <h3 style={{ margin: 0, color: '#8b5cf6' }}>سجل حلول الاختبارات المكتملة</h3>
+          </div>
+          <span className="badge" style={{ background: '#8b5cf6', color: '#fff' }}>{solverSubmissions.length} مهام منجزة</span>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>الطالب</th>
+                <th>الجامعة والتخصص</th>
+                <th>الموظف (الحلال)</th>
+                <th>وقت الإنجاز</th>
+                <th>الإثبات والملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {solverSubmissions.length === 0 ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>لا توجد مهام منجزة حتى الآن.</td>
+                </tr>
+              ) : (
+                solverSubmissions.map(sub => (
+                  <tr key={sub.id}>
+                    <td style={{ fontWeight: 800 }}>{sub.studentName}</td>
+                    <td>
+                      <p style={{ margin: 0 }}>{sub.university}</p>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{sub.major}</p>
+                    </td>
+                    <td>{sub.solverName}</td>
+                    <td style={{ fontSize: '0.85rem' }} dir="ltr">
+                      {sub.timestamp ? new Date(sub.timestamp.seconds * 1000).toLocaleString('ar-SA') : 'N/A'}
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        {sub.proofImage ? (
+                          <a href={sub.proofImage} target="_blank" rel="noopener noreferrer" className="badge badge-success" style={{ cursor: 'pointer', textDecoration: 'none' }}>عرض الصورة</a>
+                        ) : (
+                          <span className="badge badge-warning">بدون صورة</span>
+                        )}
+                        {sub.notes && (
+                          <button className="badge badge-info" style={{ border: 'none', cursor: 'help' }} title={sub.notes}>ملاحظة</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

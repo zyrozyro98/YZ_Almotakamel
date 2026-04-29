@@ -29,6 +29,7 @@ export default function DashboardLayout() {
   const [serverStatus, setServerStatus] = useState('checking'); // 'online', 'offline', 'checking'
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userRole, setUserRole] = useState('employee');
   const [waStatus, setWaStatus] = useState({ isConnected: false });
 
   // Persistent Tabs State: Keeps track of which pages have been visited to keep them mounted
@@ -53,6 +54,7 @@ export default function DashboardLayout() {
           const userDoc = await getDoc(doc(db, 'employees', id));
           if (userDoc.exists()) {
             const data = userDoc.data();
+            setUserRole(data.role || 'employee');
             if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
           }
         } catch (e) {
@@ -63,10 +65,18 @@ export default function DashboardLayout() {
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
+        setUserRole('employee');
       }
     });
     return () => unsubAuth();
   }, []);
+
+  // Enforce solver routing
+  useEffect(() => {
+    if (userRole === 'solver' && location.pathname !== '/solver') {
+      navigate('/solver', { replace: true });
+    }
+  }, [userRole, location.pathname, navigate]);
 
   // 2. Real-time Notifications Listener using Golden Key
   useEffect(() => {
@@ -150,9 +160,14 @@ export default function DashboardLayout() {
     { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true, component: <PhotoSender /> },
     { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true, component: <ScheduledMessages /> },
     { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true, component: <Reports /> },
+    { path: '/solver', label: 'لوحة الحل', icon: <FileText size={20} />, solverOnly: true, component: null }
   ];
 
-  const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
+  const navItems = allNavItems.filter(item => {
+    if (userRole === 'solver') return item.solverOnly;
+    if (item.solverOnly) return false;
+    return !item.adminOnly || isAdmin;
+  });
 
   return (
     <div className="flex" style={{ height: '100vh', overflow: 'hidden' }}>

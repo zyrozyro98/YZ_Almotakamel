@@ -17,7 +17,9 @@ export default function Employees() {
     password: '',
     phone: '',
     role: 'employee',
-    status: 'active'
+    status: 'active',
+    assignedUniversity: '',
+    assignedMajor: ''
   });
 
   const [filters, setFilters] = useState({
@@ -53,7 +55,7 @@ export default function Employees() {
       } else {
         setActiveTab('list');
       }
-      setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active' });
+      setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active', assignedUniversity: '', assignedMajor: '' });
       alert('تمت العملية بنجاح');
     } catch (err) {
       console.error('[SUBMIT ERROR]', err);
@@ -74,7 +76,9 @@ export default function Employees() {
       email: emp.email || '',
       phone: emp.phone || '',
       role: emp.role || 'employee',
-      status: emp.status || 'active'
+      status: emp.status || 'active',
+      assignedUniversity: emp.assignedUniversity || '',
+      assignedMajor: emp.assignedMajor || ''
     });
     setEditingId(emp.id);
     setActiveTab('add');
@@ -101,6 +105,7 @@ export default function Employees() {
     switch(role) {
       case 'admin': return <Shield size={18} className="text-rose-500" />;
       case 'supervisor': return <UserCheck size={18} className="text-amber-500" />;
+      case 'solver': return <Edit size={18} className="text-purple-500" />;
       default: return <UserPlus size={18} className="text-blue-500" />;
     }
   };
@@ -109,6 +114,7 @@ export default function Employees() {
     switch(role) {
       case 'admin': return 'مدير النظام';
       case 'supervisor': return 'مشرف عام';
+      case 'solver': return 'حل اختبارات';
       default: return 'موظف دعم';
     }
   };
@@ -132,7 +138,7 @@ export default function Employees() {
             onClick={() => { 
                 setActiveTab('add'); 
                 setEditingId(null); 
-                setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active' }); 
+                setFormData({ name: '', email: '', password: '', phone: '', role: 'employee', status: 'active', assignedUniversity: '', assignedMajor: '' }); 
             }}
           >
             <UserPlus size={18} /> {editingId ? 'تعديل موظف' : 'إضافة موظف'}
@@ -176,8 +182,22 @@ export default function Employees() {
                 <option value="employee">موظف (Employee)</option>
                 <option value="admin">مدير (Admin)</option>
                 <option value="supervisor">مشرف (Supervisor)</option>
+                <option value="solver">حل اختبارات (Solver)</option>
               </select>
             </div>
+
+            {formData.role === 'solver' && (
+              <>
+                <div className="flex-col gap-2 animate-fade-in-up">
+                  <label className="input-label">الجامعة المخصصة</label>
+                  <input type="text" className="input-base" placeholder="مثال: جامعة الملك عبدالعزيز" value={formData.assignedUniversity} onChange={e => setFormData({...formData, assignedUniversity: e.target.value})} required={formData.role === 'solver'} />
+                </div>
+                <div className="flex-col gap-2 animate-fade-in-up">
+                  <label className="input-label">التخصص المخصص</label>
+                  <input type="text" className="input-base" placeholder="مثال: طب عام" value={formData.assignedMajor} onChange={e => setFormData({...formData, assignedMajor: e.target.value})} required={formData.role === 'solver'} />
+                </div>
+              </>
+            )}
 
             <div className="flex gap-4 justify-end" style={{ gridColumn: 'span 2', marginTop: '1rem' }}>
               <button type="submit" className="btn-primary" disabled={isSubmitting} style={{ padding: '1rem 3rem' }}>

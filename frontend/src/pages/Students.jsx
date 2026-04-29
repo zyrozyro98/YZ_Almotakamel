@@ -42,7 +42,8 @@ export default function Students() {
     batch: '',
     idNumber: '',
     group: '',
-    notes: ''
+    notes: '',
+    platformUrl: ''
   });
 
   const [filters, setFilters] = useState({
@@ -93,7 +94,8 @@ export default function Students() {
       major: student.major || '',
       batch: student.batch || '',
       idNumber: student.idNumber || '',
-      notes: student.notes || ''
+      notes: student.notes || '',
+      platformUrl: student.platformUrl || ''
     });
     setEditingId(student.id);
     setActiveTab('add');
@@ -128,7 +130,7 @@ export default function Students() {
           });
           setActiveTab('list');
         }
-        setFormData({ name: '', phone: '', username: '', password: '', university: '', major: '', notes: '' });
+        setFormData({ name: '', phone: '', username: '', password: '', university: '', major: '', notes: '', platformUrl: '' });
       } catch (err) {
         console.error(err);
       } finally {
@@ -253,6 +255,11 @@ export default function Students() {
                 <input type="password" className="input-base" style={{ paddingRight: '2.8rem' }} placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
               </div>
               {errors.password && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', fontWeight: 600 }}>{errors.password}</p>}
+            </div>
+
+            <div className="flex-col gap-2" style={{ gridColumn: 'span 2' }}>
+              <label className="input-label">رابط المنصة التعليمية</label>
+              <input type="url" className="input-base" dir="ltr" placeholder="https://lms.university.edu" value={formData.platformUrl || ''} onChange={e => setFormData({...formData, platformUrl: e.target.value})} />
             </div>
 
             <div className="flex-col gap-2">
