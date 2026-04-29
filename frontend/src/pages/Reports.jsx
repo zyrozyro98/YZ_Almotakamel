@@ -26,7 +26,6 @@ export default function Reports() {
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [solverSystemLocked, setSolverSystemLocked] = useState(false);
   const [solverSubmissions, setSolverSubmissions] = useState([]);
-  const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalOrders: 0,
