@@ -1,10 +1,10 @@
-const { 
-  default: makeWASocket, 
-  useMultiFileAuthState, 
-  DisconnectReason, 
-  Browsers, 
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  Browsers,
   fetchLatestBaileysVersion,
-  downloadMediaMessage 
+  downloadMediaMessage
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
@@ -20,7 +20,7 @@ async function uploadToStorage(buffer, fileName, mimeType) {
   try {
     const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
     const uploadPath = path.join(SESSIONS_PATH, 'uploads', safeName);
-    
+
     let finalBuffer = buffer;
 
     // 1. Image Compression (Optimization)
@@ -35,9 +35,9 @@ async function uploadToStorage(buffer, fileName, mimeType) {
         console.warn("[WA] Sharp compression failed, saving original.");
       }
     }
-    
+
     fs.writeFileSync(uploadPath, finalBuffer);
-    
+
     // Dynamic URL generation (Points to Render backend)
     const baseUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';
     return `${baseUrl}/uploads/${safeName}`;
@@ -48,205 +48,205 @@ async function uploadToStorage(buffer, fileName, mimeType) {
 }
 
 const sessions = new Map();
-const qrCache = new Map(); 
+const qrCache = new Map();
 const SESSIONS_PATH = process.env.WA_SESSION_PATH || path.join(__dirname, '..', 'sessions');
 
 // Global set to track processed message IDs to prevent double notifications/saves
 const processedMessageIds = new Set();
 setInterval(() => {
   if (processedMessageIds.size > 5000) processedMessageIds.clear();
-}, 300000); 
+}, 300000);
 
 const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
-    if (type !== 'notify') return; 
+  if (type !== 'notify') return;
 
-    for (const msg of messages) {
-      if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
-      
-      const msgId = msg.key.id;
-      if (processedMessageIds.has(msgId)) continue;
-      processedMessageIds.add(msgId);
-      
-      const remoteJid = msg.key.remoteJid;
-      const jidUser = remoteJid.split('@')[0].split(':')[0];
-      const jidDomain = remoteJid.split('@')[1];
-      const normalizedJid = `${jidUser}@${jidDomain}`;
-      const isMe = msg.key.fromMe;
-      
-      // Better Name Resolution for Groups/Channels
-      let pushName = msg.pushName || 'مستخدم واتساب';
-      if (jidDomain === 'g.us') pushName = `مجموعة: ${pushName}`;
-      if (jidDomain === 'newsletter') pushName = `قناة: ${pushName}`;
+  for (const msg of messages) {
+    if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
 
-      // If it's a group and we have participant info, try to use it
-      const participant = msg.key.participant || remoteJid;
-      const participantName = msg.pushName || 'مجهول';
+    const msgId = msg.key.id;
+    if (processedMessageIds.has(msgId)) continue;
+    processedMessageIds.add(msgId);
 
-      
-      let textMsg = "";
-      let mediaType = "text";
-      let mediaData = null;
+    const remoteJid = msg.key.remoteJid;
+    const jidUser = remoteJid.split('@')[0].split(':')[0];
+    const jidDomain = remoteJid.split('@')[1];
+    const normalizedJid = `${jidUser}@${jidDomain}`;
+    const isMe = msg.key.fromMe;
 
-      if (msg.message.conversation) textMsg = msg.message.conversation;
-      else if (msg.message.extendedTextMessage) textMsg = msg.message.extendedTextMessage.text;
-      else if (msg.message.imageMessage) { 
-        textMsg = msg.message.imageMessage.caption || "📷 صورة"; 
-        mediaType = "image"; 
-      }
-      else if (msg.message.videoMessage) { 
-        textMsg = msg.message.videoMessage.caption || "🎥 فيديو"; 
-        mediaType = "video"; 
-      }
-      else if (msg.message.audioMessage) {
-        textMsg = "🎤 رسالة صوتية";
-        mediaType = "audio";
-      }
-      else if (msg.message.documentMessage) { 
-        textMsg = msg.message.documentMessage.fileName || "📎 ملف"; 
-        mediaType = "document"; 
-      }
+    // Better Name Resolution for Groups/Channels
+    let pushName = msg.pushName || 'مستخدم واتساب';
+    if (jidDomain === 'g.us') pushName = `مجموعة: ${pushName}`;
+    if (jidDomain === 'newsletter') pushName = `قناة: ${pushName}`;
 
-      if (mediaType !== "text") {
-        try {
-          const buffer = await downloadMediaMessage(msg, 'buffer', {});
-          const mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
-          const fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
-          mediaData = await uploadToStorage(buffer, fileName, mime);
-          console.log(`[WA] Media uploaded: ${mediaData}`);
-        } catch (err) { console.error("[WA] Media error:", err.message); }
-      }
+    // If it's a group and we have participant info, try to use it
+    const participant = msg.key.participant || remoteJid;
+    const participantName = msg.pushName || 'مجهول';
 
-      if (!textMsg && !mediaData) continue;
 
-      // --- UNIFIED JID SYSTEM ---
-      // We use the JID identifier (Phone number for standard chats) as the master key
-      let chatId = getPureNumber(jidUser); 
-      
-      try {
-        // 1. Resolve Identity: If it's a technical identifier (LID), try to find its JID mapping
-        const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-        
-        if (isTechnicalId) {
-            const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
-            if (jidMappingSnap.exists()) {
-                chatId = getPureNumber(jidMappingSnap.val());
-                console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
-            } else {
-                // Live JID Discovery
-                try {
-                  const results = await sock.onWhatsApp(normalizedJid);
-                  if (results && results.length > 0 && results[0].exists) {
-                    const resolvedJid = results[0].jid;
-                    if (resolvedJid.includes('@s.whatsapp.net')) {
-                       chatId = getPureNumber(resolvedJid);
-                       // Cache the mapping to maintain unified JID history
-                       await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(()=>{});
-                    }
-                  }
-                } catch (e) {}
-            }
-        }
+    let textMsg = "";
+    let mediaType = "text";
+    let mediaData = null;
 
-        // 2. Cross-reference with Students Database (Firestore)
-        // Check by JID record first
-        const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-        if (!studentJidMatch.empty) {
-          const s = studentJidMatch.docs[0].data();
-          if (s.phone) chatId = getPureNumber(s.phone);
-        } else {
-          // If match by phone exists, link this JID to the student
-          const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
-          if (!studentPhoneMatch.empty) {
-            await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => {});
-          }
-        }
-      } catch (err) { console.error("[WA] JID System Error:", err.message); }
-
-      // Handle Quoted Messages
-      let quotedInfo = null;
-      const contextInfo = msg.message?.extendedTextMessage?.contextInfo || 
-                          msg.message?.imageMessage?.contextInfo || 
-                          msg.message?.videoMessage?.contextInfo || 
-                          msg.message?.documentMessage?.contextInfo || 
-                          msg.message?.audioMessage?.contextInfo;
-
-      if (contextInfo && contextInfo.stanzaId) {
-        let quotedText = "رسالة سابقة";
-        if (contextInfo.quotedMessage) {
-           const qm = contextInfo.quotedMessage;
-           quotedText = qm.conversation || qm.extendedTextMessage?.text || "مرفق";
-        }
-        quotedInfo = {
-          id: contextInfo.stanzaId,
-          participant: contextInfo.participant,
-          text: quotedText
-        };
-      }
-
-      const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
-      const msgData = {
-        id: msgId,
-        text: textMsg,
-        type: mediaType,
-        mediaData: mediaData,
-        time: Date.now(),
-        sender: isMe ? 'me' : 'them',
-        quoted: quotedInfo
-      };
-
-      // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
-      let finalName = pushName;
-      if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
-        try {
-          // Check cache first
-          const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
-          if (cacheSnap.exists()) {
-            finalName = cacheSnap.val();
-          } else {
-            // Live fetch from WhatsApp
-            if (jidDomain === 'g.us') {
-              const meta = await sock.groupMetadata(remoteJid);
-              finalName = meta.subject || finalName;
-            } else if (jidDomain === 'newsletter') {
-              const meta = await sock.newsletterMetadata("jid", remoteJid);
-              finalName = meta.name || finalName;
-            }
-            // Save to cache
-            await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(()=>{});
-          }
-        } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
-      }
-
-      await chatRef.child('messages').child(msgId).update(msgData);
-      await chatRef.update({
-        lastMessage: textMsg,
-        timestamp: Date.now(),
-        phone: chatId,
-        fullJid: normalizedJid,
-        name: finalName,
-        lastSender: isMe ? 'me' : 'them'
-      });
-
-      if (!isMe) {
-        const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
-        await notifRef.set({ 
-          title: `رسالة جديدة في ${finalName}`, 
-          body: `${pushName}: ${textMsg.substring(0, 50)}`, 
-          time: Date.now(), 
-          read: false, 
-          type: 'chat', 
-          chatId: chatId, 
-          fullJid: normalizedJid 
-        });
-      }
+    if (msg.message.conversation) textMsg = msg.message.conversation;
+    else if (msg.message.extendedTextMessage) textMsg = msg.message.extendedTextMessage.text;
+    else if (msg.message.imageMessage) {
+      textMsg = msg.message.imageMessage.caption || "📷 صورة";
+      mediaType = "image";
     }
+    else if (msg.message.videoMessage) {
+      textMsg = msg.message.videoMessage.caption || "🎥 فيديو";
+      mediaType = "video";
+    }
+    else if (msg.message.audioMessage) {
+      textMsg = "🎤 رسالة صوتية";
+      mediaType = "audio";
+    }
+    else if (msg.message.documentMessage) {
+      textMsg = msg.message.documentMessage.fileName || "📎 ملف";
+      mediaType = "document";
+    }
+
+    if (mediaType !== "text") {
+      try {
+        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        const mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
+        const fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+        mediaData = await uploadToStorage(buffer, fileName, mime);
+        console.log(`[WA] Media uploaded: ${mediaData}`);
+      } catch (err) { console.error("[WA] Media error:", err.message); }
+    }
+
+    if (!textMsg && !mediaData) continue;
+
+    // --- UNIFIED JID SYSTEM ---
+    // We use the JID identifier (Phone number for standard chats) as the master key
+    let chatId = getPureNumber(jidUser);
+
+    try {
+      // 1. Resolve Identity: If it's a technical identifier (LID), try to find its JID mapping
+      const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+
+      if (isTechnicalId) {
+        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+        if (jidMappingSnap.exists()) {
+          chatId = getPureNumber(jidMappingSnap.val());
+          console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
+        } else {
+          // Live JID Discovery
+          try {
+            const results = await sock.onWhatsApp(normalizedJid);
+            if (results && results.length > 0 && results[0].exists) {
+              const resolvedJid = results[0].jid;
+              if (resolvedJid.includes('@s.whatsapp.net')) {
+                chatId = getPureNumber(resolvedJid);
+                // Cache the mapping to maintain unified JID history
+                await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+              }
+            }
+          } catch (e) { }
+        }
+      }
+
+      // 2. Cross-reference with Students Database (Firestore)
+      // Check by JID record first
+      const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+      if (!studentJidMatch.empty) {
+        const s = studentJidMatch.docs[0].data();
+        if (s.phone) chatId = getPureNumber(s.phone);
+      } else {
+        // If match by phone exists, link this JID to the student
+        const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
+        if (!studentPhoneMatch.empty) {
+          await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+        }
+      }
+    } catch (err) { console.error("[WA] JID System Error:", err.message); }
+
+    // Handle Quoted Messages
+    let quotedInfo = null;
+    const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
+      msg.message?.imageMessage?.contextInfo ||
+      msg.message?.videoMessage?.contextInfo ||
+      msg.message?.documentMessage?.contextInfo ||
+      msg.message?.audioMessage?.contextInfo;
+
+    if (contextInfo && contextInfo.stanzaId) {
+      let quotedText = "رسالة سابقة";
+      if (contextInfo.quotedMessage) {
+        const qm = contextInfo.quotedMessage;
+        quotedText = qm.conversation || qm.extendedTextMessage?.text || "مرفق";
+      }
+      quotedInfo = {
+        id: contextInfo.stanzaId,
+        participant: contextInfo.participant,
+        text: quotedText
+      };
+    }
+
+    const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
+    const msgData = {
+      id: msgId,
+      text: textMsg,
+      type: mediaType,
+      mediaData: mediaData,
+      time: Date.now(),
+      sender: isMe ? 'me' : 'them',
+      quoted: quotedInfo
+    };
+
+    // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
+    let finalName = pushName;
+    if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
+      try {
+        // Check cache first
+        const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
+        if (cacheSnap.exists()) {
+          finalName = cacheSnap.val();
+        } else {
+          // Live fetch from WhatsApp
+          if (jidDomain === 'g.us') {
+            const meta = await sock.groupMetadata(remoteJid);
+            finalName = meta.subject || finalName;
+          } else if (jidDomain === 'newsletter') {
+            const meta = await sock.newsletterMetadata("jid", remoteJid);
+            finalName = meta.name || finalName;
+          }
+          // Save to cache
+          await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(() => { });
+        }
+      } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
+    }
+
+    await chatRef.child('messages').child(msgId).update(msgData);
+    await chatRef.update({
+      lastMessage: textMsg,
+      timestamp: Date.now(),
+      phone: chatId,
+      fullJid: normalizedJid,
+      name: finalName,
+      lastSender: isMe ? 'me' : 'them'
+    });
+
+    if (!isMe) {
+      const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
+      await notifRef.set({
+        title: `رسالة جديدة في ${finalName}`,
+        body: `${pushName}: ${textMsg.substring(0, 50)}`,
+        time: Date.now(),
+        read: false,
+        type: 'chat',
+        chatId: chatId,
+        fullJid: normalizedJid
+      });
+    }
+  }
 };
 
 async function initializeSession(employeeId, onQrGenerated) {
   if (sessions.has(employeeId)) {
     const existingSock = sessions.get(employeeId);
     if (existingSock.user) return existingSock;
-    try { existingSock.ws.close(); } catch(e) {}
+    try { existingSock.ws.close(); } catch (e) { }
     sessions.delete(employeeId);
   }
 
@@ -270,7 +270,7 @@ async function initializeSession(employeeId, onQrGenerated) {
     logger: pino({ level: 'silent' }),
     browser: getRandomBrowser(),
     connectTimeoutMs: 30000,
-    generateHighQualityQR: true, 
+    generateHighQualityQR: true,
   });
 
   sessions.set(employeeId, sock);
@@ -280,13 +280,13 @@ async function initializeSession(employeeId, onQrGenerated) {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
       qrCache.set(employeeId, qr);
-      rtdb.ref(`wa_status/${employeeId}`).update({ 
-        qr, 
-        lastUpdate: Date.now(), 
+      rtdb.ref(`wa_status/${employeeId}`).update({
+        qr,
+        lastUpdate: Date.now(),
         isConnected: false,
         status: 'qr_ready'
       }).catch(e => console.error('[WA] QR RTDB Update Error:', e.message));
-      if (onQrGenerated) onQrGenerated(qr); 
+      if (onQrGenerated) onQrGenerated(qr);
     }
     if (connection === 'connecting') {
       rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false }).catch(e => console.error('[WA] Connecting RTDB Update Error:', e.message));
@@ -294,8 +294,8 @@ async function initializeSession(employeeId, onQrGenerated) {
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      rtdb.ref(`wa_status/${employeeId}`).update({ 
-        isConnected: false, 
+      rtdb.ref(`wa_status/${employeeId}`).update({
+        isConnected: false,
         lastUpdate: Date.now(),
         status: shouldReconnect ? 'reconnecting' : 'disconnected'
       }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
@@ -306,9 +306,9 @@ async function initializeSession(employeeId, onQrGenerated) {
       }
     } else if (connection === 'open') {
       qrCache.delete(employeeId);
-      rtdb.ref(`wa_status/${employeeId}`).update({ 
-        isConnected: true, 
-        qr: null, 
+      rtdb.ref(`wa_status/${employeeId}`).update({
+        isConnected: true,
+        qr: null,
         lastUpdate: Date.now(),
         status: 'online',
         phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id || null
@@ -322,7 +322,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         const jidKey = contact.lidJid.split('@')[0].split(':')[0];
         const phoneJid = contact.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(()=>{});
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
         }
       }
     }
@@ -334,7 +334,7 @@ async function initializeSession(employeeId, onQrGenerated) {
         const jidKey = update.lidJid.split('@')[0].split(':')[0];
         const phoneJid = update.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(()=>{});
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
         }
       }
     }
@@ -352,13 +352,13 @@ function getSession(employeeId) {
 
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
-  if (sock) { 
-    try { 
+  if (sock) {
+    try {
       sock.ev.removeAllListeners();
-      await sock.logout().catch(() => {}); 
+      await sock.logout().catch(() => { });
       sock.ws.close();
-    } catch (e) {} 
-    sessions.delete(employeeId); 
+    } catch (e) { }
+    sessions.delete(employeeId);
   }
   qrCache.delete(employeeId);
   await rtdb.ref(`wa_status/${employeeId}`).set({ isConnected: false, qr: null, lastUpdate: Date.now(), status: 'logged_out' });

@@ -1,7 +1,7 @@
 const { db, rtdb } = require('../firebaseAdmin');
 const whatsappService = require('./whatsappService');
 const { getPureNumber } = require('../utils/numberUtils');
-const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter } = require('../utils/antiBan');
+const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage } = require('../utils/antiBan');
 
 class ScheduleService {
   constructor() {
@@ -71,22 +71,28 @@ class ScheduleService {
       let activeEmpId = employeeId;
       let sock = null;
 
-      try {
-        sock = whatsappService.getSession(activeEmpId);
-      } catch (e) {
-        // Fallback to auto-routing if the assigned employee is offline
-        console.log(`[SCHEDULE] Assigned employee ${activeEmpId} offline, attempting auto-routing...`);
+      const isValidSession = (id) => {
+        try {
+          const s = whatsappService.getSession(id);
+          return s && s.user && whatsappService.isSessionActive(id);
+        } catch (e) { return false; }
+      };
+
+      if (activeEmpId === 'auto' || !isValidSession(activeEmpId)) {
+        console.log(`[SCHEDULE] Assigned employee ${activeEmpId} unavailable, attempting auto-routing...`);
         const waStatusSnap = await rtdb.ref('wa_status').once('value');
         if (waStatusSnap.exists()) {
           const statuses = waStatusSnap.val();
           for (const key in statuses) {
-            if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
+            if (statuses[key].isConnected && key !== 'emp1' && isValidSession(key)) {
               activeEmpId = key;
               sock = whatsappService.getSession(activeEmpId);
               break;
             }
           }
         }
+      } else {
+        sock = whatsappService.getSession(activeEmpId);
       }
 
       if (!sock || !sock.user) {
@@ -117,8 +123,8 @@ class ScheduleService {
       await simulateHumanTyping(sock, targetJid, finalMessage);
 
       let result;
-      if (type === 'image' && base64Image) {
-        const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+        let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+        buffer = await randomizeImage(buffer);
         result = await sock.sendMessage(targetJid, { image: buffer, caption: finalMessage || "" });
       } else {
         result = await sock.sendMessage(targetJid, { text: finalMessage });

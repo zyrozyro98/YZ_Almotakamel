@@ -127,6 +127,10 @@ export default function PhotoSender() {
   const [autoIncludedAccounts, setAutoIncludedAccounts] = useState([]);
   const [autoMessagesPerSwitch, setAutoMessagesPerSwitch] = useState(5);
   
+  const [isSafeMode, setIsSafeMode] = useState(true);
+  const [dailyLimit, setDailyLimit] = useState(150);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+
   // Derived state for auto routing
   const activeAutoStatus = {
     isConnected: Object.values(allStatuses).some(s => s && s.isConnected),
@@ -413,60 +417,113 @@ export default function PhotoSender() {
           const studentJid = student?.fullJid || '';
 
           let finalSenderId = senderId;
+          
+          // --- SMART AUTO-ROUTING LOGIC ---
+          const findActiveAutoSender = () => {
+            if (autoIncludedAccounts.length === 0) return null;
+            
+            // Try to find a connected account starting from currentAutoIndex
+            for (let i = 0; i < autoIncludedAccounts.length; i++) {
+              const idx = (currentAutoIndex + i) % autoIncludedAccounts.length;
+              const id = autoIncludedAccounts[idx];
+              if (allStatuses[id]?.isConnected) {
+                if (idx !== currentAutoIndex) {
+                   // Account changed because original was offline
+                   currentAutoIndex = idx;
+                   messagesSentOnCurrentAuto = 0;
+                }
+                return id;
+              }
+            }
+            return null;
+          };
+
           if (senderId === 'auto') {
-            if (autoIncludedAccounts.length === 0) {
-              alert('لا توجد حسابات محددة للتوجيه التلقائي! تم إيقاف العملية.');
+            finalSenderId = findActiveAutoSender();
+            if (!finalSenderId) {
+              alert('⚠️ جميع الحسابات المحددة للتوجيه التلقائي غير متصلة! تم إيقاف العملية.');
               setIsRunning(false);
               setIsPaused(false);
               return;
             }
-            finalSenderId = autoIncludedAccounts[currentAutoIndex];
-          }
-
-          if (b64) {
-             await axios.post(`${BASE_URL}/api/whatsapp/send-image`, {
-               employeeId: finalSenderId,
-               phoneNumber: targetNumber,
-               fullJid: studentJid,
-               base64Image: b64,
-               caption: finalMessage,
-               senderName: auth.currentUser?.displayName || 'المرسل القوي',
-               senderId: auth.currentUser?.uid || 'system'
-             });
-          } else if (finalMessage) {
-             await axios.post(`${BASE_URL}/api/whatsapp/send`, {
-               employeeId: finalSenderId,
-               phoneNumber: targetNumber,
-               fullJid: studentJid,
-               message: finalMessage,
-               senderName: auth.currentUser?.displayName || 'المرسل القوي',
-               senderId: auth.currentUser?.uid || 'system'
-             });
-          }
-          
-          if (senderId === 'auto') {
-            messagesSentOnCurrentAuto++;
-            if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
-              messagesSentOnCurrentAuto = 0;
-              currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
+          } else {
+            // Manual selection: check if still connected
+            if (!allStatuses[finalSenderId]?.isConnected) {
+              const errorMsg = `الحساب المختار (${finalSenderId}) غير متصل حالياً.`;
+              setLogs(prev => [{ type: 'error', num: targetNumber, msg: errorMsg, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+              setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
+              current++;
+              setCurrentIndex(current);
+              continue; // Skip this message or wait for manual intervention? Skipping for now.
             }
           }
-          
-          setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال المحتوى بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          setStats(prev => ({ ...prev, sent: prev.sent + 1, pending: prev.pending - 1 }));
-        } catch (err) {
-          console.error(err);
-          const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
-          setLogs(prev => [{ type: 'error', num: targetNumber, msg: `فشل الإرسال (${errorMsg})`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
+
+          try {
+            const sendData = {
+              employeeId: finalSenderId,
+              phoneNumber: targetNumber,
+              fullJid: studentJid,
+              senderName: auth.currentUser?.displayName || 'المرسل القوي',
+              senderId: auth.currentUser?.uid || 'system'
+            };
+
+            if (b64) {
+              sendData.base64Image = b64;
+              sendData.caption = finalMessage;
+              await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
+            } else {
+              sendData.message = finalMessage;
+              await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
+            }
+            
+            if (senderId === 'auto') {
+              messagesSentOnCurrentAuto++;
+              if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
+                messagesSentOnCurrentAuto = 0;
+                currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
+              }
+            }
+            
+            setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال المحتوى بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+            setStats(prev => ({ ...prev, sent: prev.sent + 1, pending: prev.pending - 1 }));
+            setConsecutiveFailures(0); // Reset failures on success
+          } catch (err) {
+            console.error(err);
+            const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
+            
+            // Detect if the error is due to session disconnection/block
+            const isConnectionError = errorMsg.includes('غير متصلة') || errorMsg.includes('not init') || errorMsg.includes('logged out') || err.response?.status === 401;
+            
+            if (isConnectionError && senderId === 'auto') {
+              setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب ${finalSenderId} (قد يكون محظوراً أو مفصولاً). محاولة التبديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+              
+              // Increment index to skip this failed account for the next attempt
+              currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
+              messagesSentOnCurrentAuto = 0;
+              
+              // We don't increment 'current' here, so the same message will be retried with the next account in the next iteration
+              continue; 
+            }
+
+            setLogs(prev => [{ type: 'error', num: targetNumber, msg: `فشل الإرسال (${errorMsg})`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+            setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
+            
+            const newFailures = consecutiveFailures + 1;
+            setConsecutiveFailures(newFailures);
+            
+            if (newFailures >= 5) {
+              alert('⚠️ تم رصد 5 حالات فشل متتالية! تم إيقاف الإرسال تلقائياً لحماية حساباتك من الحظر.');
+              setIsRunning(false);
+              setIsPaused(false);
+              return;
+            }
+          }
         }
-      }
 
       current++;
       setCurrentIndex(current);
 
-      // --- ADVANCED HUMAN EMULATION (Anti-Ban) ---
-      if (current < activeQueue.length && isRunningRef.current && !isPausedRef.current) {
+        // --- PROFESSIONAL ANTI-BAN DELAYS ---
         // 1. Box-Muller transform for Gaussian Distribution
         const gaussianRandom = () => {
           let uOffset = 0, vOffset = 0;
@@ -475,20 +532,26 @@ export default function PhotoSender() {
           return Math.sqrt(-2.0 * Math.log(uOffset)) * Math.cos(2.0 * Math.PI * vOffset);
         };
 
-        // Base Delay: Mean 5s, Std Dev 2.5s (Minimum 3s to be safe)
-        let delay = Math.max(3000, (5000 + gaussianRandom() * 2500));
+        // Delay Strategy:
+        // Safe Mode: Mean 25s, Std Dev 10s (Range ~15s to 45s)
+        // Standard Mode: Mean 8s, Std Dev 4s (Range ~4s to 15s)
+        const mean = isSafeMode ? 25000 : 8000;
+        const stdDev = isSafeMode ? 10000 : 4000;
+        let delay = Math.max(isSafeMode ? 15000 : 4000, (mean + gaussianRandom() * stdDev));
 
         // 2. Irregular "Activity Cycles"
-        // Every 10 messages, simulate a "Human Rest" period (15-45 seconds)
-        if (current % 10 === 0 && current % 50 !== 0) {
-          const restPeriod = 15000 + (Math.random() * 30000);
-          setLogs(prev => [{ type: 'info', num: 'System', msg: `محاكاة استراحة بشرية لمدة ${Math.round(restPeriod/1000)} ثانية...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+        // Every 5-12 messages (randomized), simulate a "Human Rest" period (30-90 seconds)
+        const cycleLength = 5 + Math.floor(Math.random() * 8);
+        if (current % cycleLength === 0 && current % 50 !== 0) {
+          const restPeriod = 30000 + (Math.random() * 60000);
+          setLogs(prev => [{ type: 'info', num: 'System', msg: `☕ محاكاة استراحة بشرية لمدة ${Math.round(restPeriod/1000)} ثانية...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
           await new Promise(r => setTimeout(r, restPeriod));
         } else if (current % 50 === 0) {
-          // BATCH REST: Every 50 messages, take a long break (5-8 minutes)
-          const longRest = 300000 + (Math.random() * 180000);
+          // BATCH REST: Every 50 messages, take a long break (10-15 minutes in Safe Mode)
+          const longRestMean = isSafeMode ? 600000 : 300000;
+          const longRest = longRestMean + (Math.random() * 300000);
           const minutes = Math.round(longRest / 60000);
-          setLogs(prev => [{ type: 'info', num: 'System', msg: `إيقاف مؤقت طويل (باتش) لتجنب الحظر: ${minutes} دقائق...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+          setLogs(prev => [{ type: 'info', num: 'System', msg: `🛑 إيقاف مؤقت طويل لتجنب الحظر: ${minutes} دقائق...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
           await new Promise(r => setTimeout(r, longRest));
         } else {
           await new Promise(r => setTimeout(r, delay));
@@ -1012,8 +1075,48 @@ export default function PhotoSender() {
                     </code>
                 ))}
             </div>
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
-              سيتم استبدال المتغيرات تلقائياً ببيانات الطالب المقابل لكل رقم هاتف.
+          </div>
+
+          {/* Anti-Ban Protection Suite */}
+          <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '15px', border: '1px solid rgba(59, 130, 246, 0.2)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Zap size={18} color="var(--brand-primary)" />
+                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>نظام الحماية من الحظر (Anti-Ban)</span>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600, color: isSafeMode ? 'var(--brand-primary)' : 'var(--text-secondary)' }}>
+                  {isSafeMode ? 'وضع الحماية القصوى نشط' : 'الوضع العادي'}
+                </span>
+                <input 
+                  type="checkbox" 
+                  checked={isSafeMode} 
+                  onChange={(e) => setIsSafeMode(e.target.checked)}
+                  style={{ width: '16px', height: '16px' }}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+               <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '10px' }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>الحد اليومي لكل حساب</div>
+                  <input 
+                    type="number" 
+                    value={dailyLimit} 
+                    onChange={e => setDailyLimit(e.target.value)}
+                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1rem', fontWeight: 700, width: '100%' }}
+                  />
+               </div>
+               <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '10px' }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>متوسط التأخير (ثانية)</div>
+                  <div style={{ color: 'var(--brand-secondary)', fontSize: '1rem', fontWeight: 700 }}>{isSafeMode ? '25 - 45' : '8 - 15'}</div>
+               </div>
+            </div>
+
+            <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+              * يتم الآن تعديل بيانات الصور (Binary Jitter) برمجياً عند كل إرسال لتبدو كصور فريدة تماماً.
+              <br/>
+              * محاكاة "يكتب الآن..." مفعلة تلقائياً.
             </p>
           </div>
 

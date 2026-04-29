@@ -89,11 +89,48 @@ async function verifyJid(sock, jid) {
   }
 }
 
+/**
+ * Randomizes an image buffer slightly to ensure a unique binary hash (MD5/SHA)
+ * This is crucial for avoiding bans when sending the same image to many people.
+ * @param {Buffer} buffer 
+ * @returns {Promise<Buffer>}
+ */
+async function randomizeImage(buffer) {
+  try {
+    const sharp = require('sharp');
+    // Apply a tiny, invisible change: 
+    // 1. Random quality between 75-80
+    // 2. Add 1px of padding or slight crop
+    const quality = 75 + Math.floor(Math.random() * 6);
+    
+    // We alternate between adding a 1px border or doing nothing
+    const shouldAddBorder = Math.random() > 0.5;
+    
+    let pipeline = sharp(buffer);
+    
+    if (shouldAddBorder) {
+      pipeline = pipeline.extend({
+        top: 0, bottom: 1, left: 0, right: 0,
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      });
+    }
+
+    return await pipeline
+      .jpeg({ quality, force: false })
+      .png({ quality: quality + 10, force: false })
+      .toBuffer();
+  } catch (e) {
+    console.warn('[ANTIBAN] Image randomization failed, using original:', e.message);
+    return buffer;
+  }
+}
+
 module.exports = {
   getRandomBrowser,
   getTypingDelay,
   parseSpintax,
   addInvisibleJitter,
   simulateHumanTyping,
-  verifyJid
+  verifyJid,
+  randomizeImage
 };

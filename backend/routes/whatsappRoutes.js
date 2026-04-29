@@ -3,7 +3,7 @@ const router = express.Router();
 const whatsappService = require('../services/whatsappService');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
-const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter } = require('../utils/antiBan');
+const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage } = require('../utils/antiBan');
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -281,7 +281,10 @@ router.post('/send-image', async (req, res) => {
     if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
 
     let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
-    const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    
+    // Apply Binary Jitter (Anti-Ban)
+    buffer = await randomizeImage(buffer);
 
     // 1. Verify JID (Safety check)
     const exists = await verifyJid(sock, targetJid);
