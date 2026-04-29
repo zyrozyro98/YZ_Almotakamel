@@ -384,9 +384,9 @@ export default function PhotoSender() {
     while (current < activeQueue.length) {
       if (!isRunningRef.current || isPausedRef.current) return;
 
-      const item = activeQueue[current];
       let targetNumber = '';
       let fileToUpload = null;
+      let triedAccountsForThisMessage = new Set(); // Reset for each message
 
       if (mode === 'folder') {
         targetNumber = getPureNumber(item.name);
@@ -425,7 +425,7 @@ export default function PhotoSender() {
             for (let i = 0; i < autoIncludedAccounts.length; i++) {
               const idx = (currentAutoIndex + i) % autoIncludedAccounts.length;
               const id = autoIncludedAccounts[idx];
-              if (allStatuses[id]?.isConnected) {
+              if (allStatuses[id]?.isConnected && !triedAccountsForThisMessage.has(id)) {
                 if (idx !== currentAutoIndex) {
                    // Account changed because original was offline
                    currentAutoIndex = idx;
@@ -440,10 +440,16 @@ export default function PhotoSender() {
           if (senderId === 'auto') {
             finalSenderId = findActiveAutoSender();
             if (!finalSenderId) {
-              alert('⚠️ جميع الحسابات المحددة للتوجيه التلقائي غير متصلة! تم إيقاف العملية.');
-              setIsRunning(false);
-              setIsPaused(false);
-              return;
+              if (triedAccountsForThisMessage.size > 0) {
+                 // We tried some accounts and all failed for this message
+                 setLogs(prev => [{ type: 'error', num: targetNumber, msg: 'تم استنزاف كافة الحسابات المتاحة لهذا الرقم دون نجاح.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+              } else {
+                 setLogs(prev => [{ type: 'error', num: targetNumber, msg: 'لا توجد حسابات متصلة حالياً للإرسال التلقائي.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+              }
+              setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
+              current++;
+              setCurrentIndex(current);
+              continue;
             }
           } else {
             // Manual selection: check if still connected
@@ -453,7 +459,7 @@ export default function PhotoSender() {
               setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
               current++;
               setCurrentIndex(current);
-              continue; // Skip this message or wait for manual intervention? Skipping for now.
+              continue; 
             }
           }
 
@@ -496,10 +502,16 @@ export default function PhotoSender() {
             if (isConnectionError && senderId === 'auto') {
               setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب ${finalSenderId} (قد يكون محظوراً أو مفصولاً). محاولة التبديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
               
+              // Mark this account as failed for this specific message
+              triedAccountsForThisMessage.add(finalSenderId);
+              
               // Increment index to skip this failed account for the next attempt
               currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
               messagesSentOnCurrentAuto = 0;
               
+              // Add a small delay before retrying with next account to prevent tight loops
+              await new Promise(r => setTimeout(r, 3000));
+
               // We don't increment 'current' here, so the same message will be retried with the next account in the next iteration
               continue; 
             }
