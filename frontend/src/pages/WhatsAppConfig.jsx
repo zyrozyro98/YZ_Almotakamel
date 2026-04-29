@@ -169,11 +169,6 @@ export default function WhatsAppConfig() {
     }
   };
 
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCleanup = async () => {
     const activeTarget = isAdmin ? targetEmployeeId : employeeId;
     if (!activeTarget) return;
