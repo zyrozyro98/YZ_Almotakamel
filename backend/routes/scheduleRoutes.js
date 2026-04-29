@@ -72,26 +72,42 @@ router.delete('/:id', async (req, res) => {
 // Bulk schedule (for group sender)
 router.post('/bulk', async (req, res) => {
     try {
-        const { messages } = req.body; // Array of message objects
+        const { messages, sharedMedia, sharedType } = req.body;
         if (!Array.isArray(messages)) return res.status(400).json({ error: 'Invalid data' });
 
-        const batch = db.batch();
-        const ids = [];
+        // Firestore batch limit is 500
+        const CHUNK_SIZE = 450;
+        let totalCreated = 0;
 
-        messages.forEach(msg => {
-            const docRef = db.collection('scheduled_messages').doc();
-            batch.set(docRef, {
-                ...msg,
-                status: 'pending',
-                createdAt: Date.now(),
-                retryCount: 0
+        for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
+            const chunk = messages.slice(i, i + CHUNK_SIZE);
+            const batch = db.batch();
+            
+            chunk.forEach(msg => {
+                const docRef = db.collection('scheduled_messages').doc();
+                const finalMsg = {
+                    ...msg,
+                    status: 'pending',
+                    createdAt: Date.now(),
+                    retryCount: 0
+                };
+
+                // If shared media is provided and this message doesn't have its own, use shared
+                if (sharedMedia && !finalMsg.base64Image) {
+                    finalMsg.base64Image = sharedMedia;
+                    finalMsg.type = sharedType || 'image';
+                }
+
+                batch.set(docRef, finalMsg);
             });
-            ids.push(docRef.id);
-        });
 
-        await batch.commit();
-        res.json({ success: true, count: ids.length });
+            await batch.commit();
+            totalCreated += chunk.length;
+        }
+
+        res.json({ success: true, count: totalCreated });
     } catch (error) {
+        console.error('[SCHEDULE BULK ERROR]', error.message);
         res.status(500).json({ error: error.message });
     }
 });

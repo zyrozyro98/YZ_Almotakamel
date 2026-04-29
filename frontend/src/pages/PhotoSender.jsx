@@ -159,6 +159,32 @@ export default function PhotoSender() {
     }
   }, [allStatuses]);
 
+  // Persistent State Sync with Backend
+  useEffect(() => {
+    if (!goldenKey) return;
+    const jobRef = ref(rtdb, `bulk_jobs/${goldenKey}`);
+    const unsub = onValue(jobRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setIsRunning(data.isRunning);
+        setIsPaused(data.isPaused);
+        setCurrentIndex(data.currentIndex || 0);
+        if (data.stats) setStats(data.stats);
+        if (data.logs) {
+          const logArray = Object.values(data.logs).sort((a, b) => b.time.localeCompare(a.time));
+          setLogs(logArray);
+        }
+      } else {
+        // If no job data, but we thought we were running, reset
+        if (isRunningRef.current) {
+          setIsRunning(false);
+          setIsPaused(false);
+        }
+      }
+    });
+    return () => unsub();
+  }, [goldenKey]);
+
   const handleFolderSelection = (e) => {
     const rawFiles = Array.from(e.target.files || []);
     const validImages = rawFiles.filter(f => f.type.startsWith('image/'));
@@ -374,195 +400,48 @@ export default function PhotoSender() {
   };
 
   const processQueue = async (startIndex) => {
-    let current = startIndex;
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    // This function is now handled by the backend.
+    // We send the entire job to the backend once.
     const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-    let currentAutoIndex = 0;
-    let messagesSentOnCurrentAuto = 0;
-
-    while (current < activeQueue.length) {
-      if (!isRunningRef.current || isPausedRef.current) return;
-
-      const item = activeQueue[current];
-      let targetNumber = '';
-      let fileToUpload = null;
-
-      if (mode === 'folder') {
-        targetNumber = getPureNumber(item.name);
-        fileToUpload = item;
-      } else {
-        targetNumber = item;
-        fileToUpload = manualFile;
-      }
-
-      if (!targetNumber || targetNumber.length < 9) {
-        setLogs(prev => [{ 
-          type: 'error', 
-          num: mode === 'folder' ? item.name : targetNumber, 
-          msg: 'رقم هاتف غير صالح (يجب أن يكون 9 أرقام على الأقل).', 
-          time: new Date().toLocaleTimeString('ar-SA') 
-        }, ...prev]);
-        setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-      } else {
-        const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
-          
-          // Apply Spintax and Unique Noise to evade hash-based detection
-          let finalMessage = parseTemplate(messageTemplate, targetNumber);
-          const noise = " ".repeat(Math.floor(Math.random() * 5)) + (Math.random() > 0.5 ? "\u200B" : "");
-          if (finalMessage) finalMessage += noise;
-
-          const student = students.find(s => getPureNumber(s.phone) === targetNumber);
-          const studentJid = student?.fullJid || '';
-
-          let finalSenderId = senderId;
-          
-          // --- SMART AUTO-ROUTING LOGIC ---
-          const findActiveAutoSender = () => {
-            if (autoIncludedAccounts.length === 0) return null;
-            
-            // Try to find a connected account starting from currentAutoIndex
-            for (let i = 0; i < autoIncludedAccounts.length; i++) {
-              const idx = (currentAutoIndex + i) % autoIncludedAccounts.length;
-              const id = autoIncludedAccounts[idx];
-              if (allStatuses[id]?.isConnected) {
-                if (idx !== currentAutoIndex) {
-                   // Account changed because original was offline
-                   currentAutoIndex = idx;
-                   messagesSentOnCurrentAuto = 0;
-                }
-                return id;
-              }
-            }
-            return null;
-          };
-
-          if (senderId === 'auto') {
-            finalSenderId = findActiveAutoSender();
-            if (!finalSenderId) {
-              alert('⚠️ جميع الحسابات المحددة للتوجيه التلقائي غير متصلة! تم إيقاف العملية.');
-              setIsRunning(false);
-              setIsPaused(false);
-              return;
-            }
-          } else {
-            // Manual selection: check if still connected
-            if (!allStatuses[finalSenderId]?.isConnected) {
-              const errorMsg = `الحساب المختار (${finalSenderId}) غير متصل حالياً.`;
-              setLogs(prev => [{ type: 'error', num: targetNumber, msg: errorMsg, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-              setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-              current++;
-              setCurrentIndex(current);
-              continue; // Skip this message or wait for manual intervention? Skipping for now.
-            }
-          }
-
-          try {
-            const sendData = {
-              employeeId: finalSenderId,
-              phoneNumber: targetNumber,
-              fullJid: studentJid,
-              senderName: auth.currentUser?.displayName || 'المرسل القوي',
-              senderId: auth.currentUser?.uid || 'system'
-            };
-
-            if (b64) {
-              sendData.base64Image = b64;
-              sendData.caption = finalMessage;
-              await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
-            } else {
-              sendData.message = finalMessage;
-              await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
-            }
-            
-            if (senderId === 'auto') {
-              messagesSentOnCurrentAuto++;
-              if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
-                messagesSentOnCurrentAuto = 0;
-                currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
-              }
-            }
-            
-            setLogs(prev => [{ type: 'success', num: targetNumber, msg: 'تم إرسال المحتوى بنجاح', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-            setStats(prev => ({ ...prev, sent: prev.sent + 1, pending: prev.pending - 1 }));
-            setConsecutiveFailures(0); // Reset failures on success
-          } catch (err) {
-            console.error(err);
-            const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
-            
-            // Detect if the error is due to session disconnection/block
-            const isConnectionError = errorMsg.includes('غير متصلة') || errorMsg.includes('not init') || errorMsg.includes('logged out') || err.response?.status === 401;
-            
-            if (isConnectionError && senderId === 'auto') {
-              setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب ${finalSenderId} (قد يكون محظوراً أو مفصولاً). محاولة التبديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-              
-              // Increment index to skip this failed account for the next attempt
-              currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
-              messagesSentOnCurrentAuto = 0;
-              
-              // We don't increment 'current' here, so the same message will be retried with the next account in the next iteration
-              continue; 
-            }
-
-            setLogs(prev => [{ type: 'error', num: targetNumber, msg: `فشل الإرسال (${errorMsg})`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-            setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-            
-            const newFailures = consecutiveFailures + 1;
-            setConsecutiveFailures(newFailures);
-            
-            if (newFailures >= 5) {
-              alert('⚠️ تم رصد 5 حالات فشل متتالية! تم إيقاف الإرسال تلقائياً لحماية حساباتك من الحظر.');
-              setIsRunning(false);
-              setIsPaused(false);
-              return;
-            }
-          }
+    try {
+        setLogs([{ type: 'info', num: 'System', msg: 'جاري بدء المهمة في الخلفية...', time: new Date().toLocaleTimeString('ar-SA') }]);
+        
+        let manualFileB64 = null;
+        if (mode === 'manual' && manualFile) {
+            manualFileB64 = await getBase64(manualFile);
         }
 
-      current++;
-      setCurrentIndex(current);
+        // Prepare queue with base64 for folder mode if needed
+        // Note: For large folder queues, this might still be heavy, but we do it once.
+        const preparedQueue = [];
+        for (const item of activeQueue) {
+            if (mode === 'folder') {
+                const b64 = await getBase64(item);
+                preparedQueue.push({ targetNumber: getPureNumber(item.name), base64Image: b64 });
+            } else {
+                preparedQueue.push(item);
+            }
+        }
 
-      // --- PROFESSIONAL ANTI-BAN DELAYS ---
-      if (current < activeQueue.length && isRunningRef.current && !isPausedRef.current) {
-        // 1. Box-Muller transform for Gaussian Distribution
-        const gaussianRandom = () => {
-          let uOffset = 0, vOffset = 0;
-          while(uOffset === 0) uOffset = Math.random();
-          while(vOffset === 0) vOffset = Math.random();
-          return Math.sqrt(-2.0 * Math.log(uOffset)) * Math.cos(2.0 * Math.PI * vOffset);
+        const jobData = {
+            queue: preparedQueue,
+            messageTemplate,
+            mode,
+            manualFile: manualFileB64,
+            senderId,
+            autoIncludedAccounts,
+            autoMessagesPerSwitch,
+            isSafeMode,
+            startIndex
         };
 
-        // Delay Strategy:
-        // Safe Mode: Mean 25s, Std Dev 10s (Range ~15s to 45s)
-        // Standard Mode: Mean 8s, Std Dev 4s (Range ~4s to 15s)
-        const mean = isSafeMode ? 25000 : 8000;
-        const stdDev = isSafeMode ? 10000 : 4000;
-        let delay = Math.max(isSafeMode ? 15000 : 4000, (mean + gaussianRandom() * stdDev));
-
-        // 2. Irregular "Activity Cycles"
-        // Every 5-12 messages (randomized), simulate a "Human Rest" period (30-90 seconds)
-        const cycleLength = 5 + Math.floor(Math.random() * 8);
-        if (current % cycleLength === 0 && current % 50 !== 0) {
-          const restPeriod = 30000 + (Math.random() * 60000);
-          setLogs(prev => [{ type: 'info', num: 'System', msg: `☕ محاكاة استراحة بشرية لمدة ${Math.round(restPeriod/1000)} ثانية...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          await new Promise(r => setTimeout(r, restPeriod));
-        } else if (current % 50 === 0) {
-          // BATCH REST: Every 50 messages, take a long break (10-15 minutes in Safe Mode)
-          const longRestMean = isSafeMode ? 600000 : 300000;
-          const longRest = longRestMean + (Math.random() * 300000);
-          const minutes = Math.round(longRest / 60000);
-          setLogs(prev => [{ type: 'info', num: 'System', msg: `🛑 إيقاف مؤقت طويل لتجنب الحظر: ${minutes} دقائق...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-          await new Promise(r => setTimeout(r, longRest));
-        } else {
-          await new Promise(r => setTimeout(r, delay));
-        }
-      }
-    }
-
-    if (current >= (mode === 'folder' ? filesQueue.length : manualQueue.length)) {
-      alert('اكتملت المهمة الجماعية!');
-      setIsRunning(false);
-      setIsPaused(false);
+        await axios.post(`${BASE_URL}/api/whatsapp/bulk/start`, { employeeId: goldenKey, jobData });
+    } catch (err) {
+        console.error(err);
+        alert('فشل بدء المهمة في الخلفية: ' + err.message);
+        setIsRunning(false);
     }
   };
 
@@ -633,6 +512,12 @@ export default function PhotoSender() {
       let currentAutoIndex = 0;
       let messagesSentOnCurrentAuto = 0;
       
+      // Optimization: Only convert to base64 once if it's the same file for everyone
+      let sharedMediaB64 = null;
+      if (mode === 'manual' && manualFile) {
+        sharedMediaB64 = await getBase64(manualFile);
+      }
+      
       for (let i = 0; i < activeQueue.length; i++) {
         const item = activeQueue[i];
         let targetNumber = '';
@@ -643,18 +528,18 @@ export default function PhotoSender() {
           fileToUpload = item;
         } else {
           targetNumber = item;
-          fileToUpload = manualFile;
         }
 
         if (!targetNumber || targetNumber.length < 9) continue;
 
-        const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
+        // If folder mode, each image is unique. If manual mode, we use sharedMediaB64
+        const b64 = (mode === 'folder' && fileToUpload) ? await getBase64(fileToUpload) : null;
         let finalMessage = parseTemplate(messageTemplate, targetNumber);
         
         const student = students.find(s => getPureNumber(s.phone) === targetNumber);
         const studentJid = student?.fullJid || '';
 
-        // Add a small staggered delay for each scheduled message (e.g. 30s apart) to avoid ban
+        // Add a staggered delay (e.g. 30s apart) to avoid ban
         const staggeredTime = scheduledTimestamp + (i * 30000);
 
         let finalSenderId = senderId;
@@ -675,19 +560,31 @@ export default function PhotoSender() {
           phoneNumber: targetNumber,
           fullJid: studentJid,
           message: finalMessage,
-          base64Image: b64,
-          type: b64 ? 'image' : 'text',
+          base64Image: b64, // Only set if unique (folder mode)
+          type: (b64 || sharedMediaB64) ? 'image' : 'text',
           scheduledAt: staggeredTime,
           senderName: auth.currentUser?.displayName || 'المرسل القوي',
           senderId: auth.currentUser?.uid || 'system'
         });
+
+        // Periodic log for long preparation
+        if (i > 0 && i % 100 === 0) {
+          setLogs(prev => [{ type: 'info', num: 'System', msg: `تم تحضير ${i} رسالة...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
+        }
       }
 
-      // Split into chunks if too large for Firestore batch (max 500)
-      const chunkSize = 100;
+      // Split into chunks for API calls. 
+      // If we have shared media, we can use larger chunks because payload is small.
+      // If it's unique images, we MUST use very small chunks.
+      const chunkSize = sharedMediaB64 ? 500 : 20; 
+      
       for (let i = 0; i < messagesToSchedule.length; i += chunkSize) {
         const chunk = messagesToSchedule.slice(i, i + chunkSize);
-        await axios.post(`${BASE_URL}/api/schedule/bulk`, { messages: chunk });
+        await axios.post(`${BASE_URL}/api/schedule/bulk`, { 
+            messages: chunk,
+            sharedMedia: sharedMediaB64,
+            sharedType: 'image'
+        });
         setLogs(prev => [{ type: 'success', num: 'System', msg: `تمت جدولة الدفعة ${Math.floor(i/chunkSize) + 1} بنجاح`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
       }
 
@@ -702,27 +599,34 @@ export default function PhotoSender() {
     }
   };
 
-  const handlePause = () => {
-    setIsPaused(true);
-    isPausedRef.current = true;
+  const handlePause = async () => {
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    try {
+        await axios.post(`${BASE_URL}/api/whatsapp/bulk/pause`, { employeeId: goldenKey });
+        setIsPaused(true);
+    } catch (e) {}
   };
 
-  const handleResume = () => {
-    setIsPaused(false);
-    isPausedRef.current = false;
-    processQueue(currentIndex);
+  const handleResume = async () => {
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    try {
+        await axios.post(`${BASE_URL}/api/whatsapp/bulk/resume`, { employeeId: goldenKey });
+        setIsPaused(false);
+    } catch (e) {}
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (window.confirm('هل أنت متأكد من تصفير وإلغاء العملية بالكامل؟')) {
-      setIsRunning(false);
-      setIsPaused(false);
-      isRunningRef.current = false;
-      isPausedRef.current = false;
-      setFilesQueue([]);
-      setLogs([]);
-      setCurrentIndex(0);
-      setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
+      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      try {
+          await axios.post(`${BASE_URL}/api/whatsapp/bulk/stop`, { employeeId: goldenKey });
+          setIsRunning(false);
+          setIsPaused(false);
+          setFilesQueue([]);
+          setLogs([]);
+          setCurrentIndex(0);
+          setStats({ total: 0, sent: 0, failed: 0, pending: 0 });
+      } catch (e) {}
     }
   };
 

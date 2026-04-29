@@ -207,10 +207,10 @@ export default function LiveMonitoring() {
                           رد على: {msg.quoted.text?.substring(0, 40)}...
                         </div>
                       )}
-                      {msg.type === 'image' && msg.mediaData ? (
+                      {(msg.type === 'image' || msg.type === 'sticker') && msg.mediaData ? (
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                           <img src={msg.mediaData} alt="thumb" style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }} />
-                          <span style={{ fontSize: '0.9rem', color: '#e2e8f0' }}>{msg.text || '📷 صورة'}</span>
+                          <span style={{ fontSize: '0.9rem', color: '#e2e8f0' }}>{msg.text || (msg.type === 'sticker' ? '🏷️ ملصق' : '📷 صورة')}</span>
                         </div>
                       ) : (
                         <p style={{ margin: 0, fontSize: '0.95rem', color: msg.isDeleted ? '#ef4444' : '#e2e8f0', fontStyle: msg.isDeleted ? 'italic' : 'normal' }}>

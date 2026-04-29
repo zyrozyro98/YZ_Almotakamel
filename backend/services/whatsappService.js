@@ -24,7 +24,7 @@ async function uploadToStorage(buffer, fileName, mimeType) {
     let finalBuffer = buffer;
 
     // 1. Image Compression (Optimization)
-    if (mimeType.startsWith('image/') && !mimeType.includes('gif')) {
+    if (mimeType.startsWith('image/') && !mimeType.includes('gif') && !mimeType.includes('webp')) {
       try {
         finalBuffer = await sharp(buffer)
           .resize({ width: 1200, withoutEnlargement: true }) // Max width 1200px
@@ -104,6 +104,10 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     else if (msg.message.documentMessage) {
       textMsg = msg.message.documentMessage.fileName || "📎 ملف";
       mediaType = "document";
+    }
+    else if (msg.message.stickerMessage) {
+      textMsg = "🏷️ ملصق";
+      mediaType = "sticker";
     }
 
     if (mediaType !== "text") {

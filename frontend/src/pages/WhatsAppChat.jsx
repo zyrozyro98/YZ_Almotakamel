@@ -599,6 +599,29 @@ export default function WhatsAppChat() {
     }
   };
 
+  const sendSticker = async () => {
+    if (!attachment || isSending) return;
+    setIsSending(true);
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/send-sticker`, {
+        employeeId: isAdmin ? viewingEmployeeId : employeeId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
+        fullJid: selectedChat.fullJid,
+        base64Image: attachment.preview,
+        senderId: employeeId,
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
+      });
+
+      alert('تم إرسال الملصق بنجاح');
+      setAttachment(null);
+      setActiveModal(null);
+    } catch (err) {
+      alert('فشل إرسال الملصق: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const handleReceiptSave = async (e) => {
     e?.preventDefault();
     if (!formData.amount || !selectedChat) return alert('يرجى إدخال المبلغ');
@@ -870,12 +893,12 @@ export default function WhatsAppChat() {
                         }}
                       >
                         <div style={{
-                          maxWidth: '75%', width: 'fit-content', padding: '8px 12px', borderRadius: '12px',
-                          background: isDeleted ? '#334155' : (isMe ? '#065f46' : '#1e293b'),
+                          maxWidth: '75%', width: 'fit-content', padding: m.type === 'sticker' ? '0' : '8px 12px', borderRadius: '12px',
+                          background: m.type === 'sticker' ? 'transparent' : (isDeleted ? '#334155' : (isMe ? '#065f46' : '#1e293b')),
                           color: '#fff',
                           borderTopRightRadius: isMe ? '2px' : '12px',
                           borderTopLeftRadius: isMe ? '12px' : '2px',
-                          boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                          boxShadow: m.type === 'sticker' ? 'none' : '0 2px 5px rgba(0,0,0,0.1)',
                           cursor: isSelectingMessage ? 'pointer' : 'default',
                           border: (isSelectingMessage && isPicked) ? '2px solid #3b82f6' : 'none',
                           position: 'relative',
@@ -953,6 +976,12 @@ export default function WhatsAppChat() {
                                 style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
                               />
                             </div>
+                          )}
+                          {m.type === 'sticker' && m.mediaData && (
+                            <img
+                              src={m.mediaData} alt="Sticker"
+                              style={{ width: isMobile ? '120px' : '160px', height: isMobile ? '120px' : '160px', objectFit: 'contain', display: 'block', margin: '0 auto' }}
+                            />
                           )}
                           {m.type === 'audio' && m.mediaData && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' }}>
@@ -1447,6 +1476,15 @@ export default function WhatsAppChat() {
 
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button onClick={() => { setAttachment(null); setActiveModal(null); }} className="btn-secondary" style={{ flex: 1, padding: '15px', borderRadius: '15px' }}>إلغاء</button>
+                  {attachment.type.startsWith('image/') && (
+                    <button
+                      onClick={sendSticker} className="btn-secondary"
+                      style={{ flex: 1, padding: '15px', borderRadius: '15px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)' }}
+                      disabled={isSending}
+                    >
+                      <Smile size={18} /> {isSending ? 'جاري...' : 'إرسال كملصق'}
+                    </button>
+                  )}
                   <button
                     onClick={sendAttachment} className="btn-primary"
                     style={{ flex: 2, padding: '15px', borderRadius: '15px', background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}

@@ -1,5 +1,6 @@
 /**
- * Anti-Ban and Human Simulation Utilities
+ * Anti-Ban and Human Simulation Utilities (Advanced)
+ * Version 2.0 - Multi-Algorithm Evade System
  */
 
 const BROWSERS = [
@@ -7,7 +8,9 @@ const BROWSERS = [
   ['Windows', 'Chrome', '115.0.0.0'],
   ['Mac OS', 'Safari', '16.5'],
   ['Linux', 'Firefox', '114.0'],
-  ['Windows', 'Edge', '114.0.1823.67']
+  ['Windows', 'Edge', '114.0.1823.67'],
+  ['Android', 'Chrome', '114.0.5735.196'],
+  ['iPhone', 'Safari', '16.5']
 ];
 
 /**
@@ -18,65 +21,99 @@ function getRandomBrowser() {
 }
 
 /**
- * Calculates a human-like delay based on message length
- * @param {string} text 
- * @returns {number} Delay in milliseconds
+ * Calculates a human-like delay based on message length and complexity
  */
 function getTypingDelay(text = '') {
-  const baseDelay = 1500;
-  const perCharDelay = Math.random() * 20 + 30; // 30-50ms per character
-  const jitter = Math.random() * 1000;
-  const total = baseDelay + (text.length * perCharDelay) + jitter;
-  return Math.min(total, 8000); // Cap at 8 seconds
+  const baseDelay = 2000;
+  // Dynamic speed: slower for longer messages, with random "thought" pauses
+  const perCharDelay = Math.random() * 25 + 35; 
+  const thoughtPause = text.length > 50 ? (Math.random() * 2000) : 0;
+  const jitter = Math.random() * 1500;
+  
+  const total = baseDelay + (text.length * perCharDelay) + thoughtPause + jitter;
+  return Math.min(total, 12000); // Cap at 12 seconds for realism
 }
 
 /**
- * Simple Spintax implementation: {Hi|Hello|Hey} there!
- * @param {string} text 
+ * Advanced Spintax implementation: {Hi|Hello|Hey} there!
  */
 function parseSpintax(text) {
   if (!text) return text;
-  return text.replace(/{([^{}]+)}/g, (match, options) => {
-    const choices = options.split('|');
-    return choices[Math.floor(Math.random() * choices.length)];
-  });
+  let currentText = text;
+  while (/{([^{}]+)}/g.test(currentText)) {
+    currentText = currentText.replace(/{([^{}]+)}/g, (match, options) => {
+      const choices = options.split('|');
+      return choices[Math.floor(Math.random() * choices.length)];
+    });
+  }
+  return currentText;
 }
 
 /**
- * Adds an invisible character at a random position to change message hash
- * @param {string} text 
+ * Multi-Layer Invisible Jitter
+ * Uses a combination of Zero-Width Space, Zero-Width Joiner, and Right-to-Left marks
+ * to ensure every message has a unique cryptographic hash without changing appearance.
  */
 function addInvisibleJitter(text) {
-  if (!text || text.length < 5) return text;
-  const zeroWidthSpace = '\u200B';
-  const pos = Math.floor(Math.random() * text.length);
-  return text.slice(0, pos) + zeroWidthSpace + text.slice(pos);
+  if (!text) return text;
+  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+  
+  // Inject at least 2 random invisible characters at random positions
+  let result = text;
+  for (let i = 0; i < 2; i++) {
+    const char = invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
+    const pos = Math.floor(Math.random() * result.length);
+    result = result.slice(0, pos) + char + result.slice(pos);
+  }
+  
+  // Occasionally add a random number of spaces at the end
+  if (Math.random() > 0.3) {
+    result += " ".repeat(Math.floor(Math.random() * 3));
+  }
+  
+  return result;
 }
 
 /**
- * Simulates the human flow of sending a message:
- * 1. Presence: Composing
- * 2. Delay: Thinking/Typing
- * 3. Presence: Paused
- * @param {import('@whiskeysockets/baileys').WASocket} sock 
- * @param {string} jid 
- * @param {string} text 
+ * Simulates a realistic human typing flow with presence updates
  */
 async function simulateHumanTyping(sock, jid, text = '') {
   try {
+    // 1. Initial delay before starting to type (Thinking)
+    await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
+    
+    // 2. Composing state
     await sock.sendPresenceUpdate('composing', jid);
     const delay = getTypingDelay(text);
-    await new Promise(r => setTimeout(r, delay));
+    
+    // Split delay into segments to handle "burst" typing
+    const segments = 3;
+    for (let i = 0; i < segments; i++) {
+        await new Promise(r => setTimeout(r, delay / segments));
+        // Small chance of "pausing" to think during typing
+        if (Math.random() > 0.8) await new Promise(r => setTimeout(r, 1000 + Math.random() * 1500));
+    }
+    
+    // 3. Pause state before sending
     await sock.sendPresenceUpdate('paused', jid);
+    await new Promise(r => setTimeout(r, 300 + Math.random() * 700));
   } catch (e) {
     console.warn('[ANTIBAN] Presence update failed:', e.message);
   }
 }
 
 /**
+ * Simulates marking a message as read (Important for looking like a real user)
+ */
+async function simulateRead(sock, jid, messageId) {
+    try {
+        if (!sock || !jid) return;
+        await sock.readMessages([{ remoteJid: jid, id: messageId, fromMe: false }]);
+    } catch (e) {}
+}
+
+/**
  * Checks if a number is on WhatsApp before sending
- * @param {import('@whiskeysockets/baileys').WASocket} sock 
- * @param {string} jid 
  */
 async function verifyJid(sock, jid) {
   if (jid.includes('@g.us') || jid.includes('@newsletter')) return true;
@@ -85,44 +122,69 @@ async function verifyJid(sock, jid) {
     return !!(result && result.exists);
   } catch (e) {
     console.warn('[ANTIBAN] JID verification failed:', e.message);
-    return true; // Fallback to true if check fails to avoid blocking legitimate sends
+    return true; 
   }
 }
 
 /**
- * Randomizes an image buffer slightly to ensure a unique binary hash (MD5/SHA)
- * This is crucial for avoiding bans when sending the same image to many people.
- * @param {Buffer} buffer 
- * @returns {Promise<Buffer>}
+ * Advanced Image Randomization (Bypass Hash Detection)
+ * Applies unnoticeable binary changes to the image buffer.
  */
 async function randomizeImage(buffer) {
   try {
     const sharp = require('sharp');
-    // Apply a tiny, invisible change: 
-    // 1. Random quality between 75-80
-    // 2. Add 1px of padding or slight crop
-    const quality = 75 + Math.floor(Math.random() * 6);
-    
-    // We alternate between adding a 1px border or doing nothing
-    const shouldAddBorder = Math.random() > 0.5;
+    const metadata = await sharp(buffer).metadata();
     
     let pipeline = sharp(buffer);
     
-    if (shouldAddBorder) {
-      pipeline = pipeline.extend({
-        top: 0, bottom: 1, left: 0, right: 0,
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
-      });
-    }
+    // 1. Apply unnoticeable rotation (0.01 to 0.05 degrees)
+    const rotation = (Math.random() * 0.04) + 0.01;
+    pipeline = pipeline.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+    
+    // 2. Tiny crop (1 pixel off from a random side)
+    const side = ['top', 'left', 'right', 'bottom'][Math.floor(Math.random() * 4)];
+    pipeline = pipeline.extract({
+        left: side === 'left' ? 1 : 0,
+        top: side === 'top' ? 1 : 0,
+        width: metadata.width - (side === 'left' || side === 'right' ? 1 : 0),
+        height: metadata.height - (side === 'top' || side === 'bottom' ? 1 : 0)
+    });
+
+    // 3. Unnoticeable brightness shift (+/- 0.5%)
+    const brightness = 0.995 + (Math.random() * 0.01);
+    pipeline = pipeline.modulate({ brightness });
+
+    // 4. Randomize JPEG/PNG quality
+    const quality = 78 + Math.floor(Math.random() * 7);
 
     return await pipeline
-      .jpeg({ quality, force: false })
+      .jpeg({ quality, force: false, progressive: true })
       .png({ quality: quality + 10, force: false })
       .toBuffer();
   } catch (e) {
-    console.warn('[ANTIBAN] Image randomization failed, using original:', e.message);
+    console.warn('[ANTIBAN] Advanced image randomization failed:', e.message);
     return buffer;
   }
+}
+
+/**
+ * Frequency Guard: Tracks sending frequency to prevent rapid-fire detection
+ */
+const sentCounts = new Map(); // empId -> { count, startTime }
+function checkFrequency(empId, limit = 100, timeframe = 3600000) {
+    const now = Date.now();
+    const stats = sentCounts.get(empId) || { count: 0, startTime: now };
+    
+    if (now - stats.startTime > timeframe) {
+        sentCounts.set(empId, { count: 1, startTime: now });
+        return true;
+    }
+    
+    if (stats.count >= limit) return false;
+    
+    stats.count++;
+    sentCounts.set(empId, stats);
+    return true;
 }
 
 module.exports = {
@@ -131,6 +193,8 @@ module.exports = {
   parseSpintax,
   addInvisibleJitter,
   simulateHumanTyping,
+  simulateRead,
   verifyJid,
-  randomizeImage
+  randomizeImage,
+  checkFrequency
 };

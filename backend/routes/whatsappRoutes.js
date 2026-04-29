@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
 const { db, rtdb } = require('../firebaseAdmin');
+const bulkService = require('../services/bulkService');
 const { getPureNumber } = require('../utils/numberUtils');
-const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage } = require('../utils/antiBan');
+const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage, checkFrequency, simulateRead } = require('../utils/antiBan');
+const sharp = require('sharp');
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -82,7 +84,13 @@ router.post('/send', async (req, res) => {
     // 3. Human Simulation (Typing delay)
     await simulateHumanTyping(sock, targetJid, finalMessage);
 
+    // 4. Frequency Guard Check
+    if (!checkFrequency(employeeId, 150)) {
+       return res.status(429).json({ error: 'تم تجاوز حد الإرسال الآمن لهذا الحساب حالياً. يرجى الانتظار قليلاً.' });
+    }
+
     const result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
+    await simulateRead(sock, targetJid).catch(() => {});
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
@@ -295,10 +303,13 @@ router.post('/send-image', async (req, res) => {
     // 2. Prepare Content (Spintax & Jitter)
     const finalCaption = addInvisibleJitter(parseSpintax(caption || ''));
 
-    // 3. Human Simulation
-    await simulateHumanTyping(sock, targetJid, finalCaption);
+    // 4. Frequency Guard Check
+    if (!checkFrequency(employeeId, 120)) { // Lower limit for media
+       return res.status(429).json({ error: 'تم تجاوز حد إرسال الوسائط لهذا الحساب. يرجى الانتظار.' });
+    }
 
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
+    await simulateRead(sock, targetJid).catch(() => {});
 
     // FORCE SAVE TO PHONE FOLDER (regardless of LID delivery)
     const finalChatId = getPureNumber(phoneNumber);
@@ -360,12 +371,18 @@ router.post('/send-document', async (req, res) => {
     const buffer = Buffer.from(base64File.split(',')[1], 'base64');
     const mime = base64File.split(';')[0].split(':')[1];
 
+    // 4. Frequency Guard
+    if (!checkFrequency(employeeId, 100)) {
+       return res.status(429).json({ error: 'تم تجاوز حد إرسال الملفات.' });
+    }
+
     const result = await sock.sendMessage(targetJid, {
       document: buffer,
       mimetype: mime,
       fileName: fileName || "file",
       caption: finalCaption
     });
+    await simulateRead(sock, targetJid).catch(() => {});
 
     const chatId = getPureNumber(phoneNumber);
 
@@ -427,11 +444,17 @@ router.post('/send-video', async (req, res) => {
 
     const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
+    // 4. Frequency Guard
+    if (!checkFrequency(employeeId, 80)) {
+       return res.status(429).json({ error: 'تم تجاوز حد إرسال الفيديو.' });
+    }
+
     const result = await sock.sendMessage(targetJid, {
       video: buffer,
       caption: finalCaption,
       mimetype: 'video/mp4' // Standard for WhatsApp
     });
+    await simulateRead(sock, targetJid).catch(() => {});
 
     const chatId = targetJid.split('@')[0].slice(-9);
 
@@ -460,6 +483,78 @@ router.post('/send-video', async (req, res) => {
   } catch (err) {
     console.error("Send Video Error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Send Sticker
+router.post('/send-sticker', async (req, res) => {
+  let { employeeId, phoneNumber, base64Image, fullJid, senderName, senderId } = req.body;
+  try {
+    const chatId = getPureNumber(phoneNumber);
+
+    if (employeeId === 'auto') {
+      employeeId = await getAutoEmployeeId(chatId);
+    }
+
+    if (!employeeId) {
+      return res.status(400).json({ error: 'لم يتم العثور على موظف متصل للإرسال التلقائي.' });
+    }
+
+    const sock = whatsappService.getSession(employeeId);
+    if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+
+    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    
+    // Convert to Sticker format (WebP, 512x512, transparent)
+    const stickerBuffer = await sharp(buffer)
+      .resize(512, 512, {
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .webp({ quality: 80 })
+      .toBuffer();
+
+    // 1. Verify JID (Safety check)
+    const exists = await verifyJid(sock, targetJid);
+    if (!exists) {
+      return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
+    }
+
+    // 4. Frequency Guard
+    if (!checkFrequency(employeeId, 150)) {
+       return res.status(429).json({ error: 'تم تجاوز حد إرسال الملصقات.' });
+    }
+
+    const result = await sock.sendMessage(targetJid, { sticker: stickerBuffer });
+    await simulateRead(sock, targetJid).catch(() => {});
+
+    const finalChatId = getPureNumber(phoneNumber);
+    const msgData = {
+      text: "🏷️ ملصق",
+      type: "sticker",
+      mediaData: `data:image/webp;base64,${stickerBuffer.toString('base64')}`,
+      time: Date.now(),
+      sender: "me",
+      id: result.key.id,
+      senderName: senderName || "نظام",
+      senderId: senderId || "system"
+    };
+
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update({
+      lastMessage: "🏷️ ملصق",
+      timestamp: Date.now(),
+      phone: finalChatId,
+      fullJid: targetJid,
+      lastSender: "me"
+    }).catch(() => { });
+
+    res.status(200).json({ status: 'sent', to: targetJid });
+  } catch (err) { 
+    console.error("Send Sticker Error:", err);
+    res.status(500).json({ error: err.message }); 
   }
 });
 
@@ -583,6 +678,40 @@ router.post('/cleanup-database', async (req, res) => {
     console.error("[WA] Cleanup major failure:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Bulk Jobs Control
+router.post('/bulk/start', async (req, res) => {
+  const { employeeId, jobData } = req.body;
+  if (!employeeId || !jobData) return res.status(400).json({ error: 'Missing parameters' });
+  try {
+    const result = await bulkService.startJob(employeeId, jobData);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/bulk/pause', async (req, res) => {
+  const { employeeId } = req.body;
+  try {
+    const result = await bulkService.pauseJob(employeeId);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/bulk/resume', async (req, res) => {
+  const { employeeId } = req.body;
+  try {
+    const result = await bulkService.resumeJob(employeeId);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/bulk/stop', async (req, res) => {
+  const { employeeId } = req.body;
+  try {
+    const result = await bulkService.stopJob(employeeId);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;
