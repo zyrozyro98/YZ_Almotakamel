@@ -30,6 +30,7 @@ export default function DashboardLayout() {
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState('employee');
+  const [isRoleLoading, setIsRoleLoading] = useState(true);
   const [waStatus, setWaStatus] = useState({ isConnected: false });
 
   // Persistent Tabs State: Keeps track of which pages have been visited to keep them mounted
@@ -62,10 +63,12 @@ export default function DashboardLayout() {
         }
         
         setIsAdmin(adminStatus);
+        setIsRoleLoading(false);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
         setUserRole('employee');
+        setIsRoleLoading(false);
       }
     });
     return () => unsubAuth();
@@ -168,6 +171,14 @@ export default function DashboardLayout() {
     if (item.solverOnly) return false;
     return !item.adminOnly || isAdmin;
   });
+
+  if (isRoleLoading) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+        جاري تحميل الصلاحيات...
+      </div>
+    );
+  }
 
   return (
     <div className="flex" style={{ height: '100vh', overflow: 'hidden' }}>
