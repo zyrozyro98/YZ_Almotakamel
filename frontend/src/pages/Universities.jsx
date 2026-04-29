@@ -26,7 +26,8 @@ export default function Universities() {
         const name = window.prompt('أدخل اسم الجامعة الجديدة:');
         if (!name) return;
         const city = window.prompt('أدخل المنطقة / المدينة:') || 'غير محدد';
-        await addDoc(collection(db, 'universities'), { name, city, status: 'نشط' });
+        const platformUrl = window.prompt('أدخل رابط المنصة (اختياري):') || '';
+        await addDoc(collection(db, 'universities'), { name, city, platformUrl, status: 'نشط' });
       } else {
         const name = window.prompt('أدخل اسم التخصص الجديد:');
         if (!name) return;
@@ -45,7 +46,8 @@ export default function Universities() {
       
       if (activeTab === 'جامعات') {
          const newCity = window.prompt('تعديل المدينة:', item.city) || item.city;
-         await updateDoc(doc(db, 'universities', item.id), { name: newName, city: newCity });
+         const newPlatformUrl = window.prompt('تعديل رابط المنصة:', item.platformUrl || '') || item.platformUrl || '';
+         await updateDoc(doc(db, 'universities', item.id), { name: newName, city: newCity, platformUrl: newPlatformUrl });
       } else {
          const newDept = window.prompt('تعديل القسم/الكلية:', item.department) || item.department;
          await updateDoc(doc(db, 'majors', item.id), { name: newName, department: newDept });
@@ -113,6 +115,7 @@ export default function Universities() {
                 <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)' }}>
                   {activeTab === 'جامعات' ? 'المدينة' : 'القسم / الكلية'}
                 </th>
+                {activeTab === 'جامعات' && <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)' }}>رابط المنصة</th>}
                 <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)' }}>الحالة</th>
                 <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)' }}>خيارات</th>
               </tr>
@@ -122,6 +125,11 @@ export default function Universities() {
                 <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }} className="hover:bg-slate-800/30">
                   <td style={{ padding: '1rem 1.5rem', fontWeight: 600 }}>{item.name}</td>
                   <td style={{ padding: '1rem 1.5rem' }}>{item.city || item.department}</td>
+                  {activeTab === 'جامعات' && (
+                    <td style={{ padding: '1rem 1.5rem' }}>
+                      {item.platformUrl ? <a href={item.platformUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-primary)', textDecoration: 'underline' }}>رابط المنصة</a> : '-'}
+                    </td>
+                  )}
                   <td style={{ padding: '1rem 1.5rem' }}>
                     <span style={{ 
                       background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, getDoc, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, getDocs, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { ExternalLink, Copy, Check, Lock, Shield, ImagePlus, Send, AlertTriangle, User, RefreshCw, X } from 'lucide-react';
 
 export default function SolverDashboard() {
@@ -9,6 +9,7 @@ export default function SolverDashboard() {
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [copiedField, setCopiedField] = useState('');
+  const [assignedUnivPlatformUrl, setAssignedUnivPlatformUrl] = useState('');
   
   const [submissionData, setSubmissionData] = useState({
     proofImage: '',
@@ -35,6 +36,15 @@ export default function SolverDashboard() {
             
             // Fetch students matching university and major
             if (data.assignedUniversity && data.assignedMajor) {
+               // Fetch university platformUrl
+               getDocs(collection(db, 'universities')).then(snap => {
+                 snap.forEach(u => {
+                   if (u.data().name === data.assignedUniversity && u.data().platformUrl) {
+                     setAssignedUnivPlatformUrl(u.data().platformUrl);
+                   }
+                 });
+               }).catch(e => console.error(e));
+
                // We fetch all and filter client side for simplicity, or use query if index exists
                const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
                  const matched = [];
@@ -261,10 +271,11 @@ export default function SolverDashboard() {
               className="btn-primary" 
               style={{ width: '100%', padding: '15px', fontSize: '1.1rem', gap: '10px' }}
               onClick={() => {
-                if (selectedStudent.platformUrl) {
-                  window.open(selectedStudent.platformUrl, '_blank');
+                const finalUrl = selectedStudent.platformUrl || assignedUnivPlatformUrl;
+                if (finalUrl) {
+                  window.open(finalUrl, '_blank');
                 } else {
-                  alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب.');
+                  alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب ولا للجامعة.');
                 }
               }}
             >
