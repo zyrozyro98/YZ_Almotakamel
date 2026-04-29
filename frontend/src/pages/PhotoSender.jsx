@@ -388,6 +388,8 @@ export default function PhotoSender() {
       let fileToUpload = null;
       let triedAccountsForThisMessage = new Set(); // Reset for each message
 
+      const item = activeQueue[current];
+
       if (mode === 'folder') {
         targetNumber = getPureNumber(item.name);
         fileToUpload = item;
