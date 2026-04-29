@@ -209,6 +209,7 @@ export default function Employees() {
                     required={formData.role === 'solver'}
                   >
                     <option value="">اختر الجامعة...</option>
+                    <option value="الكل">الكل (جميع الجامعات)</option>
                     {univs.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
@@ -221,6 +222,7 @@ export default function Employees() {
                     required={formData.role === 'solver'}
                   >
                     <option value="">اختر التخصص...</option>
+                    <option value="الكل">الكل (جميع التخصصات)</option>
                     {majors.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>

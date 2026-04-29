@@ -35,7 +35,7 @@ export default function SolverDashboard() {
             setSolverData({ id: user.uid, ...data });
             
             // Fetch students matching university and major
-            if (data.assignedUniversity && data.assignedMajor) {
+            if (data.assignedUniversity || data.assignedMajor) {
                // Fetch university platformUrl
                getDocs(collection(db, 'universities')).then(snap => {
                  snap.forEach(u => {
@@ -50,7 +50,9 @@ export default function SolverDashboard() {
                  const matched = [];
                  snap.forEach(s => {
                    const sData = s.data();
-                   if (sData.university === data.assignedUniversity && sData.major === data.assignedMajor) {
+                   const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
+                   const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
+                   if (matchUniv && matchMajor) {
                      // Optionally check if already solved, but for now show all matched
                      matched.push({ id: s.id, ...sData });
                    }
@@ -191,7 +193,7 @@ export default function SolverDashboard() {
       <div className="flex justify-between items-center" style={{ marginBottom: '2rem' }}>
         <div>
           <h1>لوحة مهام الحل</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>الجامعة: {solverData.assignedUniversity} | التخصص: {solverData.assignedMajor}</p>
+          <p style={{ color: 'var(--text-secondary)' }}>الجامعة: {solverData.assignedUniversity || 'غير محدد'} | التخصص: {solverData.assignedMajor || 'غير محدد'}</p>
         </div>
         <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '10px 20px', borderRadius: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Shield size={18} /> النظام نشط
