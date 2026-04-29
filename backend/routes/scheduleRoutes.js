@@ -112,4 +112,34 @@ router.post('/bulk', async (req, res) => {
     }
 });
 
+// Cancel all pending messages (Optimized)
+router.post('/cancel-all', async (req, res) => {
+    try {
+        const snapshot = await db.collection('scheduled_messages')
+            .where('status', '==', 'pending')
+            .get();
+        
+        if (snapshot.empty) {
+            return res.json({ success: true, count: 0 });
+        }
+
+        const CHUNK_SIZE = 450;
+        const docs = snapshot.docs;
+        let totalDeleted = 0;
+
+        for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+            const chunk = docs.slice(i, i + CHUNK_SIZE);
+            const batch = db.batch();
+            chunk.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            totalDeleted += chunk.length;
+        }
+
+        res.json({ success: true, count: totalDeleted });
+    } catch (error) {
+        console.error('[SCHEDULE CANCEL ALL ERROR]', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

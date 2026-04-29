@@ -37,16 +37,14 @@ export default function ScheduledMessages() {
 
   const handleCancelAll = async () => {
     if (!window.confirm('هل أنت متأكد من إلغاء كافة الرسائل المجدولة قيد الانتظار؟')) return;
-    const pending = messages.filter(m => m.status === 'pending');
     try {
       setLoading(true);
-      for (const msg of pending) {
-        await axios.delete(`${BASE_URL}/api/schedule/${msg.id}`);
-      }
+      await axios.post(`${BASE_URL}/api/schedule/cancel-all`);
       fetchMessages();
       alert('تم إلغاء كافة الرسائل بنجاح');
     } catch (err) {
-      alert('فشل في إلغاء بعض الرسائل');
+      console.error('Cancel all failed:', err);
+      alert('فشل في إلغاء كافة الرسائل');
     } finally {
       setLoading(false);
     }
