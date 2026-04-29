@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio, Calendar } from 'lucide-react';
 import { rtdb, auth, db } from '../firebase';
