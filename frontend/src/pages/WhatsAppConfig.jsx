@@ -97,7 +97,7 @@ export default function WhatsAppConfig() {
     // Get Employees
     const q = query(collection(db, 'employees'), orderBy('name', 'asc'));
     const unsubEmp = onSnapshot(q, (snapshot) => {
-      setEmployees(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      setEmployees(snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.role !== 'solver'));
     });
 
     return () => unsubEmp();

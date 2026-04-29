@@ -27,7 +27,7 @@ export default function PhotoSender() {
   useEffect(() => {
     if (isAdmin) {
       const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
-        const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(e => e.role !== 'solver');
         setEmployees(emps);
       });
 
