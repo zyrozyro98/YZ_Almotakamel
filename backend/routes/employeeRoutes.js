@@ -7,7 +7,7 @@ const { admin, db, auth } = require('../firebaseAdmin');
  */
 router.post('/create', async (req, res) => {
   console.log('[API] Processing employee creation request for:', req.body.email);
-  const { name, email, password, phone, role } = req.body;
+  const { name, email, password, phone, role, assignedUniversity, assignedMajor } = req.body;
 
   if (auth.isMock) {
     return res.status(503).json({ error: 'عذراً، يجب رفع ملف serviceAccountKey.json في مجلد backend لتتمكن من إنشاء حسابات موظفين حقيقية.' });
@@ -34,6 +34,8 @@ router.post('/create', async (req, res) => {
       phone: phone || '',
       role: role || 'employee',
       status: 'active',
+      assignedUniversity: assignedUniversity || '',
+      assignedMajor: assignedMajor || '',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -57,7 +59,7 @@ router.post('/create', async (req, res) => {
  * Update employee (Firestore only for now, Auth if email changed)
  */
 router.post('/update/:id', async (req, res) => {
-  const { name, email, phone, role, status } = req.body;
+  const { name, email, phone, role, status, assignedUniversity, assignedMajor } = req.body;
   const uid = req.params.id;
 
   try {
@@ -68,6 +70,8 @@ router.post('/update/:id', async (req, res) => {
       phone,
       role,
       status,
+      assignedUniversity: assignedUniversity || '',
+      assignedMajor: assignedMajor || '',
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
