@@ -168,7 +168,12 @@ export default function PhotoSender() {
       return;
     }
 
-    setFilesQueue(validImages);
+    // Sort images alphabetically (Ascending) based on filename
+    const sortedImages = validImages.sort((a, b) => 
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    setFilesQueue(sortedImages);
     setStats({ total: validImages.length, sent: 0, failed: 0, pending: validImages.length });
     setCurrentIndex(0);
     setLogs([]);
