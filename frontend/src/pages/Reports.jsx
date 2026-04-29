@@ -10,7 +10,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { db, auth, rtdb } from '../firebase';
 import { 
   collection, getDocs, orderBy, query, getDoc, doc, 
-  getCountFromServer, onSnapshot, where 
+  getCountFromServer, onSnapshot, where, setDoc
 } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 
@@ -169,19 +169,12 @@ export default function Reports() {
 
   const handleToggleSolverSystem = async () => {
     try {
-      await updateDoc(doc(db, 'system_settings', 'global'), {
+      await setDoc(doc(db, 'system_settings', 'global'), {
         solverSystemLocked: !solverSystemLocked
-      });
+      }, { merge: true });
     } catch (err) {
-      if (err.code === 'not-found') {
-         const { setDoc } = await import('firebase/firestore');
-         await setDoc(doc(db, 'system_settings', 'global'), {
-           solverSystemLocked: !solverSystemLocked
-         });
-      } else {
-         console.error('Error toggling system:', err);
-         alert('حدث خطأ أثناء تعديل حالة النظام.');
-      }
+      console.error('Error toggling system:', err);
+      alert('حدث خطأ أثناء تعديل حالة النظام.');
     }
   };
 
