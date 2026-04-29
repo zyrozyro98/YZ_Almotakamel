@@ -376,7 +376,9 @@ function getConnectionStatus(employeeId) {
   const sock = sessions.get(employeeId);
   let isConnected = false;
   if (sock) {
-    isConnected = !!(sock.user || sock.authState?.creds?.me);
+    const isReady = !!(sock.user || sock.authState?.creds?.me);
+    const isWsOpen = sock.ws && sock.ws.readyState === 1;
+    isConnected = isReady && isWsOpen;
   } else {
     // If the server restarted, the RAM session is gone, but the creds might still exist.
     const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
@@ -389,7 +391,10 @@ function getConnectionStatus(employeeId) {
 
 function isSessionActive(employeeId) {
   const sock = sessions.get(employeeId);
-  return !!(sock && (sock.user || sock.authState?.creds?.me));
+  if (!sock) return false;
+  const isReady = !!(sock.user || sock.authState?.creds?.me);
+  const isWsOpen = sock.ws && sock.ws.readyState === 1;
+  return isReady && isWsOpen;
 }
 
 module.exports = { initializeSession, getSession, getConnectionStatus, logout, isSessionActive };

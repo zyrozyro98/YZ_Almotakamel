@@ -48,8 +48,10 @@ router.post('/send', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) {
-      return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+    const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
+    
+    if (!isConnected) {
+      return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة أو في حالة إعادة اتصال.` });
     }
 
     // 1. Resolve Target JID using unified logic
@@ -88,7 +90,19 @@ router.post('/send', async (req, res) => {
        return res.status(429).json({ error: 'تم تجاوز حد الإرسال الآمن لهذا الحساب حالياً. يرجى الانتظار قليلاً.' });
     }
 
-    const result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
+    let result;
+    try {
+      result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
+    } catch (sendErr) {
+      if (sendErr.message.includes('Connection Closed')) {
+        console.warn(`[WA] Connection Closed during send, attempting one retry...`);
+        // Small delay to allow potential reconnection
+        await new Promise(r => setTimeout(r, 2000));
+        result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
+      } else {
+        throw sendErr;
+      }
+    }
     await simulateRead(sock, targetJid).catch(() => {});
 
     // Record the sender info in RTDB immediately for the monitoring feed
@@ -285,7 +299,11 @@ router.post('/send-image', async (req, res) => {
     }
 
     const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+    const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
+    
+    if (!isConnected) {
+      return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+    }
 
     let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
     let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
@@ -351,7 +369,11 @@ router.post('/send-document', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+    const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
+    
+    if (!isConnected) {
+      return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
+    }
 
     const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
 

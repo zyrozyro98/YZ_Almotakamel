@@ -491,7 +491,7 @@ export default function PhotoSender() {
             const errorMsg = err.response?.data?.error || err.message || 'فشل غير معروف';
             
             // Detect if the error is due to session disconnection/block
-            const isConnectionError = errorMsg.includes('غير متصلة') || errorMsg.includes('not init') || errorMsg.includes('logged out') || err.response?.status === 401;
+            const isConnectionError = errorMsg.includes('غير متصلة') || errorMsg.includes('not init') || errorMsg.includes('logged out') || errorMsg.includes('Connection Closed') || err.response?.status === 401;
             
             if (isConnectionError && senderId === 'auto') {
               setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب ${finalSenderId} (قد يكون محظوراً أو مفصولاً). محاولة التبديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
