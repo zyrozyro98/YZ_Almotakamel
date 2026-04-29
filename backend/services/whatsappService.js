@@ -248,10 +248,13 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   }
 };
 
-async function initializeSession(employeeId, onQrGenerated) {
+async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
   if (sessions.has(employeeId)) {
     const existingSock = sessions.get(employeeId);
-    if (existingSock.user) return existingSock;
+    // If not forcing re-init, and socket is alive, return it
+    if (!forceReinit && existingSock.user && existingSock.ws && existingSock.ws.readyState !== 3) {
+      return existingSock;
+    }
     try { existingSock.ws.close(); } catch (e) { }
     sessions.delete(employeeId);
   }
@@ -323,8 +326,11 @@ async function initializeSession(employeeId, onQrGenerated) {
         lastUpdate: Date.now(),
         status: shouldReconnect ? 'reconnecting' : 'disconnected'
       }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
-      if (shouldReconnect) initializeSession(employeeId, onQrGenerated);
-      else {
+      
+      if (shouldReconnect) {
+        console.log(`[WA] Connection closed for ${employeeId}. Reconnecting in 3 seconds... (Status code: ${statusCode})`);
+        setTimeout(() => initializeSession(employeeId, onQrGenerated, true), 3000);
+      } else {
         sessions.delete(employeeId);
         if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
       }
