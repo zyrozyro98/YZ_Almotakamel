@@ -264,10 +264,17 @@ export default function Students() {
 
             <div className="flex-col gap-2">
               <label className="input-label">الجامعة المراد التسجيل بها</label>
-              <div style={{ position: 'relative' }}>
-                <GraduationCap size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                <input type="text" className="input-base" style={{ paddingRight: '2.8rem' }} placeholder="اسم الجامعة" value={formData.university} onChange={e => setFormData({...formData, university: e.target.value})} />
-              </div>
+              <select 
+                className="input-base" 
+                value={formData.university} 
+                onChange={e => setFormData({...formData, university: e.target.value})}
+                required
+              >
+                <option value="">اختر الجامعة</option>
+                {univs.sort().map((u, i) => (
+                  <option key={i} value={u}>{u}</option>
+                ))}
+              </select>
             </div>
 
             <div className="flex-col gap-2">
