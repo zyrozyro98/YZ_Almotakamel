@@ -405,8 +405,7 @@ export default function PhotoSender() {
         }, ...prev]);
         setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
       } else {
-        try {
-          const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
+        const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
           
           // Apply Spintax and Unique Noise to evade hash-based detection
           let finalMessage = parseTemplate(messageTemplate, targetNumber);
@@ -523,7 +522,8 @@ export default function PhotoSender() {
       current++;
       setCurrentIndex(current);
 
-        // --- PROFESSIONAL ANTI-BAN DELAYS ---
+      // --- PROFESSIONAL ANTI-BAN DELAYS ---
+      if (current < activeQueue.length && isRunningRef.current && !isPausedRef.current) {
         // 1. Box-Muller transform for Gaussian Distribution
         const gaussianRandom = () => {
           let uOffset = 0, vOffset = 0;
@@ -559,7 +559,7 @@ export default function PhotoSender() {
       }
     }
 
-    if (current >= filesQueue.length) {
+    if (current >= (mode === 'folder' ? filesQueue.length : manualQueue.length)) {
       alert('اكتملت المهمة الجماعية!');
       setIsRunning(false);
       setIsPaused(false);
