@@ -27,16 +27,28 @@ export default function Employees() {
     status: ''
   });
 
+  const [univs, setUnivs] = useState([]);
+  const [majors, setMajors] = useState([]);
+
   useEffect(() => {
     const q = query(collection(db, 'employees'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeEmp = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
         ...docSnap.data()
       }));
       setEmployeesList(data);
     });
-    return () => unsubscribe();
+
+    const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
+      setUnivs(snapshot.docs.map(doc => doc.data().name));
+    });
+
+    const unsubMajors = onSnapshot(collection(db, 'majors'), (snapshot) => {
+      setMajors(snapshot.docs.map(doc => doc.data().name));
+    });
+
+    return () => { unsubscribeEmp(); unsubUniv(); unsubMajors(); };
   }, []);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -190,11 +202,27 @@ export default function Employees() {
               <>
                 <div className="flex-col gap-2 animate-fade-in-up">
                   <label className="input-label">الجامعة المخصصة</label>
-                  <input type="text" className="input-base" placeholder="مثال: جامعة الملك عبدالعزيز" value={formData.assignedUniversity} onChange={e => setFormData({...formData, assignedUniversity: e.target.value})} required={formData.role === 'solver'} />
+                  <select 
+                    className="input-base" 
+                    value={formData.assignedUniversity} 
+                    onChange={e => setFormData({...formData, assignedUniversity: e.target.value})} 
+                    required={formData.role === 'solver'}
+                  >
+                    <option value="">اختر الجامعة...</option>
+                    {univs.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
                 </div>
                 <div className="flex-col gap-2 animate-fade-in-up">
                   <label className="input-label">التخصص المخصص</label>
-                  <input type="text" className="input-base" placeholder="مثال: طب عام" value={formData.assignedMajor} onChange={e => setFormData({...formData, assignedMajor: e.target.value})} required={formData.role === 'solver'} />
+                  <select 
+                    className="input-base" 
+                    value={formData.assignedMajor} 
+                    onChange={e => setFormData({...formData, assignedMajor: e.target.value})} 
+                    required={formData.role === 'solver'}
+                  >
+                    <option value="">اختر التخصص...</option>
+                    {majors.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
                 </div>
               </>
             )}
