@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   FileDown, Users, ShieldAlert, Activity, ArrowDownToLine, 
   QrCode, TrendingUp, BarChart3, Clock, MessageSquare, 
@@ -14,6 +15,7 @@ import {
 import { ref, onValue } from 'firebase/database';
 
 export default function Reports() {
+  const navigate = useNavigate();
   const [selectedEmp, setSelectedEmp] = useState('');
   const [qrString, setQrString] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -195,7 +197,7 @@ export default function Reports() {
           <AlertCircle size={80} color="var(--danger)" style={{ marginBottom: '2rem' }} />
           <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>الوصول مرفوض</h2>
           <p style={{ fontSize: '1.2rem', opacity: 0.8 }}>عذراً، هذه الصفحة مخصصة للمسؤولين فقط (Super Admin). يرجى العودة للرئيسية.</p>
-          <button className="btn-primary" style={{ marginTop: '2rem' }} onClick={() => window.location.href = '/'}>العودة للرئيسية</button>
+          <button className="btn-primary" style={{ marginTop: '2rem' }} onClick={() => navigate('/')}>العودة للرئيسية</button>
         </div>
       </div>
     );
@@ -382,7 +384,7 @@ export default function Reports() {
                     <button 
                       className="btn-secondary" 
                       style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}
-                      onClick={() => window.location.href = `/live-monitoring?emp=${emp.id}`}
+                      onClick={() => navigate(`/live-monitoring?emp=${emp.id}`)}
                     >
                       <Activity size={14} /> مراقبة حية
                     </button>

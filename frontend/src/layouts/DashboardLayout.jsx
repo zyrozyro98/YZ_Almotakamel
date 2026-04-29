@@ -1,12 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio, Calendar } from 'lucide-react';
 import { rtdb, auth, db } from '../firebase';
 import { ref, onValue, update } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
+// Import all pages for persistent rendering
+import DashboardHome from '../pages/DashboardHome';
+import Students from '../pages/Students';
+import Orders from '../pages/Orders';
+import WhatsAppChat from '../pages/WhatsAppChat';
+import Receipts from '../pages/Receipts';
+import PhotoSender from '../pages/PhotoSender';
+import Universities from '../pages/Universities';
+import Reports from '../pages/Reports';
+import WhatsAppConfig from '../pages/WhatsAppConfig';
+import Employees from '../pages/Employees';
+import LiveMonitoring from '../pages/LiveMonitoring';
+import ScheduledMessages from '../pages/ScheduledMessages';
+
 export default function DashboardLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -14,6 +29,13 @@ export default function DashboardLayout() {
   const [employeeId, setEmployeeId] = useState('emp1'); // Now using UID
   const [isAdmin, setIsAdmin] = useState(false);
   const [waStatus, setWaStatus] = useState({ isConnected: false });
+
+  // Persistent Tabs State: Keeps track of which pages have been visited to keep them mounted
+  const [visitedRoutes, setVisitedRoutes] = useState(new Set([location.pathname]));
+
+  useEffect(() => {
+    setVisitedRoutes(prev => new Set(prev).add(location.pathname));
+  }, [location.pathname]);
 
   // 1. Reactive Auth Listener - The Golden Key Migration
   useEffect(() => {
@@ -110,23 +132,23 @@ export default function DashboardLayout() {
     }
 
     // 2. Navigate to chat with the target chatId
-    window.location.href = `/chat?select=${notif.chatId}`;
+    navigate(`/chat?select=${notif.chatId}`);
     setShowDropdown(false);
   };
 
   const allNavItems = [
-    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false },
-    { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: true },
-    { path: '/employees', label: 'فريق العمل', icon: <Users size={20} />, adminOnly: true },
-    { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} />, adminOnly: true },
-    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} />, adminOnly: true },
-    { path: '/chat', label: 'دردشة الواتساب', icon: <MessageCircle size={20} />, adminOnly: false },
-    { path: '/live-monitoring', label: 'الرقابة الحية', icon: <Radio size={20} />, adminOnly: true },
-    { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} />, adminOnly: true },
-    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: true },
-    { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true },
-    { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true },
-    { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true },
+    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false, component: <DashboardHome /> },
+    { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: true, component: <Students /> },
+    { path: '/employees', label: 'فريق العمل', icon: <Users size={20} />, adminOnly: true, component: <Employees /> },
+    { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} />, adminOnly: true, component: <Universities /> },
+    { path: '/orders', label: 'الطلبات', icon: <ClipboardList size={20} />, adminOnly: true, component: <Orders /> },
+    { path: '/chat', label: 'دردشة الواتساب', icon: <MessageCircle size={20} />, adminOnly: false, component: <WhatsAppChat /> },
+    { path: '/live-monitoring', label: 'الرقابة الحية', icon: <Radio size={20} />, adminOnly: true, component: <LiveMonitoring /> },
+    { path: '/whatsapp-config', label: 'إعدادات الربط', icon: <Smartphone size={20} />, adminOnly: true, component: <WhatsAppConfig /> },
+    { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: true, component: <Receipts /> },
+    { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true, component: <PhotoSender /> },
+    { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true, component: <ScheduledMessages /> },
+    { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true, component: <Reports /> },
   ];
 
   const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
@@ -291,7 +313,7 @@ export default function DashboardLayout() {
                 background: 'rgba(255,255,255,0.03)', borderRadius: '14px', border: '1px solid var(--glass-border)',
                 cursor: isAdmin ? 'pointer' : 'default'
               }}
-              onClick={() => isAdmin && (window.location.href = '/whatsapp-config')}
+              onClick={() => isAdmin && navigate('/whatsapp-config')}
               title={isAdmin ? 'إدارة الاتصال' : 'حالة الاتصال'}
             >
               <div style={{ 
@@ -318,9 +340,26 @@ export default function DashboardLayout() {
         <div style={{ 
           flex: 1, 
           overflowY: 'auto', 
-          padding: window.location.pathname === '/chat' ? (isSidebarOpen ? '2rem' : '0') : '2rem' 
+          padding: location.pathname === '/chat' ? (isSidebarOpen ? '2rem' : '0') : '2rem',
+          position: 'relative'
         }}>
-          <Outlet />
+          {/* Persistent Page Rendering: We render all visited pages but hide those that are not active */}
+          {navItems.map((item) => (
+            visitedRoutes.has(item.path) && (
+              <div 
+                key={item.path} 
+                style={{ 
+                  display: location.pathname === item.path ? 'block' : 'none',
+                  height: '100%' 
+                }}
+              >
+                {item.component}
+              </div>
+            )
+          ))}
+          
+          {/* Fallback for routes not in navItems (like subpages if any) */}
+          {!navItems.some(item => item.path === location.pathname) && <Outlet />}
         </div>
       </main>
     </div>

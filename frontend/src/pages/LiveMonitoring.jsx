@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, MessageSquare, User, Clock, Shield, Filter, Search, BarChart3, Radio } from 'lucide-react';
+import { Activity, MessageSquare, User, Clock, Shield, Filter, Search, BarChart3, Radio, MessageCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { rtdb, db as firestoreDb, auth } from '../firebase';
 import { ref, onValue, limitToLast, query as rtdbQuery } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query as firestoreQuery, getDoc, doc } from 'firebase/firestore';
 
 export default function LiveMonitoring() {
+  const navigate = useNavigate();
   const [liveMessages, setLiveMessages] = useState([]);
   const [stats, setStats] = useState({
     totalToday: 0,
@@ -235,7 +237,7 @@ export default function LiveMonitoring() {
                         {msg.sender === 'me' ? 'صادرة' : 'واردة'}
                       </span>
                       <button 
-                        onClick={() => window.location.href = `/chat?select=${msg.chatId}`}
+                        onClick={() => navigate(`/chat?select=${msg.chatId}`)}
                         style={{ padding: '6px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.05)', color: '#fff', cursor: 'pointer', transition: '0.2s' }}
                         className="hover:bg-blue-500" title="الذهاب للدردشة"
                       >

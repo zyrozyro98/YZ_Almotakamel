@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsappService');
 const { db, rtdb } = require('../firebaseAdmin');
-const bulkService = require('../services/bulkService');
 const { getPureNumber } = require('../utils/numberUtils');
 const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage, checkFrequency, simulateRead } = require('../utils/antiBan');
 const sharp = require('sharp');
@@ -678,40 +677,6 @@ router.post('/cleanup-database', async (req, res) => {
     console.error("[WA] Cleanup major failure:", error);
     res.status(500).json({ error: error.message });
   }
-});
-
-// Bulk Jobs Control
-router.post('/bulk/start', async (req, res) => {
-  const { employeeId, jobData } = req.body;
-  if (!employeeId || !jobData) return res.status(400).json({ error: 'Missing parameters' });
-  try {
-    const result = await bulkService.startJob(employeeId, jobData);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/bulk/pause', async (req, res) => {
-  const { employeeId } = req.body;
-  try {
-    const result = await bulkService.pauseJob(employeeId);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/bulk/resume', async (req, res) => {
-  const { employeeId } = req.body;
-  try {
-    const result = await bulkService.resumeJob(employeeId);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/bulk/stop', async (req, res) => {
-  const { employeeId } = req.body;
-  try {
-    const result = await bulkService.stopJob(employeeId);
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;
