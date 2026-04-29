@@ -35,8 +35,8 @@ export default function SolverDashboard() {
             setSolverData({ id: user.uid, ...data });
             
             // Fetch students matching university and major
-            if (data.assignedUniversity || data.assignedMajor) {
-               // Fetch university platformUrl
+            // Fetch university platformUrl if available
+            if (data.assignedUniversity && data.assignedUniversity !== 'الكل') {
                getDocs(collection(db, 'universities')).then(snap => {
                  snap.forEach(u => {
                    if (u.data().name === data.assignedUniversity && u.data().platformUrl) {
@@ -44,26 +44,23 @@ export default function SolverDashboard() {
                    }
                  });
                }).catch(e => console.error(e));
-
-               // We fetch all and filter client side for simplicity, or use query if index exists
-               const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-                 const matched = [];
-                 snap.forEach(s => {
-                   const sData = s.data();
-                   const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
-                   const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
-                   if (matchUniv && matchMajor) {
-                     // Optionally check if already solved, but for now show all matched
-                     matched.push({ id: s.id, ...sData });
-                   }
-                 });
-                 setStudents(matched);
-               });
-               setLoading(false);
-               return () => unsubStudents();
-            } else {
-               setLoading(false);
             }
+
+            // We fetch all and filter client side for simplicity
+            const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+              const matched = [];
+              snap.forEach(s => {
+                const sData = s.data();
+                const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
+                const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
+                if (matchUniv && matchMajor) {
+                  matched.push({ id: s.id, ...sData });
+                }
+              });
+              setStudents(matched);
+            });
+            setLoading(false);
+            return () => unsubStudents();
           }
         } catch (e) {
           console.error(e);
