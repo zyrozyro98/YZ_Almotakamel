@@ -164,6 +164,7 @@ class ScheduleService {
       await simulateHumanTyping(sock, targetJid, finalMessage);
 
       let result;
+      if (type === 'image' && base64Image) {
         let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
         buffer = await randomizeImage(buffer);
         result = await sock.sendMessage(targetJid, { image: buffer, caption: finalMessage || "" });
