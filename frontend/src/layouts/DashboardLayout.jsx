@@ -19,6 +19,7 @@ import WhatsAppConfig from '../pages/WhatsAppConfig';
 import Employees from '../pages/Employees';
 import LiveMonitoring from '../pages/LiveMonitoring';
 import ScheduledMessages from '../pages/ScheduledMessages';
+import SolverDashboard from '../pages/SolverDashboard';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
