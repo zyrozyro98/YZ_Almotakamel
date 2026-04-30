@@ -163,7 +163,7 @@ export default function DashboardLayout() {
     { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true, component: <PhotoSender /> },
     { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true, component: <ScheduledMessages /> },
     { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true, component: <Reports /> },
-    { path: '/solver', label: 'لوحة الحل', icon: <FileText size={20} />, solverOnly: true, component: null }
+    { path: '/solver', label: 'لوحة الحل', icon: <FileText size={20} />, solverOnly: true, component: <SolverDashboard /> }
   ];
 
   const navItems = allNavItems.filter(item => {

@@ -31,9 +31,14 @@ export default function SolverDashboard() {
       if (user) {
         try {
           const empDoc = await getDoc(doc(db, 'employees', user.uid));
-          if (empDoc.exists() && empDoc.data().role === 'solver') {
+          if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
             const data = empDoc.data();
-            setSolverData({ id: user.uid, ...data });
+            // If admin, give them full access for testing purposes
+            if (data.role === 'admin') {
+               data.assignedUniversity = 'الكل';
+               data.assignedMajor = 'الكل';
+            }
+            setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
             
             // Fetch university platformUrl if available
             if (data.assignedUniversity && data.assignedUniversity !== 'الكل') {
@@ -51,6 +56,9 @@ export default function SolverDashboard() {
               const matched = [];
               snap.forEach(s => {
                 const sData = s.data();
+                // IMPORTANT: Only fetch students whose order is COMPLETED (paid & data received)
+                if (sData.mainStatus !== 'مكتمل') return;
+
                 const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
                 const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
                 if (matchUniv && matchMajor) {
