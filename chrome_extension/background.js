@@ -17,7 +17,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && pendingLoginData[tabId]) {
     // Inject the auto-fill script into the university page
     chrome.scripting.executeScript({
-      target: { tabId: tabId },
+      target: { tabId: tabId, allFrames: true },
       func: autoFillLogin,
       args: [pendingLoginData[tabId]]
     });
@@ -28,36 +28,44 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 // This function will be executed inside the university's webpage context
 function autoFillLogin(data) {
-  try {
+  // Use a polling mechanism because modern websites (React/Angular) might load the DOM *after* the page is 'complete'
+  let attempts = 0;
+  const maxAttempts = 20; // 20 attempts * 500ms = 10 seconds timeout
+
+  const tryInject = setInterval(() => {
+    attempts++;
     let injected = false;
     
-    if (data.userSelector) {
-      const uField = document.querySelector(data.userSelector);
+    const uField = data.userSelector ? document.querySelector(data.userSelector) : null;
+    const pField = data.passSelector ? document.querySelector(data.passSelector) : null;
+    
+    // Check if at least one of the fields exists
+    if (uField || pField) {
+      clearInterval(tryInject); // Stop polling once we find the form
+
       if (uField) {
         uField.value = data.username;
         uField.dispatchEvent(new Event('input', { bubbles: true }));
         uField.dispatchEvent(new Event('change', { bubbles: true }));
         injected = true;
       }
-    }
-    
-    if (data.passSelector) {
-      const pField = document.querySelector(data.passSelector);
+      
       if (pField) {
         pField.value = data.password;
         pField.dispatchEvent(new Event('input', { bubbles: true }));
         pField.dispatchEvent(new Event('change', { bubbles: true }));
         injected = true;
       }
+      
+      if (data.btnSelector && injected) {
+        setTimeout(() => {
+          const btn = document.querySelector(data.btnSelector);
+          if (btn) btn.click();
+        }, 800); // Wait 800ms before clicking to ensure frameworks (like React/Angular) registered the input changes
+      }
+    } else if (attempts >= maxAttempts) {
+      clearInterval(tryInject); // Stop polling after 10 seconds
+      console.warn("Auto-login extension timeout: Could not find elements matching selectors:", data.userSelector, data.passSelector);
     }
-    
-    if (data.btnSelector && injected) {
-      setTimeout(() => {
-        const btn = document.querySelector(data.btnSelector);
-        if (btn) btn.click();
-      }, 500); // Wait 500ms before clicking to ensure frameworks (like React/Angular) registered the input changes
-    }
-  } catch (err) {
-    console.error("Auto-login extension error:", err);
-  }
+  }, 500);
 }
