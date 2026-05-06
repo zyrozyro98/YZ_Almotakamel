@@ -17,6 +17,7 @@ import Employees from './pages/Employees';
 import LiveMonitoring from './pages/LiveMonitoring';
 import ScheduledMessages from './pages/ScheduledMessages';
 import SolverDashboard from './pages/SolverDashboard';
+import SolverControl from './pages/SolverControl';
 import './index.css';
 
 function App() {
@@ -59,6 +60,7 @@ function App() {
           <Route path="scheduled-messages" element={<ScheduledMessages />} />
           <Route path="employees" element={<Employees />} />
           <Route path="solver" element={<SolverDashboard />} />
+          <Route path="solver-control" element={<SolverControl />} />
         </Route>
       </Routes>
     </BrowserRouter>

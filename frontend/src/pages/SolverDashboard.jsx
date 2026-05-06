@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, getDoc, getDocs, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { ExternalLink, Copy, Check, Lock, Shield, ImagePlus, Send, AlertTriangle, User, RefreshCw, X, Clock, CheckCircle, FileText, ArrowRight, BookOpen, GraduationCap } from 'lucide-react';
+import { ExternalLink, Copy, Check, Lock, Shield, ImagePlus, Send, AlertTriangle, User, RefreshCw, X, Clock, CheckCircle, FileText, ArrowRight, BookOpen, GraduationCap, Eye, EyeOff } from 'lucide-react';
 
 export default function SolverDashboard() {
   const [solverData, setSolverData] = useState(null);
@@ -11,7 +11,12 @@ export default function SolverDashboard() {
   const [copiedField, setCopiedField] = useState('');
   const [assignedUnivPlatformUrl, setAssignedUnivPlatformUrl] = useState('');
   const [activeTab, setActiveTab] = useState('new'); // 'new', 'in_progress', 'completed'
-  
+  const [showUsername, setShowUsername] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [platformModalOpen, setPlatformModalOpen] = useState(false);
+  const [currentPlatformUrl, setCurrentPlatformUrl] = useState('');
+  const [universitiesData, setUniversitiesData] = useState([]);
+
   const [submissionData, setSubmissionData] = useState({
     proofImage: '',
     notes: ''
@@ -35,21 +40,22 @@ export default function SolverDashboard() {
             const data = empDoc.data();
             // If admin, give them full access for testing purposes
             if (data.role === 'admin') {
-               data.assignedUniversity = 'الكل';
-               data.assignedMajor = 'الكل';
+              data.assignedUniversity = 'الكل';
+              data.assignedMajor = 'الكل';
             }
             setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
-            
-            // Fetch university platformUrl if available
-            if (data.assignedUniversity && data.assignedUniversity !== 'الكل') {
-               getDocs(collection(db, 'universities')).then(snap => {
-                 snap.forEach(u => {
-                   if (u.data().name === data.assignedUniversity && u.data().platformUrl) {
-                     setAssignedUnivPlatformUrl(u.data().platformUrl);
-                   }
-                 });
-               }).catch(e => console.error(e));
-            }
+
+            // Fetch universities
+            getDocs(collection(db, 'universities')).then(snap => {
+              const univs = [];
+              snap.forEach(u => {
+                univs.push({ id: u.id, ...u.data() });
+                if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
+                  setAssignedUnivPlatformUrl(u.data().platformUrl);
+                }
+              });
+              setUniversitiesData(univs);
+            }).catch(e => console.error(e));
 
             // Fetch students
             const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
@@ -70,7 +76,7 @@ export default function SolverDashboard() {
             setLoading(false);
             return () => unsubStudents();
           } else {
-             setLoading(false);
+            setLoading(false);
           }
         } catch (e) {
           console.error(e);
@@ -92,49 +98,54 @@ export default function SolverDashboard() {
   };
 
   const clearClipboard = () => {
-    navigator.clipboard.writeText('').catch(() => {});
+    navigator.clipboard.writeText('').catch(() => { });
   };
 
   const openStudentPanel = async (student) => {
     // If not already locked by this solver, lock it
     if (student.solverStatus !== 'in_progress' || student.lockedById !== solverData.id) {
-       try {
-          await updateDoc(doc(db, 'students', student.id), {
-             solverStatus: 'in_progress',
-             lockedById: solverData.id,
-             solvedBy: solverData.name
-          });
-       } catch(e) {
-          console.error(e);
-          alert('حدث خطأ أثناء حجز المهمة');
-          return;
-       }
+      try {
+        await updateDoc(doc(db, 'students', student.id), {
+          solverStatus: 'in_progress',
+          lockedById: solverData.id,
+          solvedBy: solverData.name
+        });
+      } catch (e) {
+        console.error(e);
+        alert('حدث خطأ أثناء حجز المهمة');
+        return;
+      }
     }
     clearClipboard();
     setSelectedStudent({ ...student, solverStatus: 'in_progress', lockedById: solverData.id });
     setSubmissionData({ proofImage: '', notes: '' });
+    setShowUsername(false);
+    setShowPassword(false);
   };
 
   const closeStudentPanel = () => {
     clearClipboard();
     setSelectedStudent(null);
     setSubmissionData({ proofImage: '', notes: '' });
+    setShowUsername(false);
+    setShowPassword(false);
+    setPlatformModalOpen(false);
   };
 
   const cancelStudentTask = async () => {
     if (!selectedStudent) return;
     if (window.confirm('هل أنت متأكد من إلغاء حجز هذه المهمة؟ سيتم إعادتها لقائمة المهام الجديدة ليتمكن غيرك من حلها.')) {
-       try {
-         await updateDoc(doc(db, 'students', selectedStudent.id), {
-            solverStatus: 'pending',
-            lockedById: null,
-            solvedBy: null
-         });
-         closeStudentPanel();
-       } catch (e) {
-         console.error(e);
-         alert('حدث خطأ أثناء إلغاء المهمة');
-       }
+      try {
+        await updateDoc(doc(db, 'students', selectedStudent.id), {
+          solverStatus: 'pending',
+          lockedById: null,
+          solvedBy: null
+        });
+        closeStudentPanel();
+      } catch (e) {
+        console.error(e);
+        alert('حدث خطأ أثناء إلغاء المهمة');
+      }
     }
   };
 
@@ -257,7 +268,7 @@ export default function SolverDashboard() {
         {type === 'in_progress' && (
           <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', background: 'var(--warning)' }}></div>
         )}
-        
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: '50px', height: '50px', borderRadius: '14px', background: 'linear-gradient(135deg, rgba(59,130,246,0.1), rgba(6,182,212,0.1))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand-primary)' }}>
             <User size={24} />
@@ -265,16 +276,16 @@ export default function SolverDashboard() {
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>{student.name}</h3>
             <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
-               <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}><GraduationCap size={12}/> {student.major || 'غير محدد'}</span>
-               <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>| دفعة: {student.batch || '-'}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}><GraduationCap size={12} /> {student.major || 'غير محدد'}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>| دفعة: {student.batch || '-'}</span>
             </div>
           </div>
         </div>
-        
+
         {type !== 'completed' ? (
-          <button 
-            className="btn-primary" 
-            style={{ width: '100%', padding: '12px', marginTop: 'auto', background: type === 'in_progress' ? 'linear-gradient(135deg, var(--warning), #d97706)' : '' }} 
+          <button
+            className="btn-primary"
+            style={{ width: '100%', padding: '12px', marginTop: 'auto', background: type === 'in_progress' ? 'linear-gradient(135deg, var(--warning), #d97706)' : '' }}
             onClick={() => openStudentPanel(student)}
           >
             {type === 'in_progress' ? 'متابعة الحل' : 'بدء الحل'} <ArrowRight size={16} />
@@ -295,7 +306,7 @@ export default function SolverDashboard() {
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>مرحباً بك، {solverData.name}</h1>
           <p style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-             <BookOpen size={16}/> الجامعة المخصصة: <strong style={{ color: '#fff' }}>{solverData.assignedUniversity || 'الكل'}</strong> | التخصص: <strong style={{ color: '#fff' }}>{solverData.assignedMajor || 'الكل'}</strong>
+            <BookOpen size={16} /> الجامعة المخصصة: <strong style={{ color: '#fff' }}>{solverData.assignedUniversity || 'الكل'}</strong> | التخصص: <strong style={{ color: '#fff' }}>{solverData.assignedMajor || 'الكل'}</strong>
           </p>
         </div>
         <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '10px 20px', borderRadius: '14px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
@@ -305,31 +316,31 @@ export default function SolverDashboard() {
 
       <div className="grid grid-cols-3 sm-grid-cols-1 gap-4" style={{ marginBottom: '2.5rem' }}>
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
-           <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <FileText size={24} />
-           </div>
-           <div>
-              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>مهام جديدة</p>
-              <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{newTasks.length}</h2>
-           </div>
+          <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FileText size={24} />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>مهام جديدة</p>
+            <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{newTasks.length}</h2>
+          </div>
         </div>
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
-           <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Clock size={24} />
-           </div>
-           <div>
-              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>قيد الإنجاز</p>
-              <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{myInProgressTasks.length}</h2>
-           </div>
+          <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Clock size={24} />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>قيد الإنجاز</p>
+            <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{myInProgressTasks.length}</h2>
+          </div>
         </div>
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
-           <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <CheckCircle size={24} />
-           </div>
-           <div>
-              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>إنجازاتي</p>
-              <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{myCompletedTasks.length}</h2>
-           </div>
+          <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>إنجازاتي</p>
+            <h2 style={{ margin: 0, fontSize: '1.8rem' }}>{myCompletedTasks.length}</h2>
+          </div>
         </div>
       </div>
 
@@ -337,22 +348,22 @@ export default function SolverDashboard() {
         <>
           {/* Tabs */}
           <div style={{ display: 'flex', gap: '10px', marginBottom: '1.5rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-            <button 
-              className={activeTab === 'new' ? 'btn-primary' : 'btn-secondary'} 
+            <button
+              className={activeTab === 'new' ? 'btn-primary' : 'btn-secondary'}
               style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '0.95rem' }}
               onClick={() => setActiveTab('new')}
             >
               المهام الجديدة ({newTasks.length})
             </button>
-            <button 
-              className={activeTab === 'in_progress' ? 'btn-primary' : 'btn-secondary'} 
+            <button
+              className={activeTab === 'in_progress' ? 'btn-primary' : 'btn-secondary'}
               style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '0.95rem', background: activeTab === 'in_progress' ? 'linear-gradient(135deg, var(--warning), #d97706)' : '' }}
               onClick={() => setActiveTab('in_progress')}
             >
               قيد الإنجاز ({myInProgressTasks.length})
             </button>
-            <button 
-              className={activeTab === 'completed' ? 'btn-primary' : 'btn-secondary'} 
+            <button
+              className={activeTab === 'completed' ? 'btn-primary' : 'btn-secondary'}
               style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '0.95rem', background: activeTab === 'completed' ? 'linear-gradient(135deg, var(--success), #059669)' : '' }}
               onClick={() => setActiveTab('completed')}
             >
@@ -369,7 +380,7 @@ export default function SolverDashboard() {
         </>
       ) : (
         <div className="glass-panel animate-fade-in-up" style={{ padding: '2.5rem', maxWidth: '800px', margin: '0 auto', position: 'relative', borderRadius: '24px' }}>
-          <button 
+          <button
             onClick={closeStudentPanel}
             style={{ position: 'absolute', top: '25px', left: '25px', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)', padding: '10px', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s' }}
             onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
@@ -378,64 +389,47 @@ export default function SolverDashboard() {
           >
             <ArrowRight size={20} />
           </button>
-          
-          <div style={{ marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-             <div>
-                <h2 style={{ margin: 0, color: '#fff', fontSize: '1.6rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                   <User size={28} color="var(--brand-primary)"/> مهمة الطالب: {selectedStudent.name}
-                </h2>
-                <p style={{ margin: '5px 0 0 38px', color: 'var(--text-secondary)' }}>الجامعة: {selectedStudent.university} | التخصص: {selectedStudent.major}</p>
-             </div>
-             <div>
-                <button 
-                  onClick={cancelStudentTask}
-                  className="btn-secondary" 
-                  style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)' }}
-                  title="إلغاء حجز هذه المهمة لتعود لقائمة المهام الجديدة"
-                >
-                   <X size={16} /> إلغاء المهمة
-                </button>
-             </div>
-          </div>
-          
-          <div className="grid grid-cols-2 sm-grid-cols-1 gap-6" style={{ marginBottom: '2rem' }}>
-            <div className="flex-col gap-3">
-              <label className="input-label" style={{ color: 'var(--text-secondary)' }}>اسم المستخدم</label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <input type="text" className="input-base" readOnly value={selectedStudent.username || 'غير متوفر'} style={{ opacity: 0.8, fontSize: '1.1rem', letterSpacing: '1px' }} />
-                <button 
-                  className="btn-secondary" 
-                  onClick={() => handleCopy(selectedStudent.username, 'username')}
-                  style={{ width: '56px', background: copiedField === 'username' ? 'rgba(16, 185, 129, 0.2)' : '', borderColor: copiedField === 'username' ? 'var(--success)' : '' }}
-                >
-                  {copiedField === 'username' ? <Check size={20} color="#10b981" /> : <Copy size={20} />}
-                </button>
-              </div>
-            </div>
 
-            <div className="flex-col gap-3">
-              <label className="input-label" style={{ color: 'var(--text-secondary)' }}>كلمة المرور</label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <input type="text" className="input-base" readOnly value={selectedStudent.password || 'غير متوفر'} style={{ opacity: 0.8, fontSize: '1.1rem', letterSpacing: '1px' }} />
-                <button 
-                  className="btn-secondary" 
-                  onClick={() => handleCopy(selectedStudent.password, 'password')}
-                  style={{ width: '56px', background: copiedField === 'password' ? 'rgba(16, 185, 129, 0.2)' : '', borderColor: copiedField === 'password' ? 'var(--success)' : '' }}
-                >
-                  {copiedField === 'password' ? <Check size={20} color="#10b981" /> : <Copy size={20} />}
-                </button>
-              </div>
+          <div style={{ marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ margin: 0, color: '#fff', fontSize: '1.6rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <User size={28} color="var(--brand-primary)" /> مهمة الطالب: {selectedStudent.name}
+              </h2>
+              <p style={{ margin: '5px 0 0 38px', color: 'var(--text-secondary)' }}>الجامعة: {selectedStudent.university} | التخصص: {selectedStudent.major}</p>
+            </div>
+            <div>
+              <button
+                onClick={cancelStudentTask}
+                className="btn-secondary"
+                style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)' }}
+                title="إلغاء حجز هذه المهمة لتعود لقائمة المهام الجديدة"
+              >
+                <X size={16} /> إلغاء المهمة
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6" style={{ marginBottom: '2rem' }}>
+            <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.2)', textAlign: 'center' }}>
+              <Shield size={40} color="var(--brand-primary)" style={{ margin: '0 auto 10px' }} />
+              <h3 style={{ color: '#fff', marginBottom: '10px' }}>البيانات مشفرة ومخفية</h3>
+              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                لقد تم إخفاء بيانات الدخول للطالب بالكامل لدواعي الأمان. اضغط على الزر أدناه للدخول للمنصة وسيتم الإدخال التلقائي بناءً على إعدادات الأتمتة المسبقة.
+              </p>
             </div>
           </div>
 
           <div style={{ marginBottom: '2.5rem', textAlign: 'center' }}>
-            <button 
-              className="btn-primary" 
+            <button
+              className="btn-primary"
               style={{ width: '100%', padding: '18px', fontSize: '1.1rem', gap: '10px', borderRadius: '16px', boxShadow: '0 8px 25px rgba(59, 130, 246, 0.25)' }}
               onClick={() => {
                 const finalUrl = selectedStudent.platformUrl || assignedUnivPlatformUrl;
                 if (finalUrl) {
-                  window.open(finalUrl, '_blank');
+                  // Ensure URL has http/https
+                  const url = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
+                  setCurrentPlatformUrl(url);
+                  setPlatformModalOpen(true);
                 } else {
                   alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب ولا للجامعة.');
                 }
@@ -449,7 +443,7 @@ export default function SolverDashboard() {
             <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', color: '#fff' }}>
               <Shield size={22} color="var(--success)" /> إرسال النتيجة للإدارة
             </h3>
-            
+
             <form onSubmit={handleSubmit} className="flex-col gap-5">
               <div className="flex-col gap-2">
                 <label className="input-label">صورة إثبات الحل (إلزامي)</label>
@@ -459,12 +453,12 @@ export default function SolverDashboard() {
                     {submissionData.proofImage ? (
                       <>
                         <img src={submissionData.proofImage} alt="Preview" style={{ maxHeight: '180px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }} />
-                        <span style={{ color: 'var(--success)', fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}><CheckCircle size={16}/> تم إرفاق الصورة بنجاح (اضغط للتغيير)</span>
+                        <span style={{ color: 'var(--success)', fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}><CheckCircle size={16} /> تم إرفاق الصورة بنجاح (اضغط للتغيير)</span>
                       </>
                     ) : (
                       <>
                         <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                           <ImagePlus size={30} color="var(--text-secondary)" />
+                          <ImagePlus size={30} color="var(--text-secondary)" />
                         </div>
                         <span style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>اضغط هنا لاختيار صورة النتيجة</span>
                         <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', opacity: 0.7 }}>الحد الأقصى للحجم 2MB</span>
@@ -476,12 +470,12 @@ export default function SolverDashboard() {
 
               <div className="flex-col gap-2">
                 <label className="input-label">تفاصيل إضافية أو ملاحظات للإدارة (اختياري)</label>
-                <textarea 
-                  className="input-base" 
-                  rows="3" 
+                <textarea
+                  className="input-base"
+                  rows="3"
                   placeholder="اكتب أي تفاصيل أخرى ترغب في إضافتها للإدارة..."
                   value={submissionData.notes}
-                  onChange={e => setSubmissionData({...submissionData, notes: e.target.value})}
+                  onChange={e => setSubmissionData({ ...submissionData, notes: e.target.value })}
                   style={{ borderRadius: '12px', resize: 'vertical' }}
                 ></textarea>
               </div>
@@ -492,6 +486,83 @@ export default function SolverDashboard() {
             </form>
           </div>
 
+        </div>
+      )}
+
+      {/* Platform Modal */}
+      {platformModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'var(--bg-primary)', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '15px 20px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Shield size={20} color="var(--brand-primary)" /> المنصة التعليمية
+              </h2>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>جاري حقن البيانات تلقائياً...</span>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button 
+                onClick={() => window.open(currentPlatformUrl, '_blank')}
+                className="btn-secondary"
+                style={{ padding: '8px 15px', borderRadius: '10px' }}
+                title="إذا لم تفتح المنصة هنا، اضغط لفتحها في تبويب جديد"
+              >
+                <ExternalLink size={18} /> فتح في نافذة خارجية
+              </button>
+              <button 
+                onClick={() => setPlatformModalOpen(false)}
+                className="btn-secondary"
+                style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', padding: '8px 15px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+              >
+                <X size={18} /> إغلاق المنصة
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, position: 'relative', background: '#fff' }} onContextMenu={(e) => e.preventDefault()}>
+            <iframe 
+              src={currentPlatformUrl}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title="المنصة التعليمية"
+              allow="clipboard-read; clipboard-write"
+              onLoad={(e) => {
+                if (!selectedStudent) return;
+                const univ = universitiesData.find(u => u.name === selectedStudent.university);
+                if (!univ) return;
+                
+                try {
+                  const iframeDoc = e.target.contentDocument || e.target.contentWindow.document;
+                  
+                  if (univ.userSelector) {
+                    const userInput = iframeDoc.querySelector(univ.userSelector);
+                    if (userInput) {
+                      userInput.value = selectedStudent.username;
+                      userInput.dispatchEvent(new Event('input', { bubbles: true }));
+                      userInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                  }
+                  
+                  if (univ.passSelector) {
+                    const passInput = iframeDoc.querySelector(univ.passSelector);
+                    if (passInput) {
+                      passInput.value = selectedStudent.password;
+                      passInput.dispatchEvent(new Event('input', { bubbles: true }));
+                      passInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                  }
+
+                  if (univ.loginBtnSelector) {
+                    setTimeout(() => {
+                      const btn = iframeDoc.querySelector(univ.loginBtnSelector);
+                      if (btn) btn.click();
+                    }, 500);
+                  }
+                } catch (err) {
+                  console.warn("Automation injection failed (Expected if CORS is strictly enforced):", err);
+                }
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

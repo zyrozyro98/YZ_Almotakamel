@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio, Calendar } from 'lucide-react';
+import { LayoutDashboard, Users, ClipboardList, MessageCircle, FileText, Bell, ImagePlus, Building, PieChart, Menu, X, LogOut, ChevronLeft, Smartphone, Radio, Calendar, ShieldCheck } from 'lucide-react';
 import { rtdb, auth, db } from '../firebase';
 import { ref, onValue, update } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -20,6 +20,7 @@ import Employees from '../pages/Employees';
 import LiveMonitoring from '../pages/LiveMonitoring';
 import ScheduledMessages from '../pages/ScheduledMessages';
 import SolverDashboard from '../pages/SolverDashboard';
+import SolverControl from '../pages/SolverControl';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -163,6 +164,7 @@ export default function DashboardLayout() {
     { path: '/receipts', label: 'الإيصالات والتقارير', icon: <FileText size={20} />, adminOnly: true, component: <Receipts /> },
     { path: '/photosender', label: 'إرسال صور الحضور', icon: <ImagePlus size={20} />, adminOnly: true, component: <PhotoSender /> },
     { path: '/scheduled-messages', label: 'الرسائل المجدولة', icon: <Calendar size={20} />, adminOnly: true, component: <ScheduledMessages /> },
+    { path: '/solver-control', label: 'رقابة الحلول', icon: <ShieldCheck size={20} />, adminOnly: true, component: <SolverControl /> },
     { path: '/reports', label: 'الرقابة والإحصائيات', icon: <PieChart size={20} />, adminOnly: true, component: <Reports /> },
     { path: '/solver', label: 'لوحة الحل', icon: <FileText size={20} />, solverOnly: true, component: <SolverDashboard /> }
   ];
