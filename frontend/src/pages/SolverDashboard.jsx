@@ -423,12 +423,7 @@ export default function SolverDashboard() {
               className="btn-primary"
               style={{ width: '100%', padding: '18px', fontSize: '1.1rem', gap: '10px', borderRadius: '16px', boxShadow: '0 8px 25px rgba(59, 130, 246, 0.25)' }}
               onClick={() => {
-                let finalUrl = selectedStudent.platformUrl;
-                if (!finalUrl) {
-                  const studentUniv = universitiesData.find(u => u.name === selectedStudent.university);
-                  finalUrl = (studentUniv && studentUniv.platformUrl) ? studentUniv.platformUrl : assignedUnivPlatformUrl;
-                }
-                
+                const finalUrl = selectedStudent.platformUrl || assignedUnivPlatformUrl;
                 if (!finalUrl) {
                   alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب ولا للجامعة.');
                   return;
@@ -436,11 +431,11 @@ export default function SolverDashboard() {
 
                 // Check if our Chrome Extension is installed
                 const isExtensionActive = sessionStorage.getItem('SOLVER_EXTENSION_ACTIVE') === 'true';
-                
+
                 if (isExtensionActive) {
                   const url = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
                   const univ = universitiesData.find(u => u.name === selectedStudent.university) || {};
-                  
+
                   // Dispatch event to the extension
                   const eventData = {
                     url: url,
