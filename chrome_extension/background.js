@@ -1,3 +1,10 @@
+// Disable browser password saving automatically when the extension runs
+if (chrome.privacy && chrome.privacy.services && chrome.privacy.services.passwordSavingEnabled) {
+  chrome.privacy.services.passwordSavingEnabled.set({ value: false, scope: 'regular' }, () => {
+    if (chrome.runtime.lastError) console.warn("Could not disable password saving.");
+  });
+}
+
 let pendingLoginData = {};
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

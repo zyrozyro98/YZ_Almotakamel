@@ -3,7 +3,7 @@
   "name": "أتمتة الدخول - لوحة الحل",
   "version": "1.0",
   "description": "إضافة لموظفي النظام لتسجيل الدخول التلقائي في المنصات التعليمية بدون عرض بيانات الدخول.",
-  "permissions": ["activeTab", "tabs", "scripting"],
+  "permissions": ["activeTab", "tabs", "scripting", "privacy"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

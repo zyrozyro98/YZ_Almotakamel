@@ -243,11 +243,12 @@ export default function SolverControl() {
                   <th>التخصص</th>
                   <th>رقم الواتساب</th>
                   <th>حالة الحل</th>
+                  <th>إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredUnsolved.length === 0 ? (
-                  <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>لا يوجد طلاب</td></tr>
+                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>لا يوجد طلاب</td></tr>
                 ) : (
                   filteredUnsolved.map(s => (
                     <tr key={s.id}>
@@ -260,6 +261,18 @@ export default function SolverControl() {
                           <span className="badge badge-warning">قيد الحل (بواسطة {s.solvedBy})</span>
                         ) : (
                           <span className="badge badge-danger">بانتظار الحل</span>
+                        )}
+                      </td>
+                      <td>
+                        {s.solverStatus === 'in_progress' && (
+                          <button 
+                            className="btn-secondary" 
+                            style={{ padding: '6px 12px', fontSize: '0.85rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                            onClick={() => resetStudentSolverStatus(s.id, s.name)}
+                            title="إلغاء حجز المهمة وإعادتها لقائمة المهام الجديدة ليتمكن موظف آخر من حلها"
+                          >
+                            <RotateCcw size={14} style={{ marginLeft: '5px' }} /> استعادة للمهام الجديدة
+                          </button>
                         )}
                       </td>
                     </tr>
