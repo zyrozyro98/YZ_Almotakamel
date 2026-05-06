@@ -388,14 +388,23 @@ export default function SolverControl() {
 
       {/* Image Modal */}
       {selectedImage && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(5px)' }}>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(5px)' }}
+          onClick={() => setSelectedImage(null)}
+        >
           <button 
-            style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}
-            onClick={() => setSelectedImage(null)}
+            style={{ position: 'absolute', top: '25px', right: '30px', background: 'var(--danger)', border: 'none', color: '#fff', padding: '12px 24px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)', zIndex: 10000 }}
+            onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
+            title="إغلاق الصورة"
           >
-            <X size={24} />
+            <X size={24} /> إغلاق الصورة
           </button>
-          <img src={selectedImage} alt="إثبات الحل" style={{ maxWidth: '90%', maxHeight: '90vh', borderRadius: '12px', boxShadow: '0 0 30px rgba(0,0,0,0.5)' }} />
+          <img 
+            src={selectedImage} 
+            alt="إثبات الحل" 
+            style={{ maxWidth: '90%', maxHeight: '90vh', borderRadius: '12px', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }} 
+            onClick={(e) => e.stopPropagation()} 
+          />
         </div>
       )}
     </div>

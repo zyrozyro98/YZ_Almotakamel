@@ -57,13 +57,12 @@ export default function SolverDashboard() {
               setUniversitiesData(univs);
             }).catch(e => console.error(e));
 
-            // Fetch students
             const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
               const matched = [];
               snap.forEach(s => {
                 const sData = s.data();
-                // IMPORTANT: Only fetch students whose order is COMPLETED (paid & data received)
-                if (sData.mainStatus !== 'مكتمل') return;
+                // Fix: Allow new students to appear by removing the 'مكتمل' restriction
+                // if (sData.mainStatus !== 'مكتمل') return;
 
                 const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
                 const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
@@ -424,18 +423,41 @@ export default function SolverDashboard() {
               className="btn-primary"
               style={{ width: '100%', padding: '18px', fontSize: '1.1rem', gap: '10px', borderRadius: '16px', boxShadow: '0 8px 25px rgba(59, 130, 246, 0.25)' }}
               onClick={() => {
-                const finalUrl = selectedStudent.platformUrl || assignedUnivPlatformUrl;
-                if (finalUrl) {
-                  // Ensure URL has http/https
-                  const url = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
-                  setCurrentPlatformUrl(url);
-                  setPlatformModalOpen(true);
-                } else {
+                let finalUrl = selectedStudent.platformUrl;
+                if (!finalUrl) {
+                  const studentUniv = universitiesData.find(u => u.name === selectedStudent.university);
+                  finalUrl = (studentUniv && studentUniv.platformUrl) ? studentUniv.platformUrl : assignedUnivPlatformUrl;
+                }
+                
+                if (!finalUrl) {
                   alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب ولا للجامعة.');
+                  return;
+                }
+
+                // Check if our Chrome Extension is installed
+                const isExtensionActive = sessionStorage.getItem('SOLVER_EXTENSION_ACTIVE') === 'true';
+                
+                if (isExtensionActive) {
+                  const url = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
+                  const univ = universitiesData.find(u => u.name === selectedStudent.university) || {};
+                  
+                  // Dispatch event to the extension
+                  const eventData = {
+                    url: url,
+                    username: selectedStudent.username,
+                    password: selectedStudent.password,
+                    userSelector: univ.userSelector,
+                    passSelector: univ.passSelector,
+                    btnSelector: univ.loginBtnSelector
+                  };
+                  window.dispatchEvent(new CustomEvent('SOLVER_AUTO_LOGIN_EVENT', { detail: eventData }));
+                } else {
+                  // Fallback if extension is not installed
+                  alert('عذراً، يجب عليك تثبيت "إضافة متصفح كروم الخاصة بالدخول التلقائي" لتتمكن من فتح المنصة. تواصل مع الإدارة للحصول عليها.');
                 }
               }}
             >
-              <ExternalLink size={22} /> الانتقال للمنصة التعليمية
+              <ExternalLink size={22} /> الانتقال للمنصة التعليمية وتسجيل الدخول تلقائياً
             </button>
           </div>
 
@@ -489,82 +511,7 @@ export default function SolverDashboard() {
         </div>
       )}
 
-      {/* Platform Modal */}
-      {platformModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'var(--bg-primary)', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '15px 20px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Shield size={20} color="var(--brand-primary)" /> المنصة التعليمية
-              </h2>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>جاري حقن البيانات تلقائياً...</span>
-            </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button 
-                onClick={() => window.open(currentPlatformUrl, '_blank')}
-                className="btn-secondary"
-                style={{ padding: '8px 15px', borderRadius: '10px' }}
-                title="إذا لم تفتح المنصة هنا، اضغط لفتحها في تبويب جديد"
-              >
-                <ExternalLink size={18} /> فتح في نافذة خارجية
-              </button>
-              <button 
-                onClick={() => setPlatformModalOpen(false)}
-                className="btn-secondary"
-                style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', padding: '8px 15px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}
-              >
-                <X size={18} /> إغلاق المنصة
-              </button>
-            </div>
-          </div>
-
-          <div style={{ flex: 1, position: 'relative', background: '#fff' }} onContextMenu={(e) => e.preventDefault()}>
-            <iframe 
-              src={currentPlatformUrl}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              title="المنصة التعليمية"
-              allow="clipboard-read; clipboard-write"
-              onLoad={(e) => {
-                if (!selectedStudent) return;
-                const univ = universitiesData.find(u => u.name === selectedStudent.university);
-                if (!univ) return;
-                
-                try {
-                  const iframeDoc = e.target.contentDocument || e.target.contentWindow.document;
-                  
-                  if (univ.userSelector) {
-                    const userInput = iframeDoc.querySelector(univ.userSelector);
-                    if (userInput) {
-                      userInput.value = selectedStudent.username;
-                      userInput.dispatchEvent(new Event('input', { bubbles: true }));
-                      userInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                  }
-                  
-                  if (univ.passSelector) {
-                    const passInput = iframeDoc.querySelector(univ.passSelector);
-                    if (passInput) {
-                      passInput.value = selectedStudent.password;
-                      passInput.dispatchEvent(new Event('input', { bubbles: true }));
-                      passInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                  }
-
-                  if (univ.loginBtnSelector) {
-                    setTimeout(() => {
-                      const btn = iframeDoc.querySelector(univ.loginBtnSelector);
-                      if (btn) btn.click();
-                    }, 500);
-                  }
-                } catch (err) {
-                  console.warn("Automation injection failed (Expected if CORS is strictly enforced):", err);
-                }
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Old modal removed */}
     </div>
   );
 }
