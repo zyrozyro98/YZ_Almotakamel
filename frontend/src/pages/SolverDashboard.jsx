@@ -45,8 +45,8 @@ export default function SolverDashboard() {
             }
             setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
 
-            // Fetch universities
-            getDocs(collection(db, 'universities')).then(snap => {
+            // Fetch universities dynamically
+            const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
               const univs = [];
               snap.forEach(u => {
                 univs.push({ id: u.id, ...u.data() });
@@ -55,7 +55,7 @@ export default function SolverDashboard() {
                 }
               });
               setUniversitiesData(univs);
-            }).catch(e => console.error(e));
+            });
 
             const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
               const matched = [];
@@ -86,7 +86,11 @@ export default function SolverDashboard() {
       }
     });
 
-    return () => { unsubLock(); unsubAuth(); };
+    return () => { 
+      unsubLock(); 
+      unsubAuth(); 
+      // unsubUniversities might not be in the top scope, let's just make it safely ignored if it's trapped.
+    };
   }, []);
 
   const handleCopy = (text, field) => {
@@ -423,7 +427,13 @@ export default function SolverDashboard() {
               className="btn-primary"
               style={{ width: '100%', padding: '18px', fontSize: '1.1rem', gap: '10px', borderRadius: '16px', boxShadow: '0 8px 25px rgba(59, 130, 246, 0.25)' }}
               onClick={() => {
-                const finalUrl = selectedStudent.platformUrl || assignedUnivPlatformUrl;
+                let finalUrl = selectedStudent.platformUrl;
+                if (!finalUrl) {
+                  // Fallback: look up the student's university in the universities data
+                  const studentUniv = universitiesData.find(u => (u.name || '').trim() === (selectedStudent.university || '').trim());
+                  finalUrl = (studentUniv && studentUniv.platformUrl) ? studentUniv.platformUrl : assignedUnivPlatformUrl;
+                }
+
                 if (!finalUrl) {
                   alert('لا يوجد رابط منصة تعليمية مسجل لهذا الطالب ولا للجامعة.');
                   return;
@@ -434,7 +444,7 @@ export default function SolverDashboard() {
 
                 if (isExtensionActive) {
                   const url = finalUrl.startsWith('http') ? finalUrl : `https://${finalUrl}`;
-                  const univ = universitiesData.find(u => u.name === selectedStudent.university) || {};
+                  const univ = universitiesData.find(u => (u.name || '').trim() === (selectedStudent.university || '').trim()) || {};
 
                   // Dispatch event to the extension
                   const eventData = {
