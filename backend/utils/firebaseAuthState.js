@@ -1,5 +1,5 @@
 const { db } = require('../firebaseAdmin');
-const { BufferJSON } = require('@whiskeysockets/baileys');
+const { BufferJSON, Curve, generateRegistrationId } = require('@whiskeysockets/baileys');
 const crypto = require('crypto');
 
 /**
@@ -8,16 +8,27 @@ const crypto = require('crypto');
 const useFirestoreAuthState = async (employeeId) => {
     const collectionPath = `whatsapp_sessions/${employeeId}/state`;
 
-    const initCreds = () => ({
-        registrationId: Math.floor(Math.random() * 16383) + 1,
-        advSecretKey: crypto.randomBytes(32).toString('base64'),
-        nextPreKeyId: 1,
-        firstUnuploadedPreKeyId: 1,
-        serverHasPreKeys: false,
-        accountSettings: {
-            unarchiveChats: false
-        }
-    });
+    const initCreds = () => {
+        const noiseKey = Curve.generateKeyPair();
+        const signedIdentityKey = Curve.generateKeyPair();
+        return {
+            registrationId: generateRegistrationId(),
+            advSecretKey: crypto.randomBytes(32).toString('base64'),
+            nextPreKeyId: 1,
+            firstUnuploadedPreKeyId: 1,
+            serverHasPreKeys: false,
+            noiseKey: noiseKey,
+            signedIdentityKey: signedIdentityKey,
+            signedPreKey: {
+                keyPair: Curve.generateKeyPair(),
+                signature: Buffer.alloc(0), // Will be signed by Baileys
+                keyId: 1
+            },
+            accountSettings: {
+                unarchiveChats: false
+            }
+        };
+    };
 
     const writeData = async (data, id) => {
         try {
