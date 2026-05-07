@@ -575,7 +575,8 @@ export default function WhatsAppConfig() {
                     <strong style={{ color: '#fff', fontSize: '0.85rem', display: 'block', marginBottom: '10px' }}>💡 انقر لإضافة متغير في موضع المؤشر:</strong>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                         {[
-                            { label: 'اسم الطالب', val: '{name}' },
+                            { label: 'الاسم الكامل', val: '{name}' },
+                            { label: 'الاسم الأول', val: '{first_name}' },
                             { label: 'الجامعة', val: '{university}' },
                             { label: 'التخصص', val: '{major}' },
                             { label: 'اسم المستخدم', val: '{username}' },

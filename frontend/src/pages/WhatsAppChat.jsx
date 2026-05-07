@@ -1215,8 +1215,10 @@ export default function WhatsAppChat() {
                                 onClick={() => {
                                   let finalContent = msg.content;
                                   if (selectedChat) {
+                                    const firstName = selectedChat.name?.split(' ')[0] || '';
                                     finalContent = finalContent
                                       .replace(/{name}/g, selectedChat.name || '')
+                                      .replace(/{first_name}/g, firstName)
                                       .replace(/{university}/g, selectedChat.university || '')
                                       .replace(/{major}/g, selectedChat.major || selectedChat.specialization || '')
                                       .replace(/{username}/g, selectedChat.username || selectedChat.platformUser || '')
