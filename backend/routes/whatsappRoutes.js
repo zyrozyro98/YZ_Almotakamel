@@ -189,9 +189,32 @@ router.get('/status-all', async (req, res) => {
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);
+  const sock = whatsappService.getSession(employeeId);
   
-  // FORCE STANDARD JID: We will completely ignore @lid and any UI fullJid overrides
-  // This guarantees that we ALWAYS communicate via the standard phone number!
+  // Proactive Background Mapping: 
+  // We still query WA to discover if this number hides behind a LID.
+  // We don't use the LID for sending (to prevent Bad MAC), but we CACHE it 
+  // so that future INCOMING normal messages from this LID are recognized!
+  try {
+    const results = await sock.onWhatsApp(cleanPhone);
+    if (results && results.length > 0) {
+      const lidJid = results.find(r => r.exists && r.jid.includes('@lid'));
+      if (lidJid) {
+        const lid = lidJid.jid.split('@')[0].split(':')[0];
+        // Cache the mapping permanently so normal text replies don't split the chat!
+        await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
+        
+        // Also update the Firestore student profile
+        const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
+        if (!studentSnap.empty) {
+          await studentSnap.docs[0].ref.update({ fullJid: lidJid.jid }).catch(() => {});
+        }
+      }
+    }
+  } catch (e) { }
+
+  // FORCE STANDARD JID: We will completely ignore @lid for outgoing messages
+  // This guarantees that we ALWAYS communicate via the standard phone number and avoid Bad MAC!
   let finalPhone = cleanPhone;
   if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
   else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
