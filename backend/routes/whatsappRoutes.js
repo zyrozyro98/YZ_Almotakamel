@@ -109,7 +109,7 @@ router.post('/send', async (req, res) => {
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
-      const chatId = getPureNumber(targetJid);
+      const chatId = getPureNumber(phoneNumber); // ALWAYS use the provided phone number for UI consistency
       const updateData = {
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
