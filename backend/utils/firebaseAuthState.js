@@ -6,14 +6,11 @@ const { BufferJSON, initAuthState } = require('@whiskeysockets/baileys');
  */
 const useFirestoreAuthState = async (employeeId) => {
     const collectionPath = `whatsapp_sessions/${employeeId}/state`;
-    
-    // ... rest of functions
 
     const writeData = async (data, id) => {
         try {
-            // Encode ID to be safe for Firestore (replace / with _)
+            // Encode ID to be safe for Firestore (replace / with hex)
             const safeId = Buffer.from(id).toString('hex');
-            // Use BufferJSON to handle binary data correctly
             const jsonStr = JSON.stringify(data, BufferJSON.replacer);
             const docData = JSON.parse(jsonStr);
             await db.collection(collectionPath).doc(safeId).set(docData);
@@ -60,9 +57,6 @@ const useFirestoreAuthState = async (employeeId) => {
                         ids.map(async (id) => {
                             let value = await readData(`${type}-${id}`);
                             if (value) {
-                                if (type === 'app-state-sync-key') {
-                                    // Special handling for buffer-like structures if needed
-                                }
                                 data[id] = value;
                             }
                         })
@@ -90,7 +84,6 @@ const useFirestoreAuthState = async (employeeId) => {
             await writeData(creds, 'creds');
         },
         clearState: async () => {
-            // Bulk delete all documents in the session collection
             const snapshot = await db.collection(collectionPath).get();
             const batch = db.batch();
             snapshot.docs.forEach(doc => batch.delete(doc.ref));
