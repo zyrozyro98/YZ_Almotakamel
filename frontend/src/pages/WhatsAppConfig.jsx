@@ -15,8 +15,8 @@ export default function WhatsAppConfig() {
   const [employeeId, setEmployeeId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [employees, setEmployees] = useState([]);
-  const [targetEmployeeId, setTargetEmployeeId] = useState(null);
-  const [allStatuses, setAllStatuses] = useState([]);
+  const [targetEmployeeId, setTargetEmployeeId] = useState(() => localStorage.getItem('last_target_emp') || null);
+  const [allStatuses, setAllStatuses] = useState({});
   const [activeTab, setActiveTab] = useState('single'); // 'single', 'dashboard', 'quick_messages'
   const [proxy, setProxy] = useState({ host: '', port: '', user: '', pass: '', protocol: 'http' });
   const [showProxy, setShowProxy] = useState(false);
@@ -119,6 +119,9 @@ export default function WhatsAppConfig() {
         const data = snapshot.val();
         if (data) {
           setAllStatuses(prev => ({ ...prev, [emp.id]: data }));
+        } else {
+          // If no data exists, mark as disconnected but with a known state
+          setAllStatuses(prev => ({ ...prev, [emp.id]: { isConnected: false, status: 'disconnected' } }));
         }
       });
     });
@@ -394,6 +397,7 @@ export default function WhatsAppConfig() {
                           key={emp.id}
                           onClick={() => {
                             setTargetEmployeeId(emp.id);
+                            localStorage.setItem('last_target_emp', emp.id);
                             setWaStatus('checking');
                           }}
                           style={{ 
@@ -403,7 +407,12 @@ export default function WhatsAppConfig() {
                             transition: '0.3s', textAlign: 'center', position: 'relative'
                           }}
                         >
-                          <div style={{ position: 'absolute', top: '8px', right: '8px', width: '8px', height: '8px', borderRadius: '50%', background: status.isConnected ? 'var(--success)' : 'var(--danger)' }} />
+                          <div style={{ 
+                            position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', borderRadius: '50%', 
+                            background: status.isConnected ? 'var(--success)' : (!status.status ? 'rgba(255,255,255,0.1)' : 'var(--danger)'),
+                            boxShadow: status.isConnected ? '0 0 10px var(--success)' : 'none',
+                            transition: '0.3s'
+                          }} />
                           <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>{emp.name}</div>
                           <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.2)' }}>{emp.id.substring(0, 8)}...</div>
                         </div>

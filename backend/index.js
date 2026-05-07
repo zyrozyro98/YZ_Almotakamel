@@ -64,7 +64,7 @@ process.on('uncaughtException', (err) => {
 
 app.listen(PORT, async () => {
   console.log(`[SERVER] Running on http://localhost:${PORT}`);
-  
+
   // --- STARTUP STATUS RESET ---
   // Ensure we don't show stale "connected" statuses if the server restarted
   try {
@@ -83,7 +83,7 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error('[SYSTEM] Failed to reset statuses:', err.message);
   }
-  
+
   // Start the automated distribution service
   if (distributionService && typeof distributionService.initDistributionListener === 'function') {
     distributionService.initDistributionListener();
@@ -100,13 +100,13 @@ app.listen(PORT, async () => {
   if (fs.existsSync(sessionsParentDir)) {
     const files = fs.readdirSync(sessionsParentDir);
     console.log(`[AUTO-BOOT] Found ${files.filter(f => f.startsWith('session-')).length} potential sessions.`);
-    
+
     let delay = 0;
     for (const file of files) {
       if (file.startsWith('session-')) {
         const employeeId = file.replace('session-', '');
         const currentDelay = delay;
-        
+
         setTimeout(() => {
           console.log(`[AUTO-BOOT] Restoring session (${currentDelay}ms delay) for: ${employeeId}`);
           whatsappService.initializeSession(employeeId).catch(err => {
@@ -136,7 +136,7 @@ app.listen(PORT, async () => {
             fs.unlinkSync(filePath);
             console.log(`[MAINTENANCE] Deleted old file: ${file}`);
           }
-        } catch (e) {}
+        } catch (e) { }
       });
     }
   }, 24 * 60 * 60 * 1000); // Run once every 24 hours
@@ -152,7 +152,7 @@ app.listen(PORT, async () => {
       }).on('error', (err) => {
         console.warn('[ANTI-SLEEP] Heartbeat failed:', err.message);
       });
-    }, 10 * 60 * 1000); 
+    }, 10 * 60 * 1000);
   }
 });
 
