@@ -1,11 +1,13 @@
 const { db } = require('../firebaseAdmin');
-const { BufferJSON } = require('@whiskeysockets/baileys');
+const { BufferJSON, initAuthState } = require('@whiskeysockets/baileys');
 
 /**
  * Custom Baileys Auth State using Firestore for Persistence
  */
 const useFirestoreAuthState = async (employeeId) => {
     const collectionPath = `whatsapp_sessions/${employeeId}/state`;
+    
+    // ... rest of functions
 
     const writeData = async (data, id) => {
         try {
@@ -45,7 +47,8 @@ const useFirestoreAuthState = async (employeeId) => {
     };
 
     // Load initial creds
-    const creds = await readData('creds') || {};
+    const savedCreds = await readData('creds');
+    const creds = savedCreds || initAuthState().creds;
 
     return {
         state: {
