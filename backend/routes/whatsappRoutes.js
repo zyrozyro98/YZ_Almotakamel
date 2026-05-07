@@ -201,15 +201,20 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
     } catch (e) { }
   }
 
-  // 2. Proactive Discovery
+  // 2. Proactive Discovery & Background Mapping
   if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
     try {
       const results = await sock.onWhatsApp(phoneNumber);
       if (results && results.length > 0 && results[0].exists) {
         const waJid = results[0].jid;
-        // Never override a standard phone number with a LID.
-        // LIDs fragment the chat history and confuse the frontend.
-        if (!waJid.includes('@lid')) {
+        
+        // If WA uses a LID for this number, we cache the mapping so future INCOMING 
+        // replies from this LID are routed to the real phone number.
+        if (waJid.includes('@lid')) {
+          const lid = waJid.split('@')[0].split(':')[0];
+          await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
+        } else {
+          // Only update targetJid if it's a standard format, to prevent LID fragmentation
           targetJid = waJid;
         }
       }
