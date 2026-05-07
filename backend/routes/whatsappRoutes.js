@@ -191,6 +191,11 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);
   const sock = whatsappService.getSession(employeeId);
 
+  // If UI accidentally sends a LID (from old ghost chats), ignore it to prevent Bad MAC
+  if (targetJid && targetJid.includes('@lid')) {
+    targetJid = null;
+  }
+
   // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
     try {
@@ -205,17 +210,21 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
     try {
       const results = await sock.onWhatsApp(phoneNumber);
-      if (results && results.length > 0 && results[0].exists) {
-        const waJid = results[0].jid;
-        
-        // If WA uses a LID for this number, we cache the mapping so future INCOMING 
-        // replies from this LID are routed to the real phone number.
-        if (waJid.includes('@lid')) {
-          const lid = waJid.split('@')[0].split(':')[0];
+      if (results && results.length > 0) {
+        // WhatsApp may return both a LID and a standard JID. ALWAYS prioritize standard.
+        const standardJid = results.find(r => r.exists && r.jid.includes('@s.whatsapp.net'));
+        const lidJid = results.find(r => r.exists && r.jid.includes('@lid'));
+
+        if (lidJid) {
+          const lid = lidJid.jid.split('@')[0].split(':')[0];
           await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
-        } else {
-          // Only update targetJid if it's a standard format, to prevent LID fragmentation
-          targetJid = waJid;
+        }
+
+        if (standardJid) {
+          targetJid = standardJid.jid;
+        } else if (lidJid && !targetJid) {
+          // Only fallback to LID if no standard JID exists and we don't have one
+          targetJid = lidJid.jid;
         }
       }
     } catch (e) { }
