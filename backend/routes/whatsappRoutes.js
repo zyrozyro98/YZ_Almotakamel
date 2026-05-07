@@ -202,7 +202,7 @@ router.get('/status-all', async (req, res) => {
 
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
-  const cleanPhone = getPureNumber(phoneNumber);
+  const cleanPhone = getPureNumber(phoneNumber); // cleanPhone is now perfectly normalized to international format (e.g., 9665...)
   const sock = whatsappService.getSession(employeeId);
   
   // Proactive Background Mapping: 
@@ -229,11 +229,7 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
 
   // FORCE STANDARD JID: We will completely ignore @lid for outgoing messages
   // This guarantees that we ALWAYS communicate via the standard phone number and avoid Bad MAC!
-  let finalPhone = cleanPhone;
-  if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
-  else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
-  
-  return `${finalPhone}@s.whatsapp.net`;
+  return `${cleanPhone}@s.whatsapp.net`;
 }
 
 // Helper for Smart Auto-Routing (Excludes emp1)

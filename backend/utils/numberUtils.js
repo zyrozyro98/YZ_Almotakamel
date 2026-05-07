@@ -10,9 +10,17 @@ const getPureNumber = (raw) => {
   // Extract the numeric part before any @ or :
   let d = String(raw).split(':')[0].split('@')[0].replace(/[^0-9a-zA-Z]/g, '');
   
-  // If it's a numeric-only JID, we keep the full number (with country code).
-  // If it's an LID (containing letters or very long), we keep it as is.
-  // This aligns with the "JID system" which uses the full protocol identifier.
+  // Smart Normalization for standard formats (Ignore LIDs which have letters)
+  if (!/[a-zA-Z]/.test(d)) {
+    // Saudi 05 -> 9665
+    if (/^05\d{8}$/.test(d)) d = '966' + d.substring(1);
+    // Yemeni 07 -> 9677
+    else if (/^07\d{8}$/.test(d)) d = '967' + d.substring(1);
+    // Saudi 5... -> 9665
+    else if (/^5\d{8}$/.test(d)) d = '966' + d;
+    // Yemeni 7... -> 9677
+    else if (/^7\d{8}$/.test(d)) d = '967' + d;
+  }
   
   return d;
 };
