@@ -201,20 +201,15 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
     } catch (e) { }
   }
 
-  // 2. Proactive Discovery (The Master Key)
-  // If we only have a phone number, ask WA if they have a specialized LID for it
+  // 2. Proactive Discovery
   if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
     try {
       const results = await sock.onWhatsApp(phoneNumber);
       if (results && results.length > 0 && results[0].exists) {
         const waJid = results[0].jid;
-        // If WA returned a LID, we MUST use it and CACHE it for the receiver
-        if (waJid.includes('@lid')) {
-          targetJid = waJid;
-          const lid = waJid.split('@')[0].split(':')[0];
-          await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
-          console.log(`[WA] Proactive JID Discovery: ${cleanPhone} -> ${lid}`);
-        } else {
+        // Never override a standard phone number with a LID.
+        // LIDs fragment the chat history and confuse the frontend.
+        if (!waJid.includes('@lid')) {
           targetJid = waJid;
         }
       }
