@@ -149,23 +149,44 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         if (jidMappingSnap.exists()) {
           chatId = getPureNumber(jidMappingSnap.val());
         } else {
-          // If no mapping exists, attempt Stanza ID reverse lookup
+          // If no mapping exists, attempt Stanza ID reverse lookup (Reply catching)
           const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
+          let mappedPhone = null;
+
           if (contextInfo && contextInfo.stanzaId) {
             const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
             if (allChatsSnap.exists()) {
               const chatsData = allChatsSnap.val();
               for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
                 if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
-                  // BINGO! We found which phone number this LID is replying to.
-                  chatId = phoneKey; // FORCE the incoming message into the standard phone number chat!
-                  
-                  // Save this mapping forever so future replies don't need StanzaID
-                  await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+                  mappedPhone = phoneKey;
                   break;
                 }
               }
             }
+          }
+
+          // Fallback 1: Participant Metadata trick
+          if (!mappedPhone && msg.key.participant && msg.key.participant.includes('@s.whatsapp.net')) {
+            mappedPhone = getPureNumber(msg.key.participant);
+          }
+
+          // Fallback 2: Reverse JID Query trick
+          if (!mappedPhone) {
+            try {
+              const results = await sock.onWhatsApp(normalizedJid);
+              if (results && results.length > 0) {
+                const standardJid = results.find(r => r.exists && r.jid.includes('@s.whatsapp.net'));
+                if (standardJid) mappedPhone = getPureNumber(standardJid.jid);
+              }
+            } catch (e) {}
+          }
+
+          if (mappedPhone) {
+            // BINGO! We found the real phone number using one of the 3 aggressive tricks.
+            chatId = mappedPhone; // FORCE the incoming message into the standard phone number chat!
+            // Save this mapping forever so future replies don't need tricks
+            await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
           }
         }
       }
