@@ -259,12 +259,24 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   if (sessions.has(employeeId)) {
     const existingSock = sessions.get(employeeId);
     // If not forcing re-init, and socket is alive, return it
-    if (!forceReinit && existingSock.user && existingSock.ws && existingSock.ws.readyState !== 3) {
+    if (!forceReinit && existingSock.user && existingSock.ws && existingSock.ws.readyState === 1) {
+      console.log(`[WA] Session ${employeeId} already active, skipping re-init.`);
       return existingSock;
     }
-    try { existingSock.ws.close(); } catch (e) { }
-    sessions.delete(employeeId);
+    
+    // Only close if we are forcing or it's actually dead
+    if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
+      console.log(`[WA] Closing existing session for ${employeeId} before re-init.`);
+      try { existingSock.ev.removeAllListeners(); existingSock.ws.close(); } catch (e) { }
+      sessions.delete(employeeId);
+    } else {
+      return existingSock;
+    }
   }
+
+  // Memory Safety Check
+  const usage = process.memoryUsage().heapUsed / 1024 / 1024;
+  console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });

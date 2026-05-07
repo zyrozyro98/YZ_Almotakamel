@@ -22,9 +22,10 @@ router.post('/init', async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: 'employeeId is required.' });
   try {
-    await whatsappService.logout(employeeId);
+    // We no longer call logout() here because it's destructive (deletes credentials).
+    // initializeSession handles existing sockets internally and only recreates if dead.
     whatsappService.initializeSession(employeeId).catch(err => console.error(`[WA-${employeeId}] Init failed:`, err.message));
-    res.status(200).json({ status: 'initializing', message: 'Session started.' });
+    res.status(200).json({ status: 'initializing', message: 'Session check/start triggered.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
