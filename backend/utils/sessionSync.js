@@ -12,6 +12,8 @@ const syncToCloud = async (employeeId, localPath) => {
     // Watch for file changes and upload to Firestore
     const uploadFile = async (filePath) => {
         try {
+            if (!fs.existsSync(filePath)) return; // Prevent ENOENT for rapid pre-key deletions
+            
             // Ensure parent document exists so auto-boot can find it
             await db.collection('whatsapp_sessions').doc(employeeId).set({ active: true }, { merge: true });
 
