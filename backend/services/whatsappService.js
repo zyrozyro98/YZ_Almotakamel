@@ -355,7 +355,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       if (shouldReconnect) {
         // Staggered reconnection to avoid IP hammering and 408 errors
         const delay = 5000 + (Math.random() * 10000); 
-        console.log(`[WA] Reconnecting ${employeeId} in ${Math.round(delay/1000)} seconds...`);
+        console.log(`[WA-${employeeId}] RECONNECTING (Code: ${statusCode}) in ${Math.round(delay/1000)} seconds...`);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
