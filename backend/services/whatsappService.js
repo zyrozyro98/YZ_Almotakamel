@@ -278,7 +278,9 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
+  console.log(`[WA-${employeeId}] Step 1: Loading Firestore Auth State...`);
   const { state, saveCreds, clearState } = await useFirestoreAuthState(employeeId);
+  console.log(`[WA-${employeeId}] Step 2: Firestore Auth State Loaded.`);
 
   // 1. Fetch Proxy Configuration from Firestore
   let agent;
@@ -310,7 +312,9 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   };
 
+  console.log(`[WA-${employeeId}] Step 3: Fetching latest Baileys version...`);
   const { version } = await fetchVersionWithTimeout();
+  console.log(`[WA-${employeeId}] Step 4: Using version ${version.join('.')}. Creating socket...`);
 
   const sock = makeWASocket({
     version, auth: state, printQRInTerminal: false,
@@ -360,6 +364,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         await clearState().catch(e => console.error('[WA] Clear State Error:', e.message));
       }
     } else if (connection === 'open') {
+      console.log(`[WA-${employeeId}] SUCCESS: Connection is OPEN.`);
       qrCache.delete(employeeId);
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: true,
