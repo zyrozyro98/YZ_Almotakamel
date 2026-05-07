@@ -1,5 +1,6 @@
 const { 
   default: makeWASocket, 
+  useMultiFileAuthState,
   DisconnectReason, 
   fetchLatestBaileysVersion, 
   downloadMediaMessage,
@@ -257,15 +258,16 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 };
 
 async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
-  if (sessions.has(employeeId)) {
-    const existingSock = sessions.get(employeeId);
-    // If not forcing re-init, and socket is alive, return it
-    if (!forceReinit && existingSock.user && existingSock.ws && existingSock.ws.readyState === 1) {
-      console.log(`[WA] Session ${employeeId} already active, skipping re-init.`);
-      return existingSock;
-    }
-    
-    // Only close if we are forcing or it's actually dead
+  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+  const sync = await syncToCloud(employeeId, sessionPath);
+
+  // Restore from cloud if local is empty
+  if (!fs.existsSync(path.join(sessionPath, 'creds.json'))) {
+      await sync.downloadAll();
+  }
+
+  const existingSock = sessions.get(employeeId);
+  if (existingSock) {
     if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
       console.log(`[WA] Closing existing session for ${employeeId} before re-init.`);
       try { existingSock.ev.removeAllListeners(); existingSock.ws.close(); } catch (e) { }
@@ -279,9 +281,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
-  console.log(`[WA-${employeeId}] Step 1: Loading Firestore Auth State...`);
-  const { state, saveCreds, clearState } = await useFirestoreAuthState(employeeId);
-  console.log(`[WA-${employeeId}] Step 2: Firestore Auth State Loaded.`);
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
   // 1. Fetch Proxy Configuration from Firestore
   let agent;
@@ -305,24 +305,17 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     try {
       const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
       const { version, isLatest } = await Promise.race([fetchLatestBaileysVersion(), timeout]);
-      console.log(`[WA] Using latest Baileys version: ${version.join('.')} (Latest: ${isLatest})`);
       return { version, isLatest };
     } catch (e) {
-      console.warn('[WA] Failed to fetch latest version, using modern fallback.');
       return { version: [2, 3000, 1015901307] }; // Modern fallback
     }
   };
 
-  console.log(`[WA-${employeeId}] Step 3: Fetching latest Baileys version...`);
   const { version } = await fetchVersionWithTimeout();
-  console.log(`[WA-${employeeId}] Step 4: Using version ${version.join('.')}. Creating socket...`);
 
   const sock = makeWASocket({
     version, 
-    auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
-    },
+    auth: state,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: getStableBrowser(employeeId),
@@ -332,10 +325,27 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   });
 
   sessions.set(employeeId, sock);
-  sock.ev.on('creds.update', saveCreds);
 
+  // Sync to Cloud on every creds update
+  sock.ev.on('creds.update', async () => {
+      await saveCreds();
+      await sync.uploadFile(path.join(sessionPath, 'creds.json'));
+  });
+
+  // Sync keys to cloud
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
+    
+    // Periodically sync other files in the directory
+    if (connection === 'open' || qr) {
+        const files = fs.readdirSync(sessionPath);
+        for (const file of files) {
+            if (file !== 'creds.json') {
+                await sync.uploadFile(path.join(sessionPath, file));
+            }
+        }
+    }
+
     if (qr) {
       qrCache.set(employeeId, qr);
       rtdb.ref(`wa_status/${employeeId}`).update({
@@ -343,35 +353,35 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         lastUpdate: Date.now(),
         isConnected: false,
         status: 'qr_ready'
-      }).catch(e => console.error('[WA] QR RTDB Update Error:', e.message));
+      }).catch(() => {});
       if (onQrGenerated) onQrGenerated(qr);
     }
+    
     if (connection === 'connecting') {
-      rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false }).catch(e => console.error('[WA] Connecting RTDB Update Error:', e.message));
+      rtdb.ref(`wa_status/${employeeId}`).update({ status: 'connecting', isConnected: false }).catch(() => {});
     }
+    
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: false,
         lastUpdate: Date.now(),
         status: shouldReconnect ? 'reconnecting' : 'disconnected'
-      }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
+      }).catch(() => {});
       
       if (shouldReconnect) {
-        // Staggered reconnection to avoid IP hammering and 408 errors
         const delay = 5000 + (Math.random() * 10000); 
-        console.log(`[WA-${employeeId}] RECONNECTING (Code: ${statusCode || 'NoCode'}) in ${Math.round(delay/1000)} seconds...`);
-        if (!statusCode) console.error(`[WA-${employeeId}] Full Disconnect Error:`, lastDisconnect.error);
+        console.log(`[WA-${employeeId}] Reconnecting (Code: ${statusCode || 'NoCode'})...`);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
-        // Clear Firebase state for this session on logout
-        const { clearState } = await useFirestoreAuthState(employeeId);
-        await clearState().catch(e => console.error('[WA] Clear State Error:', e.message));
+        await sync.clearCloud();
+        if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
       }
     } else if (connection === 'open') {
-      console.log(`[WA-${employeeId}] SUCCESS: Connection is OPEN.`);
+      console.log(`[WA-${employeeId}] Connected Successfully.`);
       qrCache.delete(employeeId);
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: true,
@@ -379,7 +389,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         lastUpdate: Date.now(),
         status: 'online',
         phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id || null
-      }).catch(e => console.error('[WA] Open RTDB Update Error:', e.message));
+      }).catch(() => {});
     }
   });
 
