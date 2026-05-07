@@ -15,6 +15,7 @@ const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
 const { getRandomBrowser, getStableBrowser } = require('../utils/antiBan');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const { useFirestoreAuthState } = require('../utils/firebaseAuthState');
 
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
@@ -279,8 +280,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
-  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
-  if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+  const { state, saveCreds, clearState } = await useFirestoreAuthState(employeeId);
 
   // 1. Fetch Proxy Configuration from Firestore
   let agent;
@@ -358,7 +358,9 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
-        if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+        // Clear Firebase state for this session on logout
+        const { clearState } = await useFirestoreAuthState(employeeId);
+        await clearState().catch(e => console.error('[WA] Clear State Error:', e.message));
       }
     } else if (connection === 'open') {
       qrCache.delete(employeeId);
