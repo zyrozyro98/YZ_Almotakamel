@@ -1,7 +1,13 @@
-const { DisconnectReason, makeWASocket, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidDecode } = require('@whiskeysockets/baileys');
+const {
+  default: makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  downloadMediaMessage
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
+const admin = require('firebase-admin');
 const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
@@ -11,30 +17,41 @@ const { useFirestoreAuthState } = require('../utils/firebaseAuthState');
 
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
-// We keep this on disk because media is large and doesn't fit well in Firestore docs
-const UPLOADS_PATH = process.env.WA_UPLOADS_PATH || path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOADS_PATH)) fs.mkdirSync(UPLOADS_PATH, { recursive: true });
-
-async function saveMedia(buffer, filename, mimetype) {
+async function uploadToStorage(buffer, fileName, mimeType) {
   try {
+    const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+    const uploadPath = path.join(SESSIONS_PATH, 'uploads', safeName);
+
     let finalBuffer = buffer;
-    if (mimetype.startsWith('image/')) {
+
+    // 1. Image Compression (Optimization)
+    if (mimeType.startsWith('image/') && !mimeType.includes('gif') && !mimeType.includes('webp')) {
+      try {
         finalBuffer = await sharp(buffer)
-            .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 70 })
-            .toBuffer();
+          .resize({ width: 1200, withoutEnlargement: true }) // Max width 1200px
+          .jpeg({ quality: 70 }) // 70% Quality is enough for CS
+          .toBuffer();
+        console.log(`[WA] Compressed image: ${buffer.length} -> ${finalBuffer.length}`);
+      } catch (e) {
+        console.warn("[WA] Sharp compression failed, saving original.");
+      }
     }
-    const fullPath = path.join(UPLOADS_PATH, filename);
-    fs.writeFileSync(fullPath, finalBuffer);
-    return `/uploads/${filename}`;
-  } catch (e) {
-    console.error('[WA SERVICE] Media Save Error:', e.message);
+
+    fs.writeFileSync(uploadPath, finalBuffer);
+
+    // Dynamic URL generation (Points to Render backend)
+    const baseUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';
+    return `${baseUrl}/uploads/${safeName}`;
+  } catch (err) {
+    console.error("[LOCAL STORAGE ERROR]", err.message);
     return null;
   }
 }
 
 const sessions = new Map();
 const qrCache = new Map();
+const SESSIONS_PATH = process.env.WA_SESSION_PATH ? path.resolve(process.env.WA_SESSION_PATH) : path.join(__dirname, '..', 'sessions');
+console.log(`[WA SERVICE] Sessions path resolved to: ${SESSIONS_PATH}`);
 
 // Global set to track processed message IDs to prevent double notifications/saves
 const processedMessageIds = new Set();
@@ -42,69 +59,212 @@ setInterval(() => {
   if (processedMessageIds.size > 5000) processedMessageIds.clear();
 }, 300000);
 
-// Helper to handle incoming messages
-const handleIncomingMessage = async (employeeId, msg) => {
-  const sock = sessions.get(employeeId);
-  if (!sock) return;
+const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
+  if (type !== 'notify') return;
 
-  const m = msg.messages[0];
-  if (!m.message || m.key.fromMe) return;
+  for (const msg of messages) {
+    if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
 
-  const jid = m.key.remoteJid;
-  if (processedMessageIds.has(m.key.id)) return;
-  processedMessageIds.add(m.key.id);
+    const msgId = msg.key.id;
+    if (processedMessageIds.has(msgId)) continue;
+    processedMessageIds.add(msgId);
 
-  const chatId = getPureNumber(jid);
-  const normalizedJid = jid.includes('@') ? jid : `${chatId}@s.whatsapp.net`;
+    const remoteJid = msg.key.remoteJid;
+    const jidUser = remoteJid.split('@')[0].split(':')[0];
+    const jidDomain = remoteJid.split('@')[1];
+    const normalizedJid = `${jidUser}@${jidDomain}`;
+    const isMe = msg.key.fromMe;
 
-  let text = m.message.conversation || m.message.extendedTextMessage?.text || '';
-  let type = 'text';
-  let mediaData = null;
+    // Better Name Resolution for Groups/Channels
+    let pushName = msg.pushName || 'مستخدم واتساب';
+    if (jidDomain === 'g.us') pushName = `مجموعة: ${pushName}`;
+    if (jidDomain === 'newsletter') pushName = `قناة: ${pushName}`;
 
-  if (m.message.imageMessage) {
-    type = 'image';
-    text = m.message.imageMessage.caption || '';
-  } else if (m.message.videoMessage) {
-    type = 'video';
-    text = m.message.videoMessage.caption || '';
-  } else if (m.message.documentMessage) {
-    type = 'document';
-    text = m.message.documentMessage.fileName || 'ملف';
+    // If it's a group and we have participant info, try to use it
+    const participant = msg.key.participant || remoteJid;
+    const participantName = msg.pushName || 'مجهول';
+
+
+    let textMsg = "";
+    let mediaType = "text";
+    let mediaData = null;
+
+    if (msg.message.conversation) textMsg = msg.message.conversation;
+    else if (msg.message.extendedTextMessage) textMsg = msg.message.extendedTextMessage.text;
+    else if (msg.message.imageMessage) {
+      textMsg = msg.message.imageMessage.caption || "📷 صورة";
+      mediaType = "image";
+    }
+    else if (msg.message.videoMessage) {
+      textMsg = msg.message.videoMessage.caption || "🎥 فيديو";
+      mediaType = "video";
+    }
+    else if (msg.message.audioMessage) {
+      textMsg = "🎤 رسالة صوتية";
+      mediaType = "audio";
+    }
+    else if (msg.message.documentMessage) {
+      textMsg = msg.message.documentMessage.fileName || "📎 ملف";
+      mediaType = "document";
+    }
+    else if (msg.message.stickerMessage) {
+      textMsg = "🏷️ ملصق";
+      mediaType = "sticker";
+    }
+
+    if (mediaType !== "text") {
+      try {
+        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        let mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
+        let fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+        
+        // Ensure extension exists for proper serving
+        if (!fileName.includes('.')) {
+          const extension = mime.split('/')[1]?.split(';')[0] || 'bin';
+          fileName += `.${extension}`;
+        }
+        
+        mediaData = await uploadToStorage(buffer, fileName, mime);
+        console.log(`[WA] Media uploaded: ${mediaData}`);
+      } catch (err) { console.error("[WA] Media error:", err.message); }
+    }
+
+    if (!textMsg && !mediaData) continue;
+
+    // --- UNIFIED JID SYSTEM ---
+    // We use the JID identifier (Phone number for standard chats) as the master key
+    let chatId = getPureNumber(jidUser);
+
+    try {
+      // 1. Resolve Identity: If it's a technical identifier (LID), try to find its JID mapping
+      const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+
+      if (isTechnicalId) {
+        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+        if (jidMappingSnap.exists()) {
+          chatId = getPureNumber(jidMappingSnap.val());
+          console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
+        } else {
+          // Live JID Discovery
+          try {
+            const results = await sock.onWhatsApp(normalizedJid);
+            if (results && results.length > 0 && results[0].exists) {
+              const resolvedJid = results[0].jid;
+              if (resolvedJid.includes('@s.whatsapp.net')) {
+                chatId = getPureNumber(resolvedJid);
+                // Cache the mapping to maintain unified JID history
+                await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+              }
+            }
+          } catch (e) { }
+        }
+      }
+
+      // 2. Cross-reference with Students Database (Firestore)
+      // Check by JID record first
+      const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
+      if (!studentJidMatch.empty) {
+        const s = studentJidMatch.docs[0].data();
+        if (s.phone) chatId = getPureNumber(s.phone);
+      } else {
+        // If match by phone exists, link this JID to the student
+        const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
+        if (!studentPhoneMatch.empty) {
+          await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+        }
+      }
+    } catch (err) { console.error("[WA] JID System Error:", err.message); }
+
+    // Handle Quoted Messages
+    let quotedInfo = null;
+    const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
+      msg.message?.imageMessage?.contextInfo ||
+      msg.message?.videoMessage?.contextInfo ||
+      msg.message?.documentMessage?.contextInfo ||
+      msg.message?.audioMessage?.contextInfo;
+
+    if (contextInfo && contextInfo.stanzaId) {
+      let quotedText = "رسالة سابقة";
+      if (contextInfo.quotedMessage) {
+        const qm = contextInfo.quotedMessage;
+        quotedText = qm.conversation || qm.extendedTextMessage?.text || "مرفق";
+      }
+      quotedInfo = {
+        id: contextInfo.stanzaId,
+        participant: contextInfo.participant,
+        text: quotedText
+      };
+    }
+
+    const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
+    const msgData = {
+      id: msgId,
+      text: textMsg,
+      type: mediaType,
+      mediaData: mediaData,
+      time: Date.now(),
+      sender: isMe ? 'me' : 'them',
+      quoted: quotedInfo
+    };
+
+    // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
+    let finalName = pushName;
+    if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
+      try {
+        // Check cache first
+        const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
+        if (cacheSnap.exists()) {
+          finalName = cacheSnap.val();
+        } else {
+          // Live fetch from WhatsApp
+          if (jidDomain === 'g.us') {
+            const meta = await sock.groupMetadata(remoteJid);
+            finalName = meta.subject || finalName;
+          } else if (jidDomain === 'newsletter') {
+            const meta = await sock.newsletterMetadata("jid", remoteJid);
+            finalName = meta.name || finalName;
+          }
+          // Save to cache
+          await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(() => { });
+        }
+      } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
+    }
+
+    await chatRef.child('messages').child(msgId).update(msgData);
+    await chatRef.update({
+      lastMessage: textMsg,
+      timestamp: Date.now(),
+      phone: chatId,
+      fullJid: normalizedJid,
+      name: finalName,
+      lastSender: isMe ? 'me' : 'them'
+    });
+
+    if (!isMe) {
+      const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
+      await notifRef.set({
+        title: `رسالة جديدة في ${finalName}`,
+        body: `${pushName}: ${textMsg.substring(0, 50)}`,
+        time: Date.now(),
+        read: false,
+        type: 'chat',
+        chatId: chatId,
+        fullJid: normalizedJid
+      });
+    }
   }
-
-  // 1. Update Student/Chat info in RTDB
-  const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
-  await chatRef.update({
-    lastMessage: text || (type === 'image' ? '📷 صورة' : '📎 ملف'),
-    timestamp: Date.now(),
-    phone: chatId,
-    fullJid: normalizedJid,
-    unread: true
-  });
-
-  // 2. Save Message to History
-  const msgId = m.key.id;
-  await chatRef.child('messages').child(msgId).set({
-    id: msgId,
-    text,
-    type,
-    time: Date.now(),
-    sender: 'them',
-    senderName: m.pushName || chatId
-  });
-
-  // 3. (Optional) Auto-Forward to Admin or other logic
-  console.log(`[WA-${employeeId}] New message from ${chatId}: ${text.substring(0, 30)}...`);
 };
 
 async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
   if (sessions.has(employeeId)) {
     const existingSock = sessions.get(employeeId);
+    // If not forcing re-init, and socket is alive, return it
     if (!forceReinit && existingSock.user && existingSock.ws && existingSock.ws.readyState === 1) {
       console.log(`[WA] Session ${employeeId} already active, skipping re-init.`);
       return existingSock;
     }
     
+    // Only close if we are forcing or it's actually dead
     if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
       console.log(`[WA] Closing existing session for ${employeeId} before re-init.`);
       try { existingSock.ev.removeAllListeners(); existingSock.ws.close(); } catch (e) { }
@@ -114,12 +274,13 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   }
 
+  // Memory Safety Check
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
-  const { state, saveCreds } = await useFirestoreAuthState(employeeId);
+  const { state, saveCreds, clearState } = await useFirestoreAuthState(employeeId);
 
-  // Fetch Proxy Configuration from Firestore
+  // 1. Fetch Proxy Configuration from Firestore
   let agent;
   try {
     const empDoc = await db.collection('employees').doc(employeeId).get();
@@ -136,6 +297,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     console.error(`[WA] Proxy fetch error for ${employeeId}:`, err.message);
   }
 
+  // Fetch version with a 10s timeout to prevent hanging
   const fetchVersionWithTimeout = async () => {
     try {
       const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
@@ -151,9 +313,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const { version } = await fetchVersionWithTimeout();
 
   const sock = makeWASocket({
-    version, 
-    auth: state, 
-    printQRInTerminal: false,
+    version, auth: state, printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: getStableBrowser(employeeId),
     connectTimeoutMs: 30000,
@@ -182,7 +342,6 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: false,
         lastUpdate: Date.now(),
@@ -190,75 +349,103 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
       
       if (shouldReconnect) {
+        // Staggered reconnection to avoid IP hammering and 408 errors
         const delay = 5000 + (Math.random() * 10000); 
         console.log(`[WA] Reconnecting ${employeeId} in ${Math.round(delay/1000)} seconds...`);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
         // Clear Firebase state for this session on logout
-        useFirestoreAuthState(employeeId).then(auth => auth.clearState()).catch(e => console.error('[WA] Clear State Error:', e.message));
+        const { clearState } = await useFirestoreAuthState(employeeId);
+        await clearState().catch(e => console.error('[WA] Clear State Error:', e.message));
       }
     } else if (connection === 'open') {
       qrCache.delete(employeeId);
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: true,
+        qr: null,
         lastUpdate: Date.now(),
         status: 'online',
-        qr: null,
-        phoneNumber: sock.user.id.split(':')[0]
+        phoneNumber: sock.user?.id || sock.authState?.creds?.me?.id || null
       }).catch(e => console.error('[WA] Open RTDB Update Error:', e.message));
-      console.log(`[WA-${employeeId}] Connection established!`);
     }
   });
 
-  sock.ev.on('messages.upsert', (m) => handleIncomingMessage(employeeId, m));
+  sock.ev.on('contacts.upsert', async (contacts) => {
+    for (const contact of contacts) {
+      if (contact.lidJid && contact.id) {
+        const jidKey = contact.lidJid.split('@')[0].split(':')[0];
+        const phoneJid = contact.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+        }
+      }
+    }
+  });
 
+  sock.ev.on('contacts.update', async (updates) => {
+    for (const update of updates) {
+      if (update.lidJid && update.id) {
+        const jidKey = update.lidJid.split('@')[0].split(':')[0];
+        const phoneJid = update.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+        }
+      }
+    }
+  });
+
+  sock.ev.on('messages.upsert', messageUpsertHandler(employeeId, sock));
   return sock;
 }
 
 function getSession(employeeId) {
-  return sessions.get(employeeId);
-}
-
-function isSessionActive(employeeId) {
   const sock = sessions.get(employeeId);
-  return !!(sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1);
+  if (!sock) throw new Error(`Session ${employeeId} not init.`);
+  return sock;
 }
 
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
   if (sock) {
     try {
-      await sock.logout();
+      sock.ev.removeAllListeners();
+      await sock.logout().catch(() => { });
       sock.ws.close();
-    } catch (e) {
-      console.error('[WA LOGOUT ERROR]', e.message);
-    }
+    } catch (e) { }
     sessions.delete(employeeId);
   }
-  
+  qrCache.delete(employeeId);
   await rtdb.ref(`wa_status/${employeeId}`).set({ isConnected: false, qr: null, lastUpdate: Date.now(), status: 'logged_out' });
-  const { clearState } = await useFirestoreAuthState(employeeId);
-  await clearState();
-  
-  return { status: 'success', message: 'Logged out successfully' };
+  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+  await new Promise(r => setTimeout(r, 1000));
+  if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+  return { success: true };
 }
 
 function getConnectionStatus(employeeId) {
   const sock = sessions.get(employeeId);
-  const isConnected = !!(sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1);
-  return {
-    isConnected,
-    qr: qrCache.get(employeeId) || null,
-    status: isConnected ? 'online' : (qrCache.get(employeeId) ? 'qr_ready' : 'disconnected')
-  };
+  let isConnected = false;
+  if (sock) {
+    const isReady = !!(sock.user || sock.authState?.creds?.me);
+    const isWsOpen = sock.ws && sock.ws.readyState === 1;
+    isConnected = isReady && isWsOpen;
+  } else {
+    // If the server restarted, the RAM session is gone, but the creds might still exist.
+    const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+    if (fs.existsSync(path.join(sessionPath, 'creds.json'))) {
+      isConnected = true;
+    }
+  }
+  return { isConnected, qr: qrCache.get(employeeId) || null, employeeId };
 }
 
-module.exports = {
-  initializeSession,
-  getSession,
-  isSessionActive,
-  logout,
-  getConnectionStatus,
-  saveMedia
-};
+function isSessionActive(employeeId) {
+  const sock = sessions.get(employeeId);
+  if (!sock) return false;
+  const isReady = !!(sock.user || sock.authState?.creds?.me);
+  const isWsOpen = sock.ws && sock.ws.readyState === 1;
+  return isReady && isWsOpen;
+}
+
+module.exports = { initializeSession, getSession, getConnectionStatus, logout, isSessionActive };
