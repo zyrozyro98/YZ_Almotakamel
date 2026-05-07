@@ -179,7 +179,8 @@ export default function WhatsAppChat() {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = getMatchKey(selectedChat.phone);
-    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${cleanId}/messages`), limitToLast(100));
+    const actualChatId = selectedChat.chatId || cleanId;
+    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${actualChatId}/messages`), limitToLast(100));
     const unsubMsg = onValue(messagesQuery, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -225,22 +226,35 @@ export default function WhatsAppChat() {
 
   // Memoized Combined List for Performance
   const memoizedCombinedList = React.useMemo(() => {
-    // 1. Create a map of students for fast lookup (Optimized)
+    // 1. Create maps of students for fast lookup (Optimized)
     const studentMap = new Map();
+    const studentJidMap = new Map(); // New map for fullJid lookups
+
     for (let i = 0; i < students.length; i++) {
       const s = students[i];
-      studentMap.set(getMatchKey(s.phone), { ...s });
+      const phoneKey = getMatchKey(s.phone);
+      studentMap.set(phoneKey, { ...s });
+      if (s.fullJid) {
+        studentJidMap.set(s.fullJid, phoneKey); // Link JID to Phone Key
+      }
     }
 
     // 2. Merge active chats into the map or create new entries
     activeChats.forEach(chat => {
-      const key = getMatchKey(chat.phone);
+      let key = getMatchKey(chat.phone);
+      
+      // If the chat uses an opaque JID (like @lid) but we have it linked in Firestore, resolve it!
+      if (!studentMap.has(key) && chat.fullJid && studentJidMap.has(chat.fullJid)) {
+        key = studentJidMap.get(chat.fullJid);
+      }
+
       const existing = studentMap.get(key);
 
       if (existing) {
         // Update existing student with chat info
         studentMap.set(key, {
           ...existing,
+          chatId: chat.id, // Store the actual RTDB chat ID for sending
           fullJid: chat.fullJid || existing.fullJid,
           lastMessage: chat.lastMessage || existing.lastMessage || 'لا توجد رسائل',
           timestamp: chat.timestamp || existing.timestamp || 0

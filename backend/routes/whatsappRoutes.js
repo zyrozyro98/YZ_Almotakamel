@@ -109,7 +109,7 @@ router.post('/send', async (req, res) => {
 
     // Record the sender info in RTDB immediately for the monitoring feed
     if (senderId || senderName) {
-      const chatId = getPureNumber(phoneNumber); // ALWAYS use the provided phone number for UI consistency
+      const chatId = getPureNumber(targetJid); // MUST match the WA JID to prevent fragmentation
       const updateData = {
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
@@ -191,11 +191,6 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);
   const sock = whatsappService.getSession(employeeId);
 
-  // If UI accidentally sends a LID (from old ghost chats), ignore it to prevent Bad MAC
-  if (targetJid && targetJid.includes('@lid')) {
-    targetJid = null;
-  }
-
   // 1. Try to fetch verified JID from Firestore
   if (!targetJid) {
     try {
@@ -206,25 +201,21 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
     } catch (e) { }
   }
 
-  // 2. Proactive Discovery & Background Mapping
+  // 2. Proactive Discovery (Embrace whatever WA returns to prevent Bad MAC)
   if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
     try {
       const results = await sock.onWhatsApp(phoneNumber);
-      if (results && results.length > 0) {
-        // WhatsApp may return both a LID and a standard JID. ALWAYS prioritize standard.
-        const standardJid = results.find(r => r.exists && r.jid.includes('@s.whatsapp.net'));
-        const lidJid = results.find(r => r.exists && r.jid.includes('@lid'));
+      if (results && results.length > 0 && results[0].exists) {
+        // We MUST use the exact JID WhatsApp prefers for this number, even if it's a LID.
+        // Mixing LIDs and standard JIDs causes fatal encryption errors (Bad MAC).
+        targetJid = results[0].jid;
 
-        if (lidJid) {
-          const lid = lidJid.jid.split('@')[0].split(':')[0];
-          await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
-        }
-
-        if (standardJid) {
-          targetJid = standardJid.jid;
-        } else if (lidJid && !targetJid) {
-          // Only fallback to LID if no standard JID exists and we don't have one
-          targetJid = lidJid.jid;
+        // Immediately link this new JID to the student in Firestore so the UI can resolve their name!
+        if (targetJid.includes('@lid')) {
+          const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
+          if (!studentSnap.empty) {
+            await studentSnap.docs[0].ref.update({ fullJid: targetJid }).catch(() => {});
+          }
         }
       }
     } catch (e) { }
@@ -335,8 +326,8 @@ router.post('/send-image', async (req, res) => {
     const result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
     await simulateRead(sock, targetJid).catch(() => {});
 
-    // FORCE SAVE TO PHONE FOLDER (regardless of LID delivery)
-    const finalChatId = getPureNumber(phoneNumber);
+    // Save to the actual JID used for delivery (embracing LID)
+    const finalChatId = getPureNumber(targetJid);
 
     const msgData = {
       text: caption || "📷 صورة",
@@ -412,7 +403,7 @@ router.post('/send-document', async (req, res) => {
     });
     await simulateRead(sock, targetJid).catch(() => {});
 
-    const chatId = getPureNumber(phoneNumber);
+    const chatId = getPureNumber(targetJid);
 
     const msgData = {
       text: caption || "📎 ملف الدورة",
@@ -484,7 +475,7 @@ router.post('/send-video', async (req, res) => {
     });
     await simulateRead(sock, targetJid).catch(() => {});
 
-    const chatId = targetJid.split('@')[0].slice(-9);
+    const chatId = getPureNumber(targetJid);
 
     const msgData = {
       text: caption || "🎥 مقطع فيديو",
@@ -557,7 +548,7 @@ router.post('/send-sticker', async (req, res) => {
     const result = await sock.sendMessage(targetJid, { sticker: stickerBuffer });
     await simulateRead(sock, targetJid).catch(() => {});
 
-    const finalChatId = getPureNumber(phoneNumber);
+    const finalChatId = getPureNumber(targetJid);
     const msgData = {
       text: "🏷️ ملصق",
       type: "sticker",

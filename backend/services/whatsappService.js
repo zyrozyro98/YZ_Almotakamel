@@ -139,73 +139,39 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     let chatId = getPureNumber(jidUser);
 
     try {
-      // 1. Resolve Identity: If it's a technical identifier (LID), try to find its JID mapping
+      // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
+      // If the student replies using a hidden LID, we find the photo's original chat to link their profile!
+      let linkedPhone = null;
       const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-
+      
       if (isTechnicalId) {
-        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
-        if (jidMappingSnap.exists()) {
-          chatId = getPureNumber(jidMappingSnap.val());
-          console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
-        } else {
-          // Live JID Discovery (Fallback)
-          try {
-            const results = await sock.onWhatsApp(normalizedJid);
-            if (results && results.length > 0 && results[0].exists) {
-              const resolvedJid = results[0].jid;
-              if (resolvedJid.includes('@s.whatsapp.net')) {
-                chatId = getPureNumber(resolvedJid);
-                await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
+        if (contextInfo && contextInfo.stanzaId) {
+          const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+          if (allChatsSnap.exists()) {
+            const chatsData = allChatsSnap.val();
+            for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
+              if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
+                linkedPhone = phoneKey;
+                break;
               }
-            }
-          } catch (e) { }
-
-          // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
-          // If the student replies to our photo using their hidden LID, we find the photo's original chat!
-          if (chatId === getPureNumber(jidUser)) { // If still not resolved
-            const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
-            if (contextInfo && contextInfo.stanzaId) {
-              try {
-                // Search all recent messages in RTDB for this stanzaId to find the real phone number
-                const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
-                if (allChatsSnap.exists()) {
-                  const chatsData = allChatsSnap.val();
-                  for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
-                    if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
-                      // BINGO! We found which phone number this LID is replying to.
-                      chatId = phoneKey;
-                      await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
-                      
-                      // Also update the student's Firestore record to permanently link the LID
-                      const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
-                      if (!studentPhoneMatch.empty) {
-                        await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
-                      }
-                      console.log(`[WA] StanzaID Reverse Match: ${jidUser} -> ${chatId}`);
-                      break;
-                    }
-                  }
-                }
-              } catch (e) { console.error("[WA] Reverse Lookup Error:", e.message); }
             }
           }
         }
       }
 
-      // 2. Cross-reference with Students Database (Firestore)
-      // Check by JID record first
+      // Cross-reference with Students Database (Firestore) to ensure the UI knows who this LID belongs to
       const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-      if (!studentJidMatch.empty) {
-        const s = studentJidMatch.docs[0].data();
-        if (s.phone) chatId = getPureNumber(s.phone);
-      } else {
-        // If match by phone exists, link this JID to the student
-        const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
+      if (studentJidMatch.empty) {
+        // If not matched by JID, try matching by the linked phone (from reverse lookup) or direct phone match
+        const searchPhone = linkedPhone || chatId;
+        const studentPhoneMatch = await db.collection('students').where('phone', '==', searchPhone).get();
         if (!studentPhoneMatch.empty) {
+          // Permanently link this LID to the student's profile!
           await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
         }
       }
-    } catch (err) { console.error("[WA] JID System Error:", err.message); }
+    } catch (err) { console.error("[WA] Identity System Error:", err.message); }
 
     // Handle Quoted Messages
     let quotedInfo = null;
