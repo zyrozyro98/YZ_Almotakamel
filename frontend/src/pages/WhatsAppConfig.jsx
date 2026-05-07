@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle, Users, Database } from 'lucide-react';
+import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, AlertTriangle, Users, Database, Image as ImageIcon, Trash } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
