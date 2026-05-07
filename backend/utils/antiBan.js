@@ -136,7 +136,7 @@ async function simulateRead(sock, jid, messageId) {
  * Checks if a number is on WhatsApp before sending
  */
 async function verifyJid(sock, jid) {
-  if (jid.includes('@g.us') || jid.includes('@newsletter')) return true;
+  if (jid.includes('@g.us') || jid.includes('@newsletter') || jid.includes('@lid')) return true;
   try {
     const [result] = await sock.onWhatsApp(jid);
     return !!(result && result.exists);

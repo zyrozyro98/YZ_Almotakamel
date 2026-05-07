@@ -102,11 +102,9 @@ server.listen(PORT, async () => {
   // Anti-sleep mechanism (Ping itself)
   const appUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
   setInterval(() => {
-    http.get(appUrl, (res) => {
-      console.log(`[ANTI-SLEEP] Heartbeat sent. Status: ${res.statusCode}`);
-    }).on('error', (e) => {
-      console.error(`[ANTI-SLEEP ERROR] Heartbeat failed: ${e.message}`);
-    });
+    fetch(appUrl)
+      .then(res => console.log(`[ANTI-SLEEP] Heartbeat sent. Status: ${res.status}`))
+      .catch(e => console.error(`[ANTI-SLEEP ERROR] Heartbeat failed: ${e.message}`));
   }, 600000); // 10 minutes
 });
 
