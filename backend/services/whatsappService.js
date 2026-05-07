@@ -15,6 +15,7 @@ const { getPureNumber } = require('../utils/numberUtils');
 const sharp = require('sharp');
 const { getRandomBrowser, getStableBrowser } = require('../utils/antiBan');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const { syncToCloud } = require('../utils/sessionSync');
 const { useFirestoreAuthState } = require('../utils/firebaseAuthState');
 
 
@@ -439,11 +440,18 @@ async function logout(employeeId) {
   qrCache.delete(employeeId);
   await rtdb.ref(`wa_status/${employeeId}`).set({ isConnected: false, qr: null, lastUpdate: Date.now(), status: 'logged_out' });
   
-  // Clear Firestore state
+  // Clear Firestore state and files
   try {
     const { clearState } = await useFirestoreAuthState(employeeId);
     await clearState();
-    console.log(`[WA-${employeeId}] Cloud session cleared.`);
+    
+    const sync = await syncToCloud(employeeId, '');
+    await sync.clearCloud();
+    
+    const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+    if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+
+    console.log(`[WA-${employeeId}] Cloud and local session cleared.`);
   } catch (e) {
     console.error(`[WA-${employeeId}] Cleanup error:`, e.message);
   }
