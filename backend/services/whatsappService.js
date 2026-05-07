@@ -140,34 +140,40 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
     try {
       // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
-      // If the student replies using a hidden LID, we find the photo's original chat to link their profile!
-      let linkedPhone = null;
+      // If the student replies using a hidden LID, we find the photo's original chat to link their profile AND MERGE THE CHAT!
       const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
       
       if (isTechnicalId) {
-        const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
-        if (contextInfo && contextInfo.stanzaId) {
-          const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
-          if (allChatsSnap.exists()) {
-            const chatsData = allChatsSnap.val();
-            for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
-              if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
-                linkedPhone = phoneKey;
-                break;
+        // First check if we already mapped this LID before
+        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+        if (jidMappingSnap.exists()) {
+          chatId = getPureNumber(jidMappingSnap.val());
+        } else {
+          // If no mapping exists, attempt Stanza ID reverse lookup
+          const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
+          if (contextInfo && contextInfo.stanzaId) {
+            const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+            if (allChatsSnap.exists()) {
+              const chatsData = allChatsSnap.val();
+              for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
+                if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
+                  // BINGO! We found which phone number this LID is replying to.
+                  chatId = phoneKey; // FORCE the incoming message into the standard phone number chat!
+                  
+                  // Save this mapping forever so future replies don't need StanzaID
+                  await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+                  break;
+                }
               }
             }
           }
         }
       }
 
-      // Cross-reference with Students Database (Firestore) to ensure the UI knows who this LID belongs to
-      const studentJidMatch = await db.collection('students').where('fullJid', '==', normalizedJid).get();
-      if (studentJidMatch.empty) {
-        // If not matched by JID, try matching by the linked phone (from reverse lookup) or direct phone match
-        const searchPhone = linkedPhone || chatId;
-        const studentPhoneMatch = await db.collection('students').where('phone', '==', searchPhone).get();
+      // Ensure the UI knows who this LID belongs to
+      if (isTechnicalId && chatId !== getPureNumber(jidUser)) {
+        const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
         if (!studentPhoneMatch.empty) {
-          // Permanently link this LID to the student's profile!
           await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
         }
       }

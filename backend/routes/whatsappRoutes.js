@@ -189,46 +189,14 @@ router.get('/status-all', async (req, res) => {
 // Helper function to resolve target JID (Shared with text send)
 async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber);
-  const sock = whatsappService.getSession(employeeId);
-
-  // 1. Try to fetch verified JID from Firestore
-  if (!targetJid) {
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
-      if (!studentSnap.empty) {
-        targetJid = studentSnap.docs[0].data().fullJid;
-      }
-    } catch (e) { }
-  }
-
-  // 2. Proactive Discovery (Embrace whatever WA returns to prevent Bad MAC)
-  if (!targetJid || targetJid.includes('@s.whatsapp.net')) {
-    try {
-      const results = await sock.onWhatsApp(phoneNumber);
-      if (results && results.length > 0 && results[0].exists) {
-        // We MUST use the exact JID WhatsApp prefers for this number, even if it's a LID.
-        // Mixing LIDs and standard JIDs causes fatal encryption errors (Bad MAC).
-        targetJid = results[0].jid;
-
-        // Immediately link this new JID to the student in Firestore so the UI can resolve their name!
-        if (targetJid.includes('@lid')) {
-          const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
-          if (!studentSnap.empty) {
-            await studentSnap.docs[0].ref.update({ fullJid: targetJid }).catch(() => {});
-          }
-        }
-      }
-    } catch (e) { }
-  }
-
-  // 3. Fallback to standard formatting
-  if (!targetJid) {
-    let finalPhone = cleanPhone;
-    if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
-    else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
-    targetJid = `${finalPhone}@s.whatsapp.net`;
-  }
-  return targetJid;
+  
+  // FORCE STANDARD JID: We will completely ignore @lid and any UI fullJid overrides
+  // This guarantees that we ALWAYS communicate via the standard phone number!
+  let finalPhone = cleanPhone;
+  if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
+  else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
+  
+  return `${finalPhone}@s.whatsapp.net`;
 }
 
 // Helper for Smart Auto-Routing (Excludes emp1)
