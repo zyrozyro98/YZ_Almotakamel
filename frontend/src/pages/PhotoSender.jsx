@@ -104,10 +104,12 @@ export default function PhotoSender() {
   const [isPaused, setIsPaused] = useState(false);
   const [messageTemplate, setMessageTemplate] = useState('مرحباً بك، نرسل لك صورة الحضور الخاصة بك. شكراً لحضورك!');
   const [rawNumbers, setRawNumbers] = useState('');
+  const [rawNames, setRawNames] = useState('');
   const [manualFile, setManualFile] = useState(null);
   
   const [filesQueue, setFilesQueue] = useState([]);
   const [manualQueue, setManualQueue] = useState([]);
+  const [manualNamesQueue, setManualNamesQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [logs, setLogs] = useState([]);
   
@@ -259,13 +261,20 @@ export default function PhotoSender() {
     });
   };
 
-  const parseTemplate = (tpl, phoneNumber) => {
+  const parseTemplate = (tpl, phoneNumber, index = -1) => {
     let result = tpl;
     
     // 1. Spintax parsing
     result = parseSpintax(result);
     
-    // 2. Variable lookup
+    // 2. Custom Variable {list_name} from manual names list
+    if (index !== -1 && mode === 'manual' && manualNamesQueue[index]) {
+        result = result.replace(/{list_name}/g, manualNamesQueue[index]);
+    } else {
+        result = result.replace(/{list_name}/g, '');
+    }
+
+    // 3. Variable lookup from students database
     const cleanTarget = getPureNumber(phoneNumber);
     const student = students.find(s => getPureNumber(s.phone) === cleanTarget);
     
@@ -371,7 +380,7 @@ export default function PhotoSender() {
       return;
     }
     const firstNum = mode === 'folder' ? getPureNumber(activeQueue[0].name) : activeQueue[0];
-    const content = parseTemplate(messageTemplate, firstNum);
+    const content = parseTemplate(messageTemplate, firstNum, 0);
     setPreviewContent(content);
     setShowPreview(true);
   };
@@ -434,7 +443,7 @@ export default function PhotoSender() {
         const b64 = fileToUpload ? await getBase64(fileToUpload) : null;
           
           // Apply Spintax and Unique Noise to evade hash-based detection
-          let finalMessage = parseTemplate(messageTemplate, targetNumber);
+          let finalMessage = parseTemplate(messageTemplate, targetNumber, current);
           const noise = " ".repeat(Math.floor(Math.random() * 5)) + (Math.random() > 0.5 ? "\u200B" : "");
           if (finalMessage) finalMessage += noise;
 
@@ -614,13 +623,28 @@ export default function PhotoSender() {
     if (mode === 'folder') {
       if (filesQueue.length === 0) { alert('يجب تحديد المجلد أولاً.'); return; }
     } else {
-      const numbers = rawNumbers.split(/[\n,;]/).map(n => getPureNumber(n)).filter(n => n.length >= 9);
-      if (numbers.length === 0) { alert('يجب إدخال أرقام صحيحة أولاً.'); return; }
+      const numbersArr = rawNumbers.split(/[\n,;]/).map(n => getPureNumber(n)).filter(n => n.length >= 9);
+      const namesArr = rawNames.split('\n').map(n => n.trim());
       
-      // Sort alphabetically (Ascending) as requested
-      const sortedNumbers = [...new Set(numbers)].sort();
-      setManualQueue(sortedNumbers);
-      setStats({ total: sortedNumbers.length, sent: 0, failed: 0, pending: sortedNumbers.length });
+      if (numbersArr.length === 0) { alert('يجب إدخال أرقام صحيحة أولاً.'); return; }
+      
+      // If names are provided, we don't sort to maintain the mapping order
+      let finalNumbers = [];
+      let finalNames = [];
+      
+      if (namesArr.length > 0 && namesArr.some(n => n !== "")) {
+          // Use the order as provided in the textareas
+          finalNumbers = numbersArr;
+          finalNames = namesArr;
+      } else {
+          // No names provided, standard behavior with deduplication and sorting
+          finalNumbers = [...new Set(numbersArr)].sort();
+          finalNames = [];
+      }
+
+      setManualQueue(finalNumbers);
+      setManualNamesQueue(finalNames);
+      setStats({ total: finalNumbers.length, sent: 0, failed: 0, pending: finalNumbers.length });
     }
 
     if (currentIndex >= (mode === 'folder' ? filesQueue.length : manualQueue.length)) { 
@@ -693,7 +717,7 @@ export default function PhotoSender() {
 
         // If folder mode, each image is unique. If manual mode, we use sharedMediaB64
         const b64 = (mode === 'folder' && fileToUpload) ? await getBase64(fileToUpload) : null;
-        let finalMessage = parseTemplate(messageTemplate, targetNumber);
+        let finalMessage = parseTemplate(messageTemplate, targetNumber, i);
         
         const student = students.find(s => getPureNumber(s.phone) === targetNumber);
         const studentJid = student?.fullJid || '';
@@ -1037,21 +1061,35 @@ export default function PhotoSender() {
             </div>
           ) : (
             <>
-              <div>
-                <label className="input-label">أدخل الأرقام (كل رقم في سطر أو مفصول بفواصل)</label>
-                <textarea 
-                  className="input-base custom-scrollbar" 
-                  rows="6" 
-                  placeholder="0096650...&#10;96777...&#10;551234567"
-                  value={rawNumbers}
-                  onChange={(e) => setRawNumbers(e.target.value)}
-                  disabled={isRunning}
-                  style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
-                ></textarea>
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
-                  سيتم تنظيف الأرقام وترتيبها وعمل فلترة للمكرر آلياً.
-                </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label className="input-label">أدخل الأرقام (كل رقم في سطر)</label>
+                  <textarea 
+                    className="input-base custom-scrollbar" 
+                    rows="8" 
+                    placeholder="96650...&#10;96777...&#10;551234567"
+                    value={rawNumbers}
+                    onChange={(e) => setRawNumbers(e.target.value)}
+                    disabled={isRunning}
+                    style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
+                  ></textarea>
+                </div>
+                <div>
+                  <label className="input-label">أدخل الأسماء (اختياري - كل اسم في سطر)</label>
+                  <textarea 
+                    className="input-base custom-scrollbar" 
+                    rows="8" 
+                    placeholder="الاسم الأول...&#10;الاسم الثاني...&#10;الاسم الثالث..."
+                    value={rawNames}
+                    onChange={(e) => setRawNames(e.target.value)}
+                    disabled={isRunning}
+                    style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
+                  ></textarea>
+                </div>
               </div>
+              <p style={{ fontSize: '0.7rem', color: 'var(--brand-primary)', marginTop: '5px', fontWeight: 700 }}>
+                💡 سيتم ربط الرقم الأول بالاسم الأول، والرقم الثاني بالاسم الثاني وهكذا. استخدم المتغير {'{list_name}'} في نص الرسالة.
+              </p>
 
               <div>
                 <label className="input-label">أرفق صورة واحدة لجميع الأرقام (اختياري)</label>
@@ -1119,6 +1157,19 @@ export default function PhotoSender() {
               placeholder="اكتب رسالتك هنا..."
               style={{ fontSize: '0.9rem', lineHeight: '1.5' }}
             />
+
+            <div style={{ padding: '10px', background: 'rgba(59,130,246,0.1)', borderRadius: '10px', fontSize: '0.75rem', color: '#3b82f6', marginTop: '10px' }}>
+                <strong>🚀 المتغيرات المتاحة:</strong>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '5px' }}>
+                    <span><code>{`{greeting}`}</code></span>
+                    <span><code>{`{name}`}</code></span>
+                    <span><code>{`{list_name}`}</code></span>
+                    <span><code>{`{university}`}</code></span>
+                    <span><code>{`{major}`}</code></span>
+                    <span><code>{`{closing}`}</code></span>
+                </div>
+            </div>
+
             
             <div style={{ 
                 marginTop: '1rem', padding: '1rem', borderRadius: '12px', 
