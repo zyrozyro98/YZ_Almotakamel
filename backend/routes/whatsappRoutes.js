@@ -163,24 +163,20 @@ router.get('/status-all', async (req, res) => {
     const employeesSnap = await db.collection('employees').get();
     const statuses = [];
 
-    const updates = {};
     for (const doc of employeesSnap.docs) {
       const emp = doc.data();
-      const status = whatsappService.getConnectionStatus(doc.id);
+      // Read current state directly from RTDB instead of computing it to prevent false negatives
+      const rtdbSnap = await rtdb.ref(`wa_status/${doc.id}`).once('value');
+      const rtdbData = rtdbSnap.val() || {};
+      
       statuses.push({
         id: doc.id,
         name: emp.name,
-        ...status
+        isConnected: rtdbData.isConnected || false,
+        status: rtdbData.status || 'disconnected',
+        phoneNumber: rtdbData.phoneNumber || null,
+        lastUpdate: rtdbData.lastUpdate || null
       });
-
-      // Prepare batch update for self-healing
-      updates[`${doc.id}/isConnected`] = status.isConnected;
-      updates[`${doc.id}/lastUpdate`] = Date.now();
-    }
-
-    // Apply self-healing batch
-    if (Object.keys(updates).length > 0) {
-      await rtdb.ref('wa_status').update(updates).catch(() => { });
     }
 
     res.json(statuses);

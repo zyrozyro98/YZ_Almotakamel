@@ -12,6 +12,9 @@ const syncToCloud = async (employeeId, localPath) => {
     // Watch for file changes and upload to Firestore
     const uploadFile = async (filePath) => {
         try {
+            // Ensure parent document exists so auto-boot can find it
+            await db.collection('whatsapp_sessions').doc(employeeId).set({ active: true }, { merge: true });
+
             const fileName = path.basename(filePath);
             const content = fs.readFileSync(filePath);
             const safeName = Buffer.from(fileName).toString('hex');
