@@ -1,8 +1,9 @@
-const {
-  default: makeWASocket,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  downloadMediaMessage
+const { 
+  default: makeWASocket, 
+  DisconnectReason, 
+  fetchLatestBaileysVersion, 
+  downloadMediaMessage,
+  makeCacheableSignalKeyStore
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
@@ -317,7 +318,12 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   console.log(`[WA-${employeeId}] Step 4: Using version ${version.join('.')}. Creating socket...`);
 
   const sock = makeWASocket({
-    version, auth: state, printQRInTerminal: false,
+    version, 
+    auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+    },
+    printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: getStableBrowser(employeeId),
     connectTimeoutMs: 30000,
@@ -355,7 +361,8 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       if (shouldReconnect) {
         // Staggered reconnection to avoid IP hammering and 408 errors
         const delay = 5000 + (Math.random() * 10000); 
-        console.log(`[WA-${employeeId}] RECONNECTING (Code: ${statusCode}) in ${Math.round(delay/1000)} seconds...`);
+        console.log(`[WA-${employeeId}] RECONNECTING (Code: ${statusCode || 'NoCode'}) in ${Math.round(delay/1000)} seconds...`);
+        if (!statusCode) console.error(`[WA-${employeeId}] Full Disconnect Error:`, lastDisconnect.error);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
