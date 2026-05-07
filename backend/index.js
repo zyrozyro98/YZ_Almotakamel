@@ -102,20 +102,13 @@ app.listen(PORT, async () => {
     console.log(`[AUTO-BOOT] Found ${files.filter(f => f.startsWith('session-')).length} potential sessions.`);
 
     let delay = 0;
-    for (const file of files) {
-      if (file.startsWith('session-')) {
-        const employeeId = file.replace('session-', '');
-        const currentDelay = delay;
-
-        setTimeout(() => {
-          console.log(`[AUTO-BOOT] Restoring session (${currentDelay}ms delay) for: ${employeeId}`);
-          whatsappService.initializeSession(employeeId).catch(err => {
-            console.error(`[AUTO-BOOT ERROR] Failed for ${employeeId}:`, err.message);
-          });
-        }, currentDelay);
-
-        delay += 2000; // 2 seconds between each session
-      }
+    for (const employeeId of potentialSessions) {
+      setTimeout(() => {
+        whatsappService.initializeSession(employeeId).catch(err => {
+          console.error(`[AUTO-BOOT] Failed for ${employeeId}:`, err.message);
+        });
+      }, delay);
+      delay += 5000; // 5 second gap between each session
     }
   }
 

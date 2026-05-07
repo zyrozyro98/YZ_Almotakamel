@@ -301,14 +301,18 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   // Fetch version with a 5s timeout to prevent hanging
   const fetchVersionWithTimeout = async () => {
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
-    return Promise.race([fetchLatestBaileysVersion(), timeout]);
+    try {
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
+      const { version, isLatest } = await Promise.race([fetchLatestBaileysVersion(), timeout]);
+      console.log(`[WA] Using latest Baileys version: ${version.join('.')} (Latest: ${isLatest})`);
+      return { version, isLatest };
+    } catch (e) {
+      console.warn('[WA] Failed to fetch latest version, using modern fallback.');
+      return { version: [2, 3000, 1015901307] }; // Modern fallback
+    }
   };
 
-  const { version } = await fetchVersionWithTimeout().catch((err) => {
-    console.warn(`[BAILEYS] Version fetch failed or timed out (${err.message}). Using fallback version.`);
-    return { version: [2, 2413, 1] };
-  });
+  const { version } = await fetchVersionWithTimeout();
 
   const sock = makeWASocket({
     version, auth: state, printQRInTerminal: false,
@@ -347,8 +351,10 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       }).catch(e => console.error('[WA] Close RTDB Update Error:', e.message));
       
       if (shouldReconnect) {
-        console.log(`[WA] Connection closed for ${employeeId}. Reconnecting in 3 seconds... (Status code: ${statusCode})`);
-        setTimeout(() => initializeSession(employeeId, onQrGenerated, true), 3000);
+        // Staggered reconnection to avoid IP hammering and 408 errors
+        const delay = 5000 + (Math.random() * 10000); 
+        console.log(`[WA] Reconnecting ${employeeId} in ${Math.round(delay/1000)} seconds...`);
+        setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
         sessions.delete(employeeId);
         if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
