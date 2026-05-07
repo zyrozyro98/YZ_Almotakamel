@@ -73,7 +73,7 @@ server.listen(PORT, async () => {
   await maintenance();
   
   // Start distribution service
-  distributionService.start();
+  distributionService.initDistributionListener();
   
   // Start schedule service
   scheduleService.init();

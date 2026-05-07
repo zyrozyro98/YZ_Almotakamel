@@ -9,10 +9,12 @@ const useFirestoreAuthState = async (employeeId) => {
 
     const writeData = async (data, id) => {
         try {
+            // Encode ID to be safe for Firestore (replace / with _)
+            const safeId = Buffer.from(id).toString('hex');
             // Use BufferJSON to handle binary data correctly
             const jsonStr = JSON.stringify(data, BufferJSON.replacer);
             const docData = JSON.parse(jsonStr);
-            await db.collection(collectionPath).doc(id).set(docData);
+            await db.collection(collectionPath).doc(safeId).set(docData);
         } catch (e) {
             console.error(`[FIREBASE AUTH] Write error for ${id}:`, e.message);
         }
@@ -20,7 +22,8 @@ const useFirestoreAuthState = async (employeeId) => {
 
     const readData = async (id) => {
         try {
-            const doc = await db.collection(collectionPath).doc(id).get();
+            const safeId = Buffer.from(id).toString('hex');
+            const doc = await db.collection(collectionPath).doc(safeId).get();
             if (doc.exists) {
                 const jsonStr = JSON.stringify(doc.data());
                 return JSON.parse(jsonStr, BufferJSON.reviver);
@@ -34,7 +37,8 @@ const useFirestoreAuthState = async (employeeId) => {
 
     const removeData = async (id) => {
         try {
-            await db.collection(collectionPath).doc(id).delete();
+            const safeId = Buffer.from(id).toString('hex');
+            await db.collection(collectionPath).doc(safeId).delete();
         } catch (e) {
             console.error(`[FIREBASE AUTH] Remove error for ${id}:`, e.message);
         }
