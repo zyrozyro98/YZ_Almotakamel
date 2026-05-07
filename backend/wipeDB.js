@@ -6,7 +6,7 @@ async function wipe() {
     await rtdb.ref('chats').remove();
     await rtdb.ref('notifications').remove();
     await rtdb.ref('lid_mappings').remove();
-    
+
     console.log("🗑️ جاري مسح سجلات الطلاب...");
     const snap = await db.collection('students').get();
     const batch = db.batch();

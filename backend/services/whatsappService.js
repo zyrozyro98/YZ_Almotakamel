@@ -115,8 +115,15 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     if (mediaType !== "text") {
       try {
         const buffer = await downloadMediaMessage(msg, 'buffer', {});
-        const mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
-        const fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+        let mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
+        let fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+        
+        // Ensure extension exists for proper serving
+        if (!fileName.includes('.')) {
+          const extension = mime.split('/')[1]?.split(';')[0] || 'bin';
+          fileName += `.${extension}`;
+        }
+        
         mediaData = await uploadToStorage(buffer, fileName, mime);
         console.log(`[WA] Media uploaded: ${mediaData}`);
       } catch (err) { console.error("[WA] Media error:", err.message); }

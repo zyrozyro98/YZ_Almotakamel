@@ -4,7 +4,7 @@ import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onValue } from 'firebase/database';
-import { collection, onSnapshot, query, orderBy, getDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDoc, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { Globe, Shield, Save } from 'lucide-react';
 
 
@@ -17,9 +17,15 @@ export default function WhatsAppConfig() {
   const [employees, setEmployees] = useState([]);
   const [targetEmployeeId, setTargetEmployeeId] = useState(null);
   const [allStatuses, setAllStatuses] = useState([]);
-  const [activeTab, setActiveTab] = useState('single'); // 'single', 'dashboard'
+  const [activeTab, setActiveTab] = useState('single'); // 'single', 'dashboard', 'quick_messages'
   const [proxy, setProxy] = useState({ host: '', port: '', user: '', pass: '', protocol: 'http' });
   const [showProxy, setShowProxy] = useState(false);
+  const [quickMessages, setQuickMessages] = useState([]);
+  const [quickMsgForm, setQuickMsgForm] = useState({ title: '', content: '' });
+  const [editingQuickMsgId, setEditingQuickMsgId] = useState(null);
+  const quickMsgTextareaRef = React.useRef(null);
+  const [stickers, setStickers] = useState([]);
+  const [stickerFile, setStickerFile] = useState(null);
 
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -122,6 +128,26 @@ export default function WhatsAppConfig() {
     };
   }, [employees, isAdmin]);
 
+  // Load Quick Messages
+  useEffect(() => {
+    if (!isAdmin) return;
+    const q = query(collection(db, 'quickMessages'), orderBy('title', 'asc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setQuickMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [isAdmin]);
+
+  // Load Stickers
+  useEffect(() => {
+    if (!isAdmin) return;
+    const q = query(collection(db, 'stickerLibrary'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setStickers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [isAdmin]);
+
   const fetchAllStatuses = async () => {
     if (!isAdmin) return;
     setLoading(true);
@@ -200,6 +226,104 @@ export default function WhatsAppConfig() {
     }
   };
 
+  const handleSaveQuickMsg = async (e) => {
+    e.preventDefault();
+    if (!quickMsgForm.title || !quickMsgForm.content) return;
+    setLoading(true);
+    try {
+      if (editingQuickMsgId) {
+        await updateDoc(doc(db, 'quickMessages', editingQuickMsgId), quickMsgForm);
+        setEditingQuickMsgId(null);
+      } else {
+        await addDoc(collection(db, 'quickMessages'), {
+          ...quickMsgForm,
+          createdAt: Date.now()
+        });
+      }
+      setQuickMsgForm({ title: '', content: '' });
+      alert('تم حفظ الرسالة بنجاح');
+    } catch (err) {
+      alert('فشل حفظ الرسالة: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditQuickMsg = (msg) => {
+    setQuickMsgForm({ title: msg.title, content: msg.content });
+    setEditingQuickMsgId(msg.id);
+  };
+
+  const handleDeleteQuickMsg = async (id) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذه الرسالة؟')) return;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'quickMessages', id));
+      alert('تم حذف الرسالة');
+    } catch (err) {
+      alert('فشل حذف الرسالة: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadSticker = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        setLoading(true);
+        try {
+            await addDoc(collection(db, 'stickerLibrary'), {
+                url: event.target.result,
+                name: file.name,
+                createdAt: Date.now()
+            });
+            alert('تم إضافة الملصق للمكتبة');
+        } catch (err) {
+            alert('فشل الرفع: ' + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteSticker = async (id) => {
+    if (!window.confirm('حذف هذا الملصق من المكتبة؟')) return;
+    setLoading(true);
+    try {
+        await deleteDoc(doc(db, 'stickerLibrary', id));
+        alert('تم الحذف');
+    } catch (err) {
+        alert('فشل الحذف');
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const insertVariable = (variable) => {
+    const textarea = quickMsgTextareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = quickMsgForm.content;
+    const newText = text.substring(0, start) + variable + text.substring(end);
+
+    setQuickMsgForm({ ...quickMsgForm, content: newText });
+
+    // Focus back and move cursor after react re-renders
+    setTimeout(() => {
+        if (textarea) {
+            textarea.focus();
+            textarea.selectionStart = textarea.selectionEnd = start + variable.length;
+        }
+    }, 0);
+  };
+
+
 
   if (!employeeId) {
     return <div style={{ color: '#fff', padding: '100px', textAlign: 'center' }}>جاري التحقق من الهوية...</div>;
@@ -229,6 +353,18 @@ export default function WhatsAppConfig() {
                 style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'dashboard' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
               >
                 لوحة المتابعة
+              </button>
+              <button 
+                onClick={() => setActiveTab('quick_messages')} 
+                style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'quick_messages' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                الرسائل السريعة
+              </button>
+              <button 
+                onClick={() => setActiveTab('sticker_library')} 
+                style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'sticker_library' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                المكتبة (ملصقات)
               </button>
             </div>
           )}
@@ -408,6 +544,157 @@ export default function WhatsAppConfig() {
               )}
             </div>
           </div>
+        </div>
+      ) : activeTab === 'quick_messages' ? (
+        <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+          {/* Quick Messages Form */}
+          <div className="glass-panel" style={{ padding: '30px' }}>
+            <h3 style={{ color: '#fff', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Zap size={20} color="var(--brand-primary)" />
+              {editingQuickMsgId ? 'تعديل رسالة سريعة' : 'إضافة رسالة سريعة جديدة'}
+            </h3>
+            <form onSubmit={handleSaveQuickMsg} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <label className="input-label">عنوان الرسالة (اختصار)</label>
+                <input 
+                  type="text" className="input-base" required
+                  value={quickMsgForm.title} onChange={e => setQuickMsgForm({...quickMsgForm, title: e.target.value})}
+                  placeholder="مثال: رسالة الترحيب"
+                />
+              </div>
+              <div>
+                <label className="input-label">محتوى الرسالة</label>
+                <textarea 
+                  ref={quickMsgTextareaRef}
+                  className="input-base" required rows={10}
+                  value={quickMsgForm.content} onChange={e => setQuickMsgForm({...quickMsgForm, content: e.target.value})}
+                  placeholder="اكتب نص الرسالة هنا..."
+                  style={{ resize: 'vertical' }}
+                ></textarea>
+                <div style={{ marginTop: '10px', padding: '15px', background: 'rgba(59,130,246,0.05)', borderRadius: '15px', border: '1px solid rgba(59,130,246,0.1)' }}>
+                    <strong style={{ color: '#fff', fontSize: '0.85rem', display: 'block', marginBottom: '10px' }}>💡 انقر لإضافة متغير في موضع المؤشر:</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {[
+                            { label: 'اسم الطالب', val: '{name}' },
+                            { label: 'الجامعة', val: '{university}' },
+                            { label: 'التخصص', val: '{major}' },
+                            { label: 'اسم المستخدم', val: '{username}' },
+                            { label: 'كلمة المرور', val: '{password}' }
+                        ].map(v => (
+                            <button
+                                key={v.val}
+                                type="button"
+                                onClick={() => insertVariable(v.val)}
+                                style={{
+                                    padding: '6px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)',
+                                    borderRadius: '8px', color: '#3b82f6', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                                    transition: '0.2s'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.2)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'rgba(59,130,246,0.1)'}
+                            >
+                                + {v.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="submit" disabled={loading} className="btn-primary" style={{ flex: 2, padding: '12px' }}>
+                  <Save size={18} /> {editingQuickMsgId ? 'تحديث الرسالة' : 'حفظ الرسالة'}
+                </button>
+                {editingQuickMsgId && (
+                  <button 
+                    type="button" 
+                    onClick={() => { setEditingQuickMsgId(null); setQuickMsgForm({ title: '', content: '' }); }}
+                    className="btn-secondary" style={{ flex: 1 }}
+                  >
+                    إلغاء
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* Quick Messages List */}
+          <div className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+               <h3 style={{ color: '#fff', margin: 0 }}>قائمة الرسائل المسجلة</h3>
+               <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>إجمالي: {quickMessages.length}</span>
+            </div>
+            <div style={{ maxHeight: '600px', overflowY: 'auto' }} className="custom-scrollbar">
+              {quickMessages.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'rgba(255,255,255,0.2)' }}>
+                  <AlertTriangle size={40} style={{ marginBottom: '10px' }} />
+                  <p>لا توجد رسائل سريعة مضافة حالياً</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem' }}>
+                      <th style={{ padding: '15px' }}>العنوان</th>
+                      <th style={{ padding: '15px' }}>المحتوى (مختصر)</th>
+                      <th style={{ padding: '15px', textAlign: 'center' }}>الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quickMessages.map(msg => (
+                      <tr key={msg.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '15px', color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>{msg.title}</td>
+                        <td style={{ padding: '15px', color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>
+                          {msg.content.length > 50 ? msg.content.substring(0, 50) + '...' : msg.content}
+                        </td>
+                        <td style={{ padding: '15px' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            <button onClick={() => handleEditQuickMsg(msg)} className="btn-secondary" style={{ padding: '6px', minWidth: 'auto' }}>
+                              <Zap size={14} />
+                            </button>
+                            <button onClick={() => handleDeleteQuickMsg(msg.id)} style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: 'none', borderRadius: '6px', padding: '6px', cursor: 'pointer' }}>
+                              <LogOut size={14} style={{ transform: 'rotate(180deg)' }} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : activeTab === 'sticker_library' ? (
+        <div className="animate-fade-in">
+            <div className="glass-panel" style={{ padding: '30px', marginBottom: '30px', textAlign: 'center' }}>
+                <h3 style={{ color: '#fff', marginBottom: '15px' }}>مكتبة الملصقات الجاهزة</h3>
+                <p style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '25px' }}>ارفع صوراً ليتم استخدامها كملصقات فورية من قبل الموظفين في الدردشة</p>
+                <input 
+                    type="file" accept="image/*" id="sticker-upload" style={{ display: 'none' }}
+                    onChange={handleUploadSticker}
+                />
+                <label htmlFor="sticker-upload" className="btn-primary" style={{ padding: '12px 30px', cursor: 'pointer', display: 'inline-flex', gap: '10px', alignItems: 'center' }}>
+                    <ImageIcon size={20} /> رفع ملصق جديد للمكتبة
+                </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
+                {stickers.map(s => (
+                    <div key={s.id} className="glass-panel" style={{ padding: '15px', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                        <img src={s.url} alt={s.name} style={{ width: '100px', height: '100px', objectFit: 'contain' }} />
+                        <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{s.name}</span>
+                        <button 
+                            onClick={() => handleDeleteSticker(s.id)}
+                            style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', borderRadius: '50%', padding: '5px', cursor: 'pointer' }}
+                        >
+                            <Trash size={14} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+            {stickers.length === 0 && (
+                <div style={{ padding: '100px', textAlign: 'center', color: 'rgba(255,255,255,0.1)' }}>
+                    المكتبة فارغة.. ابدأ برفع صور ملصقاتك الأولى
+                </div>
+            )}
         </div>
       ) : (
         /* Admin Dashboard Tab */

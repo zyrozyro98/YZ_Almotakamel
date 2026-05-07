@@ -49,6 +49,10 @@ export default function WhatsAppChat() {
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduledTime, setScheduledTime] = useState('');
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [quickMessages, setQuickMessages] = useState([]);
+  const [stickers, setStickers] = useState([]);
+  const [showQuickMessages, setShowQuickMessages] = useState(false);
+  const [activeQuickTab, setActiveQuickTab] = useState('text'); // 'text' or 'stickers'
   const fileInputRef = useRef(null);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
@@ -101,7 +105,15 @@ export default function WhatsAppChat() {
       setMajors(snap.docs.map(doc => doc.data().name || doc.data().label).filter(Boolean));
     });
 
-    return () => { unsubUnivs(); unsubMajors(); };
+    const unsubQuick = onSnapshot(collection(db, 'quickMessages'), (snap) => {
+      setQuickMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubStickers = onSnapshot(collection(db, 'stickerLibrary'), (snap) => {
+      setStickers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubUnivs(); unsubMajors(); unsubQuick(); unsubStickers(); };
   }, [employeeId]);
 
   // Fetch all employees if admin
@@ -621,6 +633,27 @@ export default function WhatsAppChat() {
       setIsSending(false);
     }
   };
+
+  const sendStickerFromLibrary = async (stickerUrl) => {
+    if (isSending || !selectedChat) return;
+    setIsSending(true);
+    try {
+      await axios.post(`${BASE_URL}/api/whatsapp/send-sticker`, {
+        employeeId: isAdmin ? viewingEmployeeId : employeeId,
+        phoneNumber: selectedChat.phone.replace(/[^0-9]/g, ''),
+        fullJid: selectedChat.fullJid,
+        base64Image: stickerUrl,
+        senderId: employeeId,
+        senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف')
+      });
+      setShowQuickMessages(false);
+    } catch (err) {
+      alert('فشل إرسال الملصق');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
 
   const handleReceiptSave = async (e) => {
     e?.preventDefault();
@@ -1145,6 +1178,95 @@ export default function WhatsAppChat() {
                   >
                     <Smile size={24} />
                   </button>
+                  <button
+                    onClick={() => setShowQuickMessages(!showQuickMessages)}
+                    style={{ background: 'none', border: 'none', color: showQuickMessages ? '#3b82f6' : '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: '0.2s' }}
+                    title="الرسائل السريعة"
+                  >
+                    <Zap size={24} />
+                  </button>
+
+                  {showQuickMessages && (
+                    <div className="animate-scale-in" style={{
+                      position: 'absolute', bottom: '85px', left: '20px', right: '20px',
+                      background: '#1e293b', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.1)',
+                      boxShadow: '0 10px 40px rgba(0,0,0,0.6)', zIndex: 100,
+                      maxHeight: '300px', overflowY: 'auto', padding: '10px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '5px 10px' }}>
+                        <div style={{ display: 'flex', gap: '15px' }}>
+                            <button 
+                                onClick={() => setActiveQuickTab('text')}
+                                style={{ background: 'none', border: 'none', color: activeQuickTab === 'text' ? '#3b82f6' : '#94a3b8', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', borderBottom: activeQuickTab === 'text' ? '2px solid #3b82f6' : 'none', paddingBottom: '2px' }}
+                            >نصوص جاهزة</button>
+                            <button 
+                                onClick={() => setActiveQuickTab('stickers')}
+                                style={{ background: 'none', border: 'none', color: activeQuickTab === 'stickers' ? '#3b82f6' : '#94a3b8', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', borderBottom: activeQuickTab === 'stickers' ? '2px solid #3b82f6' : 'none', paddingBottom: '2px' }}
+                            >ملصقات (Stickers)</button>
+                        </div>
+                        <X size={16} style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setShowQuickMessages(false)} />
+                      </div>
+
+                      {activeQuickTab === 'text' ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                            {quickMessages.map(msg => (
+                            <div
+                                key={msg.id}
+                                onClick={() => {
+                                  let finalContent = msg.content;
+                                  if (selectedChat) {
+                                    finalContent = finalContent
+                                      .replace(/{name}/g, selectedChat.name || '')
+                                      .replace(/{university}/g, selectedChat.university || '')
+                                      .replace(/{major}/g, selectedChat.major || selectedChat.specialization || '')
+                                      .replace(/{username}/g, selectedChat.username || selectedChat.platformUser || '')
+                                      .replace(/{password}/g, selectedChat.password || selectedChat.platformPass || '');
+                                  }
+                                  setMessage(finalContent);
+                                  setShowQuickMessages(false);
+                                }}
+                                style={{
+                                padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)',
+                                cursor: 'pointer', transition: '0.2s', textAlign: 'right'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.1)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                            >
+                                <div style={{ color: '#fff', fontSize: '0.75rem', fontWeight: 700, marginBottom: '4px' }}>{msg.title}</div>
+                                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {msg.content}
+                                </div>
+                            </div>
+                            ))}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '10px' }}>
+                            {stickers.map(s => (
+                                <div 
+                                    key={s.id}
+                                    onClick={() => sendStickerFromLibrary(s.url)}
+                                    style={{ padding: '5px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', cursor: 'pointer', textAlign: 'center' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.1)'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                >
+                                    <img src={s.url} alt="Sticker" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
+                                </div>
+                            ))}
+                        </div>
+                      )}
+                      
+                      {activeQuickTab === 'text' && quickMessages.length === 0 && (
+                        <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: '0.8rem' }}>
+                          لا توجد رسائل سريعة مضافة
+                        </div>
+                      )}
+                      {activeQuickTab === 'stickers' && stickers.length === 0 && (
+                        <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: '0.8rem' }}>
+                          لا توجد ملصقات في المكتبة
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <textarea
                     value={message}
                     onChange={e => setMessage(e.target.value)}
