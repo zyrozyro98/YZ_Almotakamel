@@ -409,8 +409,11 @@ export default function WhatsAppConfig() {
                         >
                           <div style={{ 
                             position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', borderRadius: '50%', 
-                            background: status.isConnected ? 'var(--success)' : (!status.status ? 'rgba(255,255,255,0.1)' : 'var(--danger)'),
-                            boxShadow: status.isConnected ? '0 0 10px var(--success)' : 'none',
+                            background: status.isConnected ? 'var(--success)' : 
+                                       (['connecting', 'reconnecting', 'restarting'].includes(status.status) ? '#fbbf24' : 
+                                       (!status.status ? 'rgba(255,255,255,0.1)' : 'var(--danger)')),
+                            boxShadow: status.isConnected ? '0 0 10px var(--success)' : 
+                                      (['connecting', 'reconnecting', 'restarting'].includes(status.status) ? '0 0 10px #fbbf24' : 'none'),
                             transition: '0.3s'
                           }} />
                           <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isSelected ? '#fff' : 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>{emp.name}</div>
@@ -438,7 +441,9 @@ export default function WhatsAppConfig() {
                     background: waStatus === 'connected' ? 'rgba(34, 197, 94, 0.1)' : ((waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting') ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'), 
                     color: waStatus === 'connected' ? '#4ade80' : ((waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting') ? '#fbbf24' : '#f87171') 
                   }}>
-                    {waStatus === 'connected' ? 'متصل بنجاح' : (waStatus === 'qr_needed' || waStatus === 'qr_ready' ? 'بانتظار المسح...' : (waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting' ? 'جاري التجهيز...' : 'غير مرتبط'))}
+                    {waStatus === 'connected' ? 'متصل بنجاح' : 
+                     (waStatus === 'qr_needed' || waStatus === 'qr_ready' ? 'بانتظار المسح...' : 
+                     (waStatus === 'connecting' || waStatus === 'reconnecting' || waStatus === 'restarting' ? 'جاري استعادة الاتصال...' : 'غير مرتبط'))}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
