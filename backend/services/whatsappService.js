@@ -148,18 +148,47 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
           chatId = getPureNumber(jidMappingSnap.val());
           console.log(`[WA] JID System Match: ${jidUser} -> ${chatId}`);
         } else {
-          // Live JID Discovery
+          // Live JID Discovery (Fallback)
           try {
             const results = await sock.onWhatsApp(normalizedJid);
             if (results && results.length > 0 && results[0].exists) {
               const resolvedJid = results[0].jid;
               if (resolvedJid.includes('@s.whatsapp.net')) {
                 chatId = getPureNumber(resolvedJid);
-                // Cache the mapping to maintain unified JID history
                 await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
               }
             }
           } catch (e) { }
+
+          // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
+          // If the student replies to our photo using their hidden LID, we find the photo's original chat!
+          if (chatId === getPureNumber(jidUser)) { // If still not resolved
+            const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
+            if (contextInfo && contextInfo.stanzaId) {
+              try {
+                // Search all recent messages in RTDB for this stanzaId to find the real phone number
+                const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+                if (allChatsSnap.exists()) {
+                  const chatsData = allChatsSnap.val();
+                  for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
+                    if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
+                      // BINGO! We found which phone number this LID is replying to.
+                      chatId = phoneKey;
+                      await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+                      
+                      // Also update the student's Firestore record to permanently link the LID
+                      const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
+                      if (!studentPhoneMatch.empty) {
+                        await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+                      }
+                      console.log(`[WA] StanzaID Reverse Match: ${jidUser} -> ${chatId}`);
+                      break;
+                    }
+                  }
+                }
+              } catch (e) { console.error("[WA] Reverse Lookup Error:", e.message); }
+            }
+          }
         }
       }
 
