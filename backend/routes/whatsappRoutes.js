@@ -107,10 +107,15 @@ router.post('/send', async (req, res) => {
     }
     await simulateRead(sock, targetJid).catch(() => {});
 
-    // Record the sender info in RTDB immediately for the monitoring feed
+    // Record the sender info and FULL message in RTDB immediately for the UI
     if (senderId || senderName) {
       const chatId = getPureNumber(targetJid); // MUST match the WA JID to prevent fragmentation
       const updateData = {
+        text: finalMessage,
+        type: 'text',
+        time: Date.now(),
+        sender: 'me',
+        id: result.key.id,
         senderName: senderName || 'نظام',
         senderId: senderId || 'system'
       };
@@ -124,6 +129,15 @@ router.post('/send', async (req, res) => {
       }
 
       await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
+      
+      // Update chat metadata to instantly reflect in the UI sidebar
+      await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+        lastMessage: finalMessage.substring(0, 50),
+        timestamp: Date.now(),
+        phone: chatId,
+        fullJid: targetJid,
+        lastSender: 'me'
+      }).catch(() => { });
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
