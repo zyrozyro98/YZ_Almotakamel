@@ -4,7 +4,7 @@ const crypto = require('crypto');
 
 /**
  * Custom Baileys Auth State using Firestore with BASE64 Encoding
- * This is the most robust version for ephemeral environments.
+ * Optimized for handshakes and binary data integrity.
  */
 const useFirestoreAuthState = async (employeeId) => {
     const collectionPath = `whatsapp_sessions/${employeeId}/state`;
@@ -12,7 +12,7 @@ const useFirestoreAuthState = async (employeeId) => {
     const writeData = async (data, id) => {
         try {
             const safeId = Buffer.from(id).toString('hex');
-            // Convert to Base64 String to ensure Firestore compatibility
+            // Ensure all binary data is stringified correctly using BufferJSON
             const base64Data = JSON.stringify(data, BufferJSON.replacer);
             await db.collection(collectionPath).doc(safeId).set({ payload: base64Data });
         } catch (e) {
@@ -47,17 +47,29 @@ const useFirestoreAuthState = async (employeeId) => {
     const initCreds = () => {
         const noiseKey = Curve.generateKeyPair();
         const signedIdentityKey = Curve.generateKeyPair();
+        const signedPreKey = Curve.generateKeyPair();
+        
+        // Ensure keys are Buffers for maximum compatibility
         return {
             registrationId: generateRegistrationId(),
             advSecretKey: crypto.randomBytes(32).toString('base64'),
             nextPreKeyId: 1,
             firstUnuploadedPreKeyId: 1,
             serverHasPreKeys: false,
-            noiseKey: noiseKey,
-            signedIdentityKey: signedIdentityKey,
+            noiseKey: {
+                public: Buffer.from(noiseKey.public),
+                private: Buffer.from(noiseKey.private)
+            },
+            signedIdentityKey: {
+                public: Buffer.from(signedIdentityKey.public),
+                private: Buffer.from(signedIdentityKey.private)
+            },
             signedPreKey: {
-                keyPair: Curve.generateKeyPair(),
-                signature: Buffer.alloc(0),
+                keyPair: {
+                    public: Buffer.from(signedPreKey.public),
+                    private: Buffer.from(signedPreKey.private)
+                },
+                signature: Buffer.alloc(64), // Valid 64-byte empty buffer
                 keyId: 1
             },
             accountSettings: {
