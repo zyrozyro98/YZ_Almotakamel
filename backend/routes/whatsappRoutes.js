@@ -49,7 +49,8 @@ router.post('/send', async (req, res) => {
 
   try {
     const sock = whatsappService.getSession(employeeId);
-    const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
+    // Relaxed check: If sock exists in memory, Baileys will queue or throw a proper error
+    const isConnected = sock && (sock.user || sock.authState?.creds?.me);
     
     if (!isConnected) {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة أو في حالة إعادة اتصال.` });
@@ -296,7 +297,7 @@ router.post('/send-image', async (req, res) => {
     }
 
     const sock = whatsappService.getSession(employeeId);
-    const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
+    const isConnected = sock && (sock.user || sock.authState?.creds?.me);
     
     if (!isConnected) {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
