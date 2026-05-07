@@ -51,7 +51,8 @@ async function uploadToStorage(buffer, fileName, mimeType) {
 
 const sessions = new Map();
 const qrCache = new Map();
-const SESSIONS_PATH = process.env.WA_SESSION_PATH || path.join(__dirname, '..', 'sessions');
+const SESSIONS_PATH = process.env.WA_SESSION_PATH ? path.resolve(process.env.WA_SESSION_PATH) : path.join(__dirname, '..', 'sessions');
+console.log(`[WA SERVICE] Sessions path resolved to: ${SESSIONS_PATH}`);
 
 // Global set to track processed message IDs to prevent double notifications/saves
 const processedMessageIds = new Set();

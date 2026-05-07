@@ -7,10 +7,13 @@ const https = require('https');
 const http = require('http');
 
 // Ensure sessions directory exists for Baileys Multi-Device state
-const sessionsDir = process.env.WA_SESSION_PATH || path.join(__dirname, 'sessions');
+const sessionsDir = process.env.WA_SESSION_PATH ? path.resolve(process.env.WA_SESSION_PATH) : path.join(__dirname, 'sessions');
 if (!fs.existsSync(sessionsDir)) {
   fs.mkdirSync(sessionsDir, { recursive: true });
-  console.log('[SYSTEM] Created sessions directory');
+  console.log('[SYSTEM] Created sessions directory at:', sessionsDir);
+} else {
+  const files = fs.readdirSync(sessionsDir);
+  console.log(`[DISK CHECK] Sessions directory exists at ${sessionsDir}. Contains ${files.length} items.`);
 }
 
 // Ensure uploads directory exists on the persistent disk
