@@ -16,12 +16,12 @@ services:
       - key: NODE_ENV
         value: production
       - key: WA_SESSION_PATH
-        value: /usr/src/app/sessions
+        value: sessions
       # Note: Add FIREBASE_ADMIN_CREDENTIALS and other secrets in Render Dashboard
     # Persistent Disk for WhatsApp Sessions (Requires Paid Plan)
     disk:
       name: whatsapp-sessions
-      mountPath: /usr/src/app/sessions
+      mountPath: sessions
       sizeGB: 1
 
   # ---------------------------------------------------------------------------
