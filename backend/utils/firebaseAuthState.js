@@ -3,40 +3,18 @@ const { BufferJSON, Curve, generateRegistrationId } = require('@whiskeysockets/b
 const crypto = require('crypto');
 
 /**
- * Custom Baileys Auth State using Firestore for Persistence
+ * Custom Baileys Auth State using Firestore with BASE64 Encoding
+ * This is the most robust version for ephemeral environments.
  */
 const useFirestoreAuthState = async (employeeId) => {
     const collectionPath = `whatsapp_sessions/${employeeId}/state`;
 
-    const initCreds = () => {
-        const noiseKey = Curve.generateKeyPair();
-        const signedIdentityKey = Curve.generateKeyPair();
-        return {
-            registrationId: generateRegistrationId(),
-            advSecretKey: crypto.randomBytes(32).toString('base64'),
-            nextPreKeyId: 1,
-            firstUnuploadedPreKeyId: 1,
-            serverHasPreKeys: false,
-            noiseKey: noiseKey,
-            signedIdentityKey: signedIdentityKey,
-            signedPreKey: {
-                keyPair: Curve.generateKeyPair(),
-                signature: Buffer.alloc(0), // Will be signed by Baileys
-                keyId: 1
-            },
-            accountSettings: {
-                unarchiveChats: false
-            }
-        };
-    };
-
     const writeData = async (data, id) => {
         try {
-            // Encode ID to be safe for Firestore (replace / with hex)
             const safeId = Buffer.from(id).toString('hex');
-            const jsonStr = JSON.stringify(data, BufferJSON.replacer);
-            const docData = JSON.parse(jsonStr);
-            await db.collection(collectionPath).doc(safeId).set(docData);
+            // Convert to Base64 String to ensure Firestore compatibility
+            const base64Data = JSON.stringify(data, BufferJSON.replacer);
+            await db.collection(collectionPath).doc(safeId).set({ payload: base64Data });
         } catch (e) {
             console.error(`[FIREBASE AUTH] Write error for ${id}:`, e.message);
         }
@@ -47,8 +25,8 @@ const useFirestoreAuthState = async (employeeId) => {
             const safeId = Buffer.from(id).toString('hex');
             const doc = await db.collection(collectionPath).doc(safeId).get();
             if (doc.exists) {
-                const jsonStr = JSON.stringify(doc.data());
-                return JSON.parse(jsonStr, BufferJSON.reviver);
+                const { payload } = doc.data();
+                return JSON.parse(payload, BufferJSON.reviver);
             }
             return null;
         } catch (e) {
@@ -64,6 +42,28 @@ const useFirestoreAuthState = async (employeeId) => {
         } catch (e) {
             console.error(`[FIREBASE AUTH] Remove error for ${id}:`, e.message);
         }
+    };
+
+    const initCreds = () => {
+        const noiseKey = Curve.generateKeyPair();
+        const signedIdentityKey = Curve.generateKeyPair();
+        return {
+            registrationId: generateRegistrationId(),
+            advSecretKey: crypto.randomBytes(32).toString('base64'),
+            nextPreKeyId: 1,
+            firstUnuploadedPreKeyId: 1,
+            serverHasPreKeys: false,
+            noiseKey: noiseKey,
+            signedIdentityKey: signedIdentityKey,
+            signedPreKey: {
+                keyPair: Curve.generateKeyPair(),
+                signature: Buffer.alloc(0),
+                keyId: 1
+            },
+            accountSettings: {
+                unarchiveChats: false
+            }
+        };
     };
 
     // Load initial creds

@@ -416,22 +416,28 @@ function getSession(employeeId) {
   if (!sock) throw new Error(`Session ${employeeId} not init.`);
   return sock;
 }
-
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
   if (sock) {
     try {
       sock.ev.removeAllListeners();
       await sock.logout().catch(() => { });
-      sock.ws.close();
+      if (sock.ws) sock.ws.close();
     } catch (e) { }
     sessions.delete(employeeId);
   }
   qrCache.delete(employeeId);
   await rtdb.ref(`wa_status/${employeeId}`).set({ isConnected: false, qr: null, lastUpdate: Date.now(), status: 'logged_out' });
-  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
-  await new Promise(r => setTimeout(r, 1000));
-  if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+  
+  // Clear Firestore state
+  try {
+    const { clearState } = await useFirestoreAuthState(employeeId);
+    await clearState();
+    console.log(`[WA-${employeeId}] Cloud session cleared.`);
+  } catch (e) {
+    console.error(`[WA-${employeeId}] Cleanup error:`, e.message);
+  }
+
   return { success: true };
 }
 
