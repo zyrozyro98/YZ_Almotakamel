@@ -20,7 +20,7 @@ router.post('/create', async (req, res) => {
   try {
     let userRecord;
     const formattedPhone = phone ? (phone.startsWith('+') ? phone : `+966${phone.replace(/^0/, '')}`) : undefined;
-    
+
     try {
       // 1. Try to Create User in Firebase Auth
       userRecord = await auth.createUser({
@@ -34,7 +34,7 @@ router.post('/create', async (req, res) => {
       if (authError.code === 'auth/email-already-exists') {
         console.log('[API] User already exists in Auth, fetching record...');
         userRecord = await auth.getUserByEmail(email);
-      } 
+      }
       // If phone number is invalid (TOO_SHORT, etc) or already exists, try creating without it
       else if (authError.code === 'auth/invalid-phone-number' || authError.code === 'auth/phone-number-already-exists') {
         console.warn('[API] Phone number issue, retrying without phone in Auth:', authError.message);
@@ -45,12 +45,12 @@ router.post('/create', async (req, res) => {
             displayName: name,
           });
         } catch (retryError) {
-           // If email already exists here too
-           if (retryError.code === 'auth/email-already-exists') {
-             userRecord = await auth.getUserByEmail(email);
-           } else {
-             throw retryError;
-           }
+          // If email already exists here too
+          if (retryError.code === 'auth/email-already-exists') {
+            userRecord = await auth.getUserByEmail(email);
+          } else {
+            throw retryError;
+          }
         }
       }
       else {
@@ -110,11 +110,11 @@ router.post('/create', async (req, res) => {
 
     // We execute Firestore write but don't wait forever for it if quota is hit
     // This prevents the "Processing..." hang
-    firestoreWrite(); 
+    firestoreWrite();
 
-    res.status(201).json({ 
-      message: 'تم إنشاء الموظف بنجاح وتفعيل صلاحياته عبر النظام السريع', 
-      uid: userRecord.uid 
+    res.status(201).json({
+      message: 'تم إنشاء الموظف بنجاح وتفعيل صلاحياته عبر النظام السريع',
+      uid: userRecord.uid
     });
 
   } catch (error) {
@@ -124,7 +124,7 @@ router.post('/create', async (req, res) => {
     if (error.code === 'auth/invalid-phone-number') errorMessage = 'رقم الهاتف غير صحيح (يجب أن يبدأ بـ 05 ويتكون من 10 أرقام).';
     if (error.code === 'auth/weak-password') errorMessage = 'كلمة المرور ضعيفة جداً.';
     if (error.code === 'auth/phone-number-already-exists') errorMessage = 'رقم الهاتف مسجل مسبقاً لموظف آخر.';
-    
+
     res.status(400).json({ error: errorMessage, details: error.message });
   }
 });
@@ -135,7 +135,7 @@ router.post('/create', async (req, res) => {
 router.post('/update/:id', async (req, res) => {
   const { name, email, phone, role, status, assignedUniversity, assignedMajor } = req.body;
   const uid = req.params.id;
-  
+
   try {
     // 1. Update Custom Claims if role changed
     if (role) {
@@ -184,19 +184,6 @@ router.delete('/delete/:id', async (req, res) => {
 
     // 2. Delete from Firestore
     await db.collection('employees').doc(uid).delete();
-
-    // 3. FAST PATH: Delete from RTDB
-    try {
-      await Promise.all([
-        rtdb.ref(`employee_roles/${uid}`).remove(),
-        rtdb.ref(`chats/${uid}`).remove(),
-        rtdb.ref(`notifications/${uid}`).remove(),
-        rtdb.ref(`wa_status/${uid}`).remove()
-      ]);
-      console.log(`[API] Cleaned up RTDB data for deleted user: ${uid}`);
-    } catch (e) {
-      console.warn(`[API] RTDB cleanup partially failed for ${uid}:`, e.message);
-    }
 
     res.status(200).json({ message: 'تم حذف الموظف بنجاح' });
   } catch (error) {

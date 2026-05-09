@@ -12,6 +12,8 @@ export default function SolverControl() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSystemLocked, setIsSystemLocked] = useState(false);
+  const [isUpdatingLock, setIsUpdatingLock] = useState(false);
 
   useEffect(() => {
     let fsSubmissions = [];
@@ -77,12 +79,19 @@ export default function SolverControl() {
       setUniversities(snap.docs.map(u => ({ id: u.id, ...u.data() })));
     });
 
+    // System Lock Status (RTDB Fast Path)
+    const lockRef = ref(rtdb, 'system_settings/solverSystemLocked');
+    const unsubLock = onValue(lockRef, (snap) => {
+      setIsSystemLocked(snap.val() === true);
+    });
+
     return () => {
       unsubSubmissions();
       unsubRtdbSubs();
       unsubStudents();
       unsubRtdbStatus();
       unsubUniversities();
+      unsubLock();
     };
   }, []);
 
@@ -146,6 +155,28 @@ export default function SolverControl() {
     }
   };
 
+  const toggleSystemLock = async (newStatus) => {
+    const actionText = newStatus ? 'إقفال النظام بالكامل' : 'فتح النظام للحل';
+    if (!window.confirm(`هل أنت متأكد من ${actionText}؟`)) return;
+
+    setIsUpdatingLock(true);
+    try {
+      const { set: rtdbSet, ref: rtdbRef } = await import('firebase/database');
+      await rtdbSet(rtdbRef(rtdb, 'system_settings/solverSystemLocked'), newStatus);
+      
+      // Also try Firestore in background but don't let it block
+      updateDoc(doc(db, 'system_settings', 'global'), { solverSystemLocked: newStatus })
+        .catch(e => console.warn('Firestore lock sync failed (quota):', e.message));
+
+      alert(`تم ${newStatus ? 'إقفال' : 'فتح'} النظام بنجاح.`);
+    } catch (e) {
+      console.error(e);
+      alert('حدث خطأ أثناء تغيير حالة النظام');
+    } finally {
+      setIsUpdatingLock(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
@@ -162,7 +193,34 @@ export default function SolverControl() {
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '10px', background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             <ShieldCheck size={32} color="var(--brand-primary)" /> الرقابة الإدارية للحلول
           </h1>
-          <p style={{ color: 'var(--text-secondary)' }}>إدارة صور الإثباتات ومتابعة حالة حل الاختبارات للطلاب</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <p style={{ color: 'var(--text-secondary)', margin: 0 }}>إدارة صور الإثباتات ومتابعة حالة حل الاختبارات للطلاب</p>
+            <div style={{ padding: '4px 12px', borderRadius: '8px', background: isSystemLocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: isSystemLocked ? 'var(--danger)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', border: `1px solid ${isSystemLocked ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}` }}>
+               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isSystemLocked ? 'var(--danger)' : 'var(--success)', boxShadow: `0 0 10px ${isSystemLocked ? 'var(--danger)' : 'var(--success)'}` }}></div>
+               حالة النظام: {isSystemLocked ? 'مقفل ومحمي' : 'نشط ومفتوح'}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          {isSystemLocked ? (
+            <button 
+              className="btn-primary" 
+              style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', padding: '12px 25px', borderRadius: '12px' }}
+              onClick={() => toggleSystemLock(false)}
+              disabled={isUpdatingLock}
+            >
+              <RefreshCw size={18} className={isUpdatingLock ? 'animate-spin' : ''} /> {isUpdatingLock ? 'جاري الفتح...' : 'فتح النظام للسماح بالحل'}
+            </button>
+          ) : (
+            <button 
+              className="btn-primary" 
+              style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)', border: 'none', padding: '12px 25px', borderRadius: '12px' }}
+              onClick={() => toggleSystemLock(true)}
+              disabled={isUpdatingLock}
+            >
+              <X size={18} className={isUpdatingLock ? 'animate-spin' : ''} /> {isUpdatingLock ? 'جاري الإقفال...' : 'إقفال النظام فوراً'}
+            </button>
+          )}
         </div>
       </div>
 

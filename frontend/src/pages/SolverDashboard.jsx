@@ -29,11 +29,10 @@ export default function SolverDashboard() {
     let unsubStudents = null;
     let unsubUniversities = null;
 
-    // 1. Lock Status
-    const unsubLock = onSnapshot(doc(db, 'system_settings', 'global'), (docSnap) => {
-      if (docSnap.exists()) {
-        setIsLocked(docSnap.data().solverSystemLocked === true);
-      }
+    // 1. Lock Status (RTDB Fast Path)
+    const lockRef = ref(rtdb, 'system_settings/solverSystemLocked');
+    const unsubLock = onValue(lockRef, (snap) => {
+      setIsLocked(snap.val() === true);
     });
 
     // 2. Main Init Function
