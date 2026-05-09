@@ -8,6 +8,19 @@ const scheduleService = require('./services/scheduleService');
 const distributionService = require('./services/distributionService');
 const http = require('http');
 
+// Global Crash Guard for Baileys/Node.js crypto errors (AES/GCM)
+process.on('uncaughtException', (err) => {
+  console.error('[GLOBAL CRASH GUARD] Caught exception:', err);
+  if (err.message && (err.message.includes('Unsupported state') || err.message.includes('authenticate data'))) {
+    console.warn('[GLOBAL CRASH GUARD] Preventing process exit from Baileys AES error.');
+    return; 
+  }
+  // For fatal errors, we allow the crash so Render restarts the process
+  if (err.name === 'SyntaxError' || err.name === 'ReferenceError') {
+     process.exit(1);
+  }
+});
+
 // Ensure sessions directory exists for Baileys Multi-Device state
 const sessionsDir = process.env.WA_SESSION_PATH ? 
   (path.isAbsolute(process.env.WA_SESSION_PATH) ? process.env.WA_SESSION_PATH : path.join(__dirname, process.env.WA_SESSION_PATH)) : 
@@ -96,7 +109,7 @@ server.listen(PORT, async () => {
           console.error(`[AUTO-BOOT ERROR] Failed for ${employeeId}:`, err.message);
         });
       }, delay);
-      delay += 5000; // 5 second gap between each session
+      delay += 10000; // Increased to 10 seconds to prevent memory spikes
     }
   } catch (e) {
     console.error('[AUTO-BOOT] Failed to scan sessions:', e.message);
