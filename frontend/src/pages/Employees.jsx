@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UserPlus, Search, Edit, Trash2, Shield, Mail, Phone, UserCheck, UserX } from 'lucide-react';
-import { db } from '../firebase';
+import { db, rtdb } from '../firebase';
 import { collection, serverTimestamp, onSnapshot, doc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 
 export default function Employees() {
   const [activeTab, setActiveTab] = useState('list');
