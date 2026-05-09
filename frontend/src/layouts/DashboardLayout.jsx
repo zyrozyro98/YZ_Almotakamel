@@ -52,31 +52,45 @@ export default function DashboardLayout() {
         // 1. Hardcoded Security Layer
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         
-        // 2. FAST PATH: Fetch from Realtime Database (Quota-free & Instant)
-        const roleRef = ref(rtdb, `employee_roles/${id}`);
-        onValue(roleRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            setUserRole(data.role || 'employee');
-            if (data.role === 'admin') setIsAdmin(true);
-            setIsRoleLoading(false);
-          }
-        }, { onlyOnce: true });
-
-        // 3. SOURCE OF TRUTH: Fetch from Firestore (More details, might be slow/quota-hit)
+        // 2. FETCHING LOGIC (With Fallback & Auto-Sync)
         try {
-          const userDoc = await getDoc(doc(db, 'employees', id));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUserRole(data.role || 'employee');
-            if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
-          }
+          // Try RTDB first (Instant)
+          const roleRef = ref(rtdb, `employee_roles/${id}`);
+          onValue(roleRef, async (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              setUserRole(data.role || 'employee');
+              if (data.role === 'admin') setIsAdmin(true);
+              setIsRoleLoading(false);
+            } else {
+              // If not in RTDB, fallback to Firestore (and then sync to RTDB)
+              try {
+                const userDoc = await getDoc(doc(db, 'employees', id));
+                if (userDoc.exists()) {
+                  const data = userDoc.data();
+                  const role = data.role || 'employee';
+                  setUserRole(role);
+                  if (role === 'admin' || data.type === 'admin') setIsAdmin(true);
+                  
+                  // AUTO-SYNC: Save to RTDB for next time (Fixes existing users)
+                  update(ref(rtdb, `employee_roles/${id}`), {
+                    role: role,
+                    name: data.name || 'مستخدم',
+                    status: data.status || 'active'
+                  });
+                }
+              } catch (fsErr) {
+                console.error("Firestore Fallback Failed:", fsErr.message);
+              }
+              setIsRoleLoading(false);
+            }
+          }, { onlyOnce: true });
         } catch (e) {
-          console.error("Firestore Role Check Failed (likely quota):", e.message);
+          console.error("Critical Role Fetch Error:", e);
+          setIsRoleLoading(false);
         }
         
-        setIsAdmin(adminStatus);
-        setIsRoleLoading(false);
+        if (adminStatus) setIsAdmin(true);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
