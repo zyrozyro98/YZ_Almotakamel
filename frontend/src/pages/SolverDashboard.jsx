@@ -283,7 +283,7 @@ export default function SolverDashboard() {
     );
   }
 
-  if (isLocked) {
+  if (isLocked && solverData?.role !== 'admin') {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '50px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
