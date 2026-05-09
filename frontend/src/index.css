@@ -539,3 +539,13 @@ div:hover>.msg-actions {
 .data-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* Hide native browser password reveal (eye) icon */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+input[type="password"]::-webkit-reveal {
+  display: none;
+}

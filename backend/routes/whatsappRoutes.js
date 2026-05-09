@@ -205,10 +205,22 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber); // cleanPhone is now perfectly normalized to international format (e.g., 9665...)
   const sock = whatsappService.getSession(employeeId);
   
+  // 1. Check if we already have a mapping for this ID (if it's a LID)
+  try {
+    const snap = await rtdb.ref(`jid_mappings/${employeeId}/${cleanPhone}`).once('value');
+    if (snap.exists()) {
+      return `${snap.val()}@s.whatsapp.net`;
+    }
+  } catch(e) {}
+
+  // 2. If targetJid is provided and it's a LID, AND we don't have a mapped standard number,
+  // we must use the LID to reply, otherwise it will try to send to LID@s.whatsapp.net which doesn't exist.
+  if (targetJid && (targetJid.includes('@lid') || targetJid.includes('@g.us') || targetJid.includes('@newsletter'))) {
+     return targetJid; 
+  }
+
   // Proactive Background Mapping: 
   // We still query WA to discover if this number hides behind a LID.
-  // We don't use the LID for sending (to prevent Bad MAC), but we CACHE it 
-  // so that future INCOMING normal messages from this LID are recognized!
   try {
     const results = await sock.onWhatsApp(cleanPhone);
     if (results && results.length > 0) {
@@ -630,6 +642,55 @@ router.post('/delete-chat', async (req, res) => {
     await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fast Chat Merge (LID to Phone)
+router.post('/merge-chat', async (req, res) => {
+  const { employeeId, lidIdentifier, phoneNumber, fullJid } = req.body;
+  if (!employeeId || !lidIdentifier || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
+
+  try {
+    const cleanPhone = getPureNumber(phoneNumber);
+    const rawLid = getPureNumber(lidIdentifier); // e.g. 123456@lid -> 123456
+    
+    if (rawLid === cleanPhone) return res.json({ success: true, message: 'Same ID' });
+
+    // 1. Save to global mappings
+    await rtdb.ref(`jid_mappings/${employeeId}/${rawLid}`).set(cleanPhone);
+
+    // 2. Move chat in RTDB
+    const chatsRef = rtdb.ref(`chats/${employeeId}`);
+    const oldSnap = await chatsRef.child(rawLid).once('value');
+    
+    if (oldSnap.exists()) {
+      const oldData = oldSnap.val();
+      const newRef = chatsRef.child(cleanPhone);
+      const newSnap = await newRef.once('value');
+      const newData = newSnap.exists() ? newSnap.val() : {};
+
+      // Merge metadata
+      await newRef.update({
+        name: newData.name || oldData.name || "مجهول",
+        phone: cleanPhone,
+        fullJid: fullJid || oldData.fullJid || newData.fullJid || "",
+        lastMessage: oldData.lastMessage || newData.lastMessage || "",
+        timestamp: Math.max(oldData.timestamp || 0, newData.timestamp || 0)
+      });
+
+      // Merge messages
+      if (oldData.messages) {
+        await newRef.child('messages').update(oldData.messages);
+      }
+      
+      // Delete old chat
+      await chatsRef.child(rawLid).remove();
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[WA] Merge Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

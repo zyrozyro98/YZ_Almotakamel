@@ -39,6 +39,9 @@ const whatsappRoutes = require('./routes/whatsappRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 
+// Serve static files from the 'uploads' directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 app.use('/api/employees', employeeRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/orders', orderRoutes);

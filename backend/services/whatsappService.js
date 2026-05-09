@@ -23,7 +23,7 @@ const { useFirestoreAuthState } = require('../utils/firebaseAuthState');
 async function uploadToStorage(buffer, fileName, mimeType) {
   try {
     const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-    const uploadPath = path.join(SESSIONS_PATH, 'uploads', safeName);
+    const uploadPath = path.join(__dirname, '..', 'uploads', safeName);
 
     let finalBuffer = buffer;
 
@@ -43,7 +43,7 @@ async function uploadToStorage(buffer, fileName, mimeType) {
     fs.writeFileSync(uploadPath, finalBuffer);
 
     // Dynamic URL generation (Points to Render backend)
-    const baseUrl = process.env.BACKEND_URL || 'https://yz-almotakamel-backend.onrender.com';
+    const baseUrl = process.env.BACKEND_URL || (process.env.NODE_ENV === 'development' ? `http://localhost:${process.env.PORT || 5000}` : 'https://yz-almotakamel-backend.onrender.com');
     return `${baseUrl}/uploads/${safeName}`;
   } catch (err) {
     console.error("[LOCAL STORAGE ERROR]", err.message);
@@ -167,8 +167,9 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
           }
 
           // Fallback 1: Participant Metadata trick
-          if (!mappedPhone && msg.key.participant && msg.key.participant.includes('@s.whatsapp.net')) {
-            mappedPhone = getPureNumber(msg.key.participant);
+          const participant = msg.key.participant || msg.participant;
+          if (!mappedPhone && participant && participant.includes('@s.whatsapp.net')) {
+            mappedPhone = getPureNumber(participant);
           }
 
           // Fallback 2: Reverse JID Query trick
@@ -418,8 +419,8 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   sock.ev.on('contacts.upsert', async (contacts) => {
     for (const contact of contacts) {
-      if (contact.lidJid && contact.id) {
-        const jidKey = contact.lidJid.split('@')[0].split(':')[0];
+      if (contact.lid && contact.id) {
+        const jidKey = contact.lid.split('@')[0].split(':')[0];
         const phoneJid = contact.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
@@ -430,8 +431,8 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   sock.ev.on('contacts.update', async (updates) => {
     for (const update of updates) {
-      if (update.lidJid && update.id) {
-        const jidKey = update.lidJid.split('@')[0].split(':')[0];
+      if (update.lid && update.id) {
+        const jidKey = update.lid.split('@')[0].split(':')[0];
         const phoneJid = update.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });

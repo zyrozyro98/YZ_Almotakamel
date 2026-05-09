@@ -433,6 +433,7 @@ export default function WhatsAppChat() {
   const openAddModal = async () => {
     const rawValue = selectedChat?.phone || ''; // This is the ID from the sidebar
     let resolvedPhone = '';
+    let suggestedPhone = '';
     
     // 1. Try getMatchKey first 
     let pureVal = getMatchKey(rawValue);
@@ -448,6 +449,32 @@ export default function WhatsAppChat() {
         const snap = await get(ref(rtdb, `jid_mappings/${targetId}/${lidOnly}`));
         if (snap.exists()) {
           resolvedPhone = snap.val();
+        } else {
+          // SMART GUESSING: If it's a LID and we don't know the phone, find the most recent outgoing chat!
+          // Since the user used the Bulk Sender to start the chat, the phone number must be in the chats list with 'lastSender === me'.
+          const chatsRef = ref(rtdb, `chats/${targetId}`);
+          const chatsSnap = await get(chatsRef);
+          if (chatsSnap.exists()) {
+             const allChats = chatsSnap.val();
+             let bestGuess = '';
+             let closestTimeDiff = Infinity;
+             const lidTimestamp = selectedChat?.timestamp || Date.now();
+
+             for (const [key, chat] of Object.entries(allChats)) {
+                // Look for standard phone numbers where WE were the last sender, and it happened BEFORE the LID replied
+                if (/^\d+$/.test(key) && chat.lastSender === 'me' && chat.timestamp <= lidTimestamp) {
+                   const diff = lidTimestamp - chat.timestamp;
+                   // If we sent a message within the last 24 hours (86400000 ms) before they replied
+                   if (diff < 86400000 && diff < closestTimeDiff) {
+                      closestTimeDiff = diff;
+                      bestGuess = key;
+                   }
+                }
+             }
+             if (bestGuess) {
+                suggestedPhone = bestGuess;
+             }
+          }
         }
       } catch (e) {
         console.error("JID Resolution failed in modal:", e);
@@ -456,7 +483,7 @@ export default function WhatsAppChat() {
 
     setFormData({
       name: (selectedChat?.name?.includes('مجهول') || selectedChat?.name?.includes('+')) ? '' : (selectedChat?.name || ''),
-      phone: resolvedPhone,
+      phone: resolvedPhone || suggestedPhone,
       university: '',
       major: '',
       batch: '',
@@ -499,10 +526,18 @@ export default function WhatsAppChat() {
         if (confirmMerge) {
           // Update the existing student with the new JID
           await updateDoc(existing.ref, { fullJid: selectedChat?.fullJid || '' });
-          alert('تم ربط الهوية بنجاح. سيتم الآن دمج المحادثات...');
-          setActiveModal(null);
+          
           // Trigger the cleanup to move messages to the phone folder
-          handleCleanup();
+          const targetId = isAdmin ? viewingEmployeeId : employeeId;
+          await axios.post(`${BASE_URL}/api/whatsapp/merge-chat`, {
+            employeeId: targetId,
+            lidIdentifier: selectedChat.phone,
+            phoneNumber: cleanedPhone,
+            fullJid: selectedChat?.fullJid || ''
+          });
+
+          alert('تم ربط الهوية بنجاح وتم دمج المحادثات...');
+          setActiveModal(null);
           return;
         }
         return; // Stop if user cancelled merge
@@ -518,6 +553,18 @@ export default function WhatsAppChat() {
         mainStatus: 'جديد',
         subStatus: 'تم التواصل'
       });
+
+      // If they were adding a LID chat as a new student, merge it immediately!
+      if (selectedChat?.phone !== cleanedPhone) {
+          const targetId = isAdmin ? viewingEmployeeId : employeeId;
+          await axios.post(`${BASE_URL}/api/whatsapp/merge-chat`, {
+            employeeId: targetId,
+            lidIdentifier: selectedChat.phone,
+            phoneNumber: cleanedPhone,
+            fullJid: selectedChat?.fullJid || ''
+          }).catch(e => console.error(e));
+      }
+
       alert('تم إضافة الطالب بنجاح');
       setActiveModal(null);
     } catch (err) { alert('خطأ في الإضافة: ' + err.message); }
