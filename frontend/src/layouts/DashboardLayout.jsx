@@ -52,31 +52,48 @@ export default function DashboardLayout() {
         // 1. Hardcoded Security Layer
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         
-        // 2. FAST PATH: Fetch from Realtime Database (Quota-free & Instant)
+        // Safety Timeout: Don't let the user hang forever if DB is slow
+        const safetyTimeout = setTimeout(() => {
+          setIsRoleLoading(prev => {
+            if (prev) {
+              console.warn("Role loading timed out, using default permissions.");
+              setIsAdmin(adminStatus);
+              return false;
+            }
+            return false;
+          });
+        }, 5000);
+
+        // 2. FAST PATH & SOURCE OF TRUTH (RTDB first)
         const roleRef = ref(rtdb, `employee_roles/${id}`);
-        onValue(roleRef, (snapshot) => {
+        onValue(roleRef, async (snapshot) => {
+          clearTimeout(safetyTimeout);
+          let currentRole = 'employee';
           if (snapshot.exists()) {
             const data = snapshot.val();
-            setUserRole(data.role || 'employee');
-            if (data.role === 'admin') setIsAdmin(true);
+            currentRole = data.role || 'employee';
+            if (data.role === 'admin') adminStatus = true;
+            setUserRole(currentRole);
+            setIsAdmin(adminStatus);
             setIsRoleLoading(false);
+          } else {
+            // If not in RTDB, fallback to Firestore
+            try {
+              const userDoc = await getDoc(doc(db, 'employees', id));
+              if (userDoc.exists()) {
+                const data = userDoc.data();
+                currentRole = data.role || 'employee';
+                if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
+                setUserRole(currentRole);
+              }
+            } catch (e) {
+              console.error("Role lookup failed:", e.message);
+            } finally {
+              setIsAdmin(adminStatus);
+              setIsRoleLoading(false);
+            }
           }
         }, { onlyOnce: true });
-
-        // 3. SOURCE OF TRUTH: Fetch from Firestore (More details, might be slow/quota-hit)
-        try {
-          const userDoc = await getDoc(doc(db, 'employees', id));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUserRole(data.role || 'employee');
-            if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
-          }
-        } catch (e) {
-          console.error("Firestore Role Check Failed (likely quota):", e.message);
-        }
-        
-        setIsAdmin(adminStatus);
-        setIsRoleLoading(false);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
@@ -274,9 +291,6 @@ export default function DashboardLayout() {
             >
               <LogOut size={18} />
             </button>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.2)', fontWeight: 'bold' }}>SYSTEM V2.1.0-FIX</span>
           </div>
         </div>
       </aside>

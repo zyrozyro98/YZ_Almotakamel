@@ -330,6 +330,7 @@ export default function Employees() {
                     <button onClick={() => handleEditClick(emp)} className="p-2.5 bg-white/5 hover:bg-blue-500/20 text-blue-400 rounded-xl border border-white/10 transition-colors"><Edit size={16} /></button>
                     <button onClick={() => handleDelete(emp.id)} className="p-2.5 bg-white/5 hover:bg-red-500/20 text-red-400 rounded-xl border border-white/10 transition-colors"><Trash2 size={16} /></button>
                   </div>
+                  </div>
                 </div>
                 
                 <h3 className="text-xl font-extrabold text-white mb-2 leading-tight">{emp.name}</h3>
@@ -357,7 +358,7 @@ export default function Employees() {
               </div>
             ))}
             {filteredEmployees.length === 0 && (
-              <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '5rem opacity-40' }}>
+              <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '5rem', opacity: 0.4 }}>
                  <p>لا يوجد موظفون يطابقون خيارات البحث الحالية.</p>
               </div>
             )}

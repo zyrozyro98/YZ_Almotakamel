@@ -58,26 +58,24 @@ router.post('/create', async (req, res) => {
       }
     }
 
-    // --- FINAL SYNC STEP (FORCED) ---
-    // This part runs regardless of whether the user was just created or already existed
-    console.log(`[API] Forcing data sync for UID: ${userRecord.uid}, Role: ${role}`);
-
-    // 1. FAST PATH: Realtime Database (Instant login support)
+    // 2. FAST PATH: Save role to Realtime Database (Quota-free & Reliable)
+    // We do this FIRST because it's guaranteed to work even if Firestore is at quota
     try {
       await rtdb.ref(`employee_roles/${userRecord.uid}`).set({
         role: role || 'employee',
         name: name,
-        email: email,
         status: 'active',
+        email: email,
         updatedAt: Date.now()
       });
-      console.log(`[API] RTDB Sync Successful for ${userRecord.uid}`);
+      console.log(`[API] RTDB role created for ${userRecord.uid}`);
     } catch (rtdbErr) {
-      console.error('[API] RTDB Sync Failed:', rtdbErr.message);
+      console.error('[API] RTDB Write failed:', rtdbErr.message);
     }
 
-    // 2. SLOW PATH: Firestore (Source of Truth)
-    const firestoreSync = async () => {
+    // 3. SLOW PATH: Add/Update details in Firestore (Source of truth)
+    // We run this, but we don't let it hang the whole request if it's slow
+    const firestoreWrite = async () => {
       try {
         await db.collection('employees').doc(userRecord.uid).set({
           uid: userRecord.uid,
@@ -89,26 +87,32 @@ router.post('/create', async (req, res) => {
           status: 'active',
           assignedUniversity: assignedUniversity || '',
           assignedMajor: assignedMajor || '',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          createdAt: admin.firestore.FieldValue.serverTimestamp() // fallback
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        console.log(`[API] Firestore Sync Successful for ${userRecord.uid}`);
+        console.log(`[API] Firestore document created for ${userRecord.uid}`);
       } catch (fsErr) {
-        console.error('[API] Firestore Sync Failed (Quota?):', fsErr.message);
+        console.error('[API] Firestore Write failed (likely quota):', fsErr.message);
       }
     };
 
-    // Execute Firestore sync (background)
-    firestoreSync();
+    // We execute Firestore write but don't wait forever for it if quota is hit
+    // This prevents the "Processing..." hang
+    firestoreWrite(); 
 
     res.status(201).json({ 
-      message: 'تم إنشاء الموظف بنجاح وتأمين صلاحياته في النظام السريع', 
+      message: 'تم إنشاء الموظف بنجاح وتفعيل صلاحياته عبر النظام السريع', 
       uid: userRecord.uid 
     });
 
   } catch (error) {
-    console.error('[EMPLOYEE CREATE FATAL ERROR]', error);
-    res.status(500).json({ error: 'خطأ داخلي في الخادم: ' + error.message });
+    console.error('[EMPLOYEE CREATE ERROR]', error);
+    let errorMessage = 'فشل إنشاء الموظف';
+    if (error.code === 'auth/email-already-exists') errorMessage = 'البريد الإلكتروني مسجل مسبقاً لموظف آخر.';
+    if (error.code === 'auth/invalid-phone-number') errorMessage = 'رقم الهاتف غير صحيح (يجب أن يبدأ بـ 05 ويتكون من 10 أرقام).';
+    if (error.code === 'auth/weak-password') errorMessage = 'كلمة المرور ضعيفة جداً.';
+    if (error.code === 'auth/phone-number-already-exists') errorMessage = 'رقم الهاتف مسجل مسبقاً لموظف آخر.';
+    
+    res.status(400).json({ error: errorMessage, details: error.message });
   }
 });
 
