@@ -19,16 +19,21 @@ async function findBestEmployee() {
       console.warn('[DISTRIBUTION] No valid employees (excluding emp1) found.');
       return null;
     }
-    const loads = {};
 
-    // 2. Calculate loads for each real employee
-    for (const empId of employeeIds) {
-      const snapshot = await db.collection('orders')
-        .where('assignedTo', '==', empId)
-        .where('mainStatus', 'in', ['جديد', 'انتظار'])
-        .get();
-      loads[empId] = snapshot.size;
-    }
+    // 2. Optimization: Single query for all active loads
+    const ordersSnap = await db.collection('orders')
+      .where('mainStatus', 'in', ['جديد', 'انتظار'])
+      .get();
+
+    const loads = {};
+    employeeIds.forEach(id => loads[id] = 0);
+    
+    ordersSnap.docs.forEach(doc => {
+      const assignedTo = doc.data().assignedTo;
+      if (assignedTo && loads[assignedTo] !== undefined) {
+        loads[assignedTo]++;
+      }
+    });
 
     // 3. Find the one with the minimum load
     let bestEmp = employeeIds[0];
@@ -41,7 +46,7 @@ async function findBestEmployee() {
       }
     }
 
-    console.log(`[DISTRIBUTION] Assigned to ${bestEmp}. Current load: ${minLoad}`);
+    console.log(`[DISTRIBUTION] Optimized assignment to ${bestEmp}. Current load: ${minLoad}`);
     return bestEmp;
   } catch (error) {
     console.error('[DISTRIBUTION ERROR]', error.message);
