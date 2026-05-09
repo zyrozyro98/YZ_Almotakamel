@@ -140,16 +140,18 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
     try {
       // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
-      // If the student replies using a hidden LID, we find the photo's original chat to link their profile AND MERGE THE CHAT!
       const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
       
       if (isTechnicalId) {
+        // Cache for current session to avoid Firestore/RTDB spam
+        if (!sock.lidCache) sock.lidCache = new Set();
+        
         // First check if we already mapped this LID before
         const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
         if (jidMappingSnap.exists()) {
           chatId = getPureNumber(jidMappingSnap.val());
         } else {
-          // If no mapping exists, attempt Stanza ID reverse lookup (Reply catching)
+          // Attempt reverse lookup tricks...
           const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
           let mappedPhone = null;
 
@@ -166,37 +168,23 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
             }
           }
 
-          // Fallback 1: Participant Metadata trick
-          const participant = msg.key.participant || msg.participant;
-          if (!mappedPhone && participant && participant.includes('@s.whatsapp.net')) {
-            mappedPhone = getPureNumber(participant);
-          }
-
-          // Fallback 2: Reverse JID Query trick
-          if (!mappedPhone) {
-            try {
-              const results = await sock.onWhatsApp(normalizedJid);
-              if (results && results.length > 0) {
-                const standardJid = results.find(r => r.exists && r.jid.includes('@s.whatsapp.net'));
-                if (standardJid) mappedPhone = getPureNumber(standardJid.jid);
-              }
-            } catch (e) {}
+          if (!mappedPhone && (msg.key.participant || msg.participant)?.includes('@s.whatsapp.net')) {
+            mappedPhone = getPureNumber(msg.key.participant || msg.participant);
           }
 
           if (mappedPhone) {
-            // BINGO! We found the real phone number using one of the 3 aggressive tricks.
-            chatId = mappedPhone; // FORCE the incoming message into the standard phone number chat!
-            // Save this mapping forever so future replies don't need tricks
+            chatId = mappedPhone;
             await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
           }
         }
-      }
 
-      // Ensure the UI knows who this LID belongs to
-      if (isTechnicalId && chatId !== getPureNumber(jidUser)) {
-        const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).get();
-        if (!studentPhoneMatch.empty) {
-          await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+        // Optimization: Only update Firestore if we haven't done it this session to save quota
+        if (chatId !== getPureNumber(jidUser) && !sock.lidCache.has(jidUser)) {
+          const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+          if (!studentPhoneMatch.empty) {
+            await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+            sock.lidCache.add(jidUser); // Prevent re-updating in the same session
+          }
         }
       }
     } catch (err) { console.error("[WA] Identity System Error:", err.message); }
