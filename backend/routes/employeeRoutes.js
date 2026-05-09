@@ -19,21 +19,41 @@ router.post('/create', async (req, res) => {
 
   try {
     let userRecord;
+    const formattedPhone = phone ? (phone.startsWith('+') ? phone : `+966${phone.replace(/^0/, '')}`) : undefined;
+    
     try {
       // 1. Try to Create User in Firebase Auth
       userRecord = await auth.createUser({
         email: email,
         password: password,
         displayName: name,
-        phoneNumber: phone ? (phone.startsWith('+') ? phone : `+966${phone.replace(/^0/, '')}`) : undefined,
+        phoneNumber: formattedPhone,
       });
     } catch (authError) {
       // If user already exists in Auth, try to fetch them instead of failing
       if (authError.code === 'auth/email-already-exists') {
         console.log('[API] User already exists in Auth, fetching record...');
         userRecord = await auth.getUserByEmail(email);
-        // If we found them, we proceed to ensure they are in Firestore
-      } else {
+      } 
+      // If phone number is invalid (TOO_SHORT, etc) or already exists, try creating without it
+      else if (authError.code === 'auth/invalid-phone-number' || authError.code === 'auth/phone-number-already-exists') {
+        console.warn('[API] Phone number issue, retrying without phone in Auth:', authError.message);
+        try {
+          userRecord = await auth.createUser({
+            email: email,
+            password: password,
+            displayName: name,
+          });
+        } catch (retryError) {
+           // If email already exists here too
+           if (retryError.code === 'auth/email-already-exists') {
+             userRecord = await auth.getUserByEmail(email);
+           } else {
+             throw retryError;
+           }
+        }
+      }
+      else {
         throw authError; // Rethrow if it's another error
       }
     }
