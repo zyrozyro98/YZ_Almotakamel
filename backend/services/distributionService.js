@@ -85,6 +85,15 @@ function initDistributionListener() {
           assignmentTime: new Date().toISOString()
         });
 
+        // FAST PATH: Sync to RTDB for solver visibility
+        await rtdb.ref(`active_students/${docId}`).set({
+          ...student,
+          id: docId,
+          assignedTo: assignedEmp,
+          assignmentTime: new Date().toISOString(),
+          updatedAt: Date.now()
+        });
+
         // Notify the employee via Realtime DB (so the bell icon in UI can ping)
         await rtdb.ref(`notifications/${assignedEmp}`).push({
           title: 'طلب جديد',
@@ -100,6 +109,39 @@ function initDistributionListener() {
   });
 }
 
+/**
+ * One-time sync of active students to RTDB on startup.
+ * Helps solvers see current tasks even if Firestore hits quota later.
+ */
+async function syncActiveStudentsToRtdb() {
+  console.log('[SYNC] Starting active students sync to RTDB...');
+  try {
+    const studentsSnap = await db.collection('students')
+      .where('mainStatus', 'in', ['جديد', 'انتظار', 'جاري الحل'])
+      .get();
+    
+    if (studentsSnap.empty) {
+      console.log('[SYNC] No active students to sync.');
+      return;
+    }
+
+    const batch = {};
+    studentsSnap.docs.forEach(doc => {
+      batch[doc.id] = {
+        ...doc.data(),
+        id: doc.id,
+        syncSource: 'startup'
+      };
+    });
+
+    await rtdb.ref('active_students').update(batch);
+    console.log(`[SYNC] Successfully synced ${studentsSnap.size} students to RTDB.`);
+  } catch (err) {
+    console.error('[SYNC ERROR] Failed to sync students:', err.message);
+  }
+}
+
 module.exports = {
-  initDistributionListener
+  initDistributionListener,
+  syncActiveStudentsToRtdb
 };

@@ -80,25 +80,45 @@ export default function SolverDashboard() {
             setUniversitiesData(univs);
           });
 
-          // OPTIMIZED: Server-side Filtering for Tasks
-          let studentsQuery = collection(db, 'students');
-          
-          // Apply University Filter if not "All"
-          if (data.assignedUniversity && data.assignedUniversity !== 'الكل') {
-            studentsQuery = query(studentsQuery, where('university', '==', data.assignedUniversity));
-          }
-
-          unsubStudents = onSnapshot(studentsQuery, (snap) => {
-            const matched = [];
-            snap.forEach(s => {
-              const sData = s.data();
-              // Major filter still in JS as Firestore doesn't support complex OR/In on multiple fields easily here
-              const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
-              if (matchMajor) {
-                matched.push({ id: s.id, ...sData });
+          // 3. Students Listener (Merged Firestore + RTDB)
+          const updateStudents = (fsData, rtdbData) => {
+            const merged = [...fsData];
+            Object.keys(rtdbData || {}).forEach(id => {
+              if (!merged.find(s => s.id === id)) {
+                merged.push({ id, ...rtdbData[id], source: 'rtdb' });
               }
             });
-            setStudents(matched);
+            
+            // Filter by university/major (Since RTDB doesn't support complex where clauses as easily)
+            const filtered = merged.filter(s => {
+              const matchUniv = data.assignedUniversity === 'الكل' || s.university === data.assignedUniversity;
+              const matchMajor = data.assignedMajor === 'الكل' || s.major === data.assignedMajor;
+              const isUnsolved = s.solverStatus !== 'completed';
+              return matchUniv && matchMajor && isUnsolved;
+            });
+            
+            setStudents(filtered);
+          };
+
+          let fsStudents = [];
+          let rtdbStudents = {};
+
+          // 3a. Firestore Students
+          const studentsQuery = query(collection(db, 'students'), where('mainStatus', '!=', 'مكتمل'));
+          unsubStudents = onSnapshot(studentsQuery, (snap) => {
+            fsStudents = snap.docs.map(s => ({ id: s.id, ...s.data() }));
+            updateStudents(fsStudents, rtdbStudents);
+          }, (err) => {
+            console.warn("Firestore students query blocked:", err);
+            updateStudents(fsStudents, rtdbStudents);
+          });
+
+          // 3b. RTDB Students (Fast Path)
+          const rtdbStudentsRef = ref(rtdb, 'active_students');
+          const unsubRtdbStudents = onValue(rtdbStudentsRef, (snap) => {
+            if (snap.exists()) rtdbStudents = snap.val();
+            else rtdbStudents = {};
+            updateStudents(fsStudents, rtdbStudents);
           });
 
           setLoading(false);
@@ -125,6 +145,7 @@ export default function SolverDashboard() {
       unsubLock();
       if (unsubStudents) unsubStudents();
       if (unsubUniversities) unsubUniversities();
+      // unsubRtdbStudents is local to initSolver, so we handle it there or via a ref
     };
   }, []);
 

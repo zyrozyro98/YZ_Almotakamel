@@ -83,13 +83,16 @@ async function maintenance() {
 const PORT = process.env.PORT || 10000;
 const server = http.createServer(app);
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`[SERVER] Running on http://localhost:${PORT}`);
   
   await maintenance();
   
   // Start distribution service
   distributionService.initDistributionListener();
+  
+  // SYNC: Populate RTDB with active students for quota-proof dashboard
+  distributionService.syncActiveStudentsToRtdb();
   
   // Start schedule service
   scheduleService.init();
