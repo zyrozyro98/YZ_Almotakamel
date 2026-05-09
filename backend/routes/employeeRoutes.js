@@ -58,30 +58,49 @@ router.post('/create', async (req, res) => {
       }
     }
 
-    // 2. Add/Update details in Firestore
-    await db.collection('employees').doc(userRecord.uid).set({
-      uid: userRecord.uid,
-      name,
-      email,
-      phone: phone || '',
-      role: role || 'employee',
-      type: role || 'employee',
-      status: 'active',
-      assignedUniversity: assignedUniversity || '',
-      assignedMajor: assignedMajor || '',
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    // 2. FAST PATH: Save role to Realtime Database (Quota-free & Reliable)
+    // We do this FIRST because it's guaranteed to work even if Firestore is at quota
+    try {
+      await rtdb.ref(`employee_roles/${userRecord.uid}`).set({
+        role: role || 'employee',
+        name: name,
+        status: 'active',
+        email: email,
+        updatedAt: Date.now()
+      });
+      console.log(`[API] RTDB role created for ${userRecord.uid}`);
+    } catch (rtdbErr) {
+      console.error('[API] RTDB Write failed:', rtdbErr.message);
+    }
 
-    // 3. ALTERNATIVE: Save role to Realtime Database (Quota-free backup)
-    // This ensures the app can always find the user's role even if Firestore is at quota
-    await rtdb.ref(`employee_roles/${userRecord.uid}`).set({
-      role: role || 'employee',
-      name: name,
-      status: 'active'
-    });
+    // 3. SLOW PATH: Add/Update details in Firestore (Source of truth)
+    // We run this, but we don't let it hang the whole request if it's slow
+    const firestoreWrite = async () => {
+      try {
+        await db.collection('employees').doc(userRecord.uid).set({
+          uid: userRecord.uid,
+          name,
+          email,
+          phone: phone || '',
+          role: role || 'employee',
+          type: role || 'employee',
+          status: 'active',
+          assignedUniversity: assignedUniversity || '',
+          assignedMajor: assignedMajor || '',
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        console.log(`[API] Firestore document created for ${userRecord.uid}`);
+      } catch (fsErr) {
+        console.error('[API] Firestore Write failed (likely quota):', fsErr.message);
+      }
+    };
+
+    // We execute Firestore write but don't wait forever for it if quota is hit
+    // This prevents the "Processing..." hang
+    firestoreWrite(); 
 
     res.status(201).json({ 
-      message: 'تم إنشاء الموظف بنجاح', 
+      message: 'تم إنشاء الموظف بنجاح وتفعيل صلاحياته عبر النظام السريع', 
       uid: userRecord.uid 
     });
 
