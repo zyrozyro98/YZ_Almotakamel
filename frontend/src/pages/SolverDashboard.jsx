@@ -263,36 +263,52 @@ export default function SolverDashboard() {
     }
   };
 
-  if (loading) {
+  // --- Render Logic ---
+  
+  // 1. Emergency Lock Screen (Highest Priority)
+  // We show the lock screen if system is locked, UNLESS we are 100% sure the user is an admin
+  if (isLocked && solverData?.role !== 'admin') {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#fff' }}>
-        <RefreshCw size={40} className="animate-spin" />
-      </div>
-    );
-  }
-
-  if (!solverData) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '40px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-          <AlertTriangle size={60} color="var(--danger)" style={{ marginBottom: '20px' }} />
-          <h2 style={{ color: '#fff', marginBottom: '10px' }}>عذراً، غير مصرح لك بالدخول</h2>
-          <p style={{ color: 'rgba(255,255,255,0.6)' }}>هذه الصفحة مخصصة لحلالي الاختبارات فقط.</p>
+      <div style={{ padding: '40px', textAlign: 'center', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)' }}>
+        <div className="glass-panel animate-fade-in" style={{ padding: '50px', borderRadius: '32px', maxWidth: '550px', width: '100%', border: '1px solid rgba(255, 255, 255, 0.1)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+          <div style={{ position: 'relative', display: 'inline-block', marginBottom: '30px' }}>
+            <div style={{ position: 'absolute', inset: 0, background: 'var(--brand-primary)', filter: 'blur(30px)', opacity: 0.3, borderRadius: '50%' }}></div>
+            <Lock size={100} color="var(--brand-primary)" style={{ position: 'relative' }} />
+          </div>
+          <h2 style={{ color: '#fff', marginBottom: '20px', fontSize: '2.2rem', fontWeight: '800' }}>النظام مقفل حالياً</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.2rem', lineHeight: '1.8', marginBottom: '30px' }}>
+            تم إيقاف العمل في المنصة مؤقتاً من قبل الإدارة. 
+            يرجى التواصل مع المشرف للمزيد من المعلومات.
+          </p>
+          <div style={{ padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+             تلقائي: سيتم فتح اللوحة فور تفعيلها من الإدارة
+          </div>
         </div>
       </div>
     );
   }
 
-  if (isLocked && solverData?.role !== 'admin') {
+  // 2. Loading State
+  if (loading) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '50px', borderRadius: '24px', maxWidth: '500px', margin: '0 auto', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <Lock size={80} color="var(--brand-primary)" style={{ marginBottom: '20px', filter: 'drop-shadow(0 0 20px var(--brand-primary))' }} />
-          <h2 style={{ color: '#fff', marginBottom: '15px', fontSize: '1.8rem' }}>النظام مقفل حالياً</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', lineHeight: '1.6' }}>
-            تم إيقاف العمل في المنصة من قبل الإدارة.
-            لا يمكنك الوصول إلى بيانات الطلاب أو إجراء أي عمليات في الوقت الحالي.
-          </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-main)', color: '#fff' }}>
+        <div className="flex-col items-center gap-4">
+          <RefreshCw size={48} className="animate-spin text-brand" />
+          <p style={{ letterSpacing: '1px', opacity: 0.6 }}>جاري تهيئة لوحة التحكم...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Unauthorized State
+  if (!solverData) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)' }}>
+        <div className="glass-panel" style={{ padding: '40px', borderRadius: '24px', maxWidth: '500px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <AlertTriangle size={64} color="var(--danger)" style={{ marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '15px', fontSize: '1.8rem' }}>عذراً، غير مصرح لك بالدخول</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '1.1rem' }}>هذه الصفحة مخصصة لحلالي الاختبارات المعتمدين فقط.</p>
+          <button onClick={() => window.location.reload()} className="btn-secondary mt-6" style={{ width: '100%' }}>إعادة المحاولة</button>
         </div>
       </div>
     );
