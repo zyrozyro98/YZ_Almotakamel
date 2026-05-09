@@ -26,17 +26,21 @@ export default function SolverDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check lock status
+    let unsubStudents = null;
+    let unsubUniversities = null;
+
+    // 1. Lock Status Listener
     const unsubLock = onSnapshot(doc(db, 'system_settings', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         setIsLocked(docSnap.data().solverSystemLocked === true);
       }
     });
 
+    // 2. Auth & Role Listener
     const unsubAuth = auth.onAuthStateChanged(async user => {
       if (user) {
         try {
-          // 1. FAST PATH: Fetch from Realtime Database (Instant role check)
+          // A. FAST PATH: Check RTDB for immediate role verification
           const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
           onValue(roleRef, (snapshot) => {
             if (snapshot.exists()) {
@@ -47,12 +51,12 @@ export default function SolverDashboard() {
             }
           }, { onlyOnce: true });
 
-          // 2. SOURCE OF TRUTH: Fetch from Firestore
+          // B. SOURCE OF TRUTH: Firestore
           const empDoc = await getDoc(doc(db, 'employees', user.uid));
           if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
             const data = empDoc.data();
             
-            // If admin, give them full access
+            // Admin full access
             if (data.role === 'admin') {
               data.assignedUniversity = 'الكل';
               data.assignedMajor = 'الكل';
@@ -60,8 +64,8 @@ export default function SolverDashboard() {
             
             setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
 
-            // Fetch Universities
-            const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
+            // Listen to Universities
+            unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
               const univs = [];
               snap.forEach(u => {
                 univs.push({ id: u.id, ...u.data() });
@@ -72,8 +76,8 @@ export default function SolverDashboard() {
               setUniversitiesData(univs);
             });
 
-            // Fetch Students (Tasks)
-            const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+            // Listen to Students (Filtered Tasks)
+            unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
               const matched = [];
               snap.forEach(s => {
                 const sData = s.data();
@@ -87,8 +91,8 @@ export default function SolverDashboard() {
             });
 
             setLoading(false);
-            return () => { unsubStudents(); unsubUniversities(); };
           } else {
+            // Not a solver or admin
             setLoading(false);
           }
         } catch (err) {
@@ -97,10 +101,16 @@ export default function SolverDashboard() {
         }
       } else {
         setLoading(false);
+        setSolverData(null);
       }
     });
 
-    return () => { unsubAuth(); unsubLock(); };
+    return () => {
+      unsubAuth();
+      unsubLock();
+      if (unsubStudents) unsubStudents();
+      if (unsubUniversities) unsubUniversities();
+    };
   }, []);
 
   const handleCopy = (text, field) => {
