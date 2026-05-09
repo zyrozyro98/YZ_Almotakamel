@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, query, orderBy, deleteDoc, getDocs, where } from 'firebase/firestore';
 import { ShieldCheck, Image as ImageIcon, Users, CheckCircle, Clock, Search, ExternalLink, X, RotateCcw, Trash2, RefreshCw, Settings, Save } from 'lucide-react';
 
 export default function SolverControl() {
@@ -21,8 +21,13 @@ export default function SolverControl() {
       setSubmissions(subs);
     });
 
-    // Fetch students
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+    // OPTIMIZED: Fetch only relevant students (Completed or with Solver status)
+    const qStudents = query(
+      collection(db, 'students'), 
+      where('mainStatus', 'in', ['مكتمل', 'انتظار', 'جديد']) // Only fetch active/relevant ones
+    );
+    
+    const unsubStudents = onSnapshot(qStudents, (snap) => {
       const st = [];
       snap.forEach(s => st.push({ id: s.id, ...s.data() }));
       setStudents(st);

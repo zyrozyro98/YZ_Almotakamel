@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, rtdb } from '../firebase';
-import { collection, onSnapshot, doc, getDoc, getDocs, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, getDocs, addDoc, serverTimestamp, updateDoc, query, where } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
 import { ExternalLink, Copy, Check, Lock, Shield, ImagePlus, Send, AlertTriangle, User, RefreshCw, X, Clock, CheckCircle, FileText, ArrowRight, BookOpen, GraduationCap, Eye, EyeOff } from 'lucide-react';
 
@@ -29,76 +29,84 @@ export default function SolverDashboard() {
     let unsubStudents = null;
     let unsubUniversities = null;
 
-    // 1. Lock Status Listener
+    // 1. Lock Status
     const unsubLock = onSnapshot(doc(db, 'system_settings', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         setIsLocked(docSnap.data().solverSystemLocked === true);
       }
     });
 
-    // 2. Auth & Role Listener
-    const unsubAuth = auth.onAuthStateChanged(async user => {
-      if (user) {
-        try {
-          // A. FAST PATH: Check RTDB for immediate role verification
-          const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
-          onValue(roleRef, (snapshot) => {
-            if (snapshot.exists()) {
-              const data = snapshot.val();
-              if (data.role === 'solver' || data.role === 'admin') {
-                setSolverData(prev => prev || { id: user.uid, name: data.name, role: data.role });
-              }
+    // 2. Main Init Function
+    const initSolver = async (user) => {
+      try {
+        // A. FAST PATH: RTDB
+        const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
+        onValue(roleRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            if (data.role === 'solver' || data.role === 'admin') {
+              setSolverData(prev => prev || { id: user.uid, name: data.name, role: data.role });
             }
-          }, { onlyOnce: true });
-
-          // B. SOURCE OF TRUTH: Firestore
-          const empDoc = await getDoc(doc(db, 'employees', user.uid));
-          if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
-            const data = empDoc.data();
-            
-            // Admin full access
-            if (data.role === 'admin') {
-              data.assignedUniversity = 'الكل';
-              data.assignedMajor = 'الكل';
-            }
-            
-            setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
-
-            // Listen to Universities
-            unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
-              const univs = [];
-              snap.forEach(u => {
-                univs.push({ id: u.id, ...u.data() });
-                if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
-                  setAssignedUnivPlatformUrl(u.data().platformUrl);
-                }
-              });
-              setUniversitiesData(univs);
-            });
-
-            // Listen to Students (Filtered Tasks)
-            unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-              const matched = [];
-              snap.forEach(s => {
-                const sData = s.data();
-                const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
-                const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
-                if (matchUniv && matchMajor) {
-                  matched.push({ id: s.id, ...sData });
-                }
-              });
-              setStudents(matched);
-            });
-
-            setLoading(false);
-          } else {
-            // Not a solver or admin
-            setLoading(false);
           }
-        } catch (err) {
-          console.error("Solver Init Error:", err);
+        }, { onlyOnce: true });
+
+        // B. SOURCE OF TRUTH: Firestore
+        const empDoc = await getDoc(doc(db, 'employees', user.uid));
+        if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
+          const data = empDoc.data();
+          
+          if (data.role === 'admin') {
+            data.assignedUniversity = 'الكل';
+            data.assignedMajor = 'الكل';
+          }
+          
+          setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
+
+          unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
+            const univs = [];
+            snap.forEach(u => {
+              univs.push({ id: u.id, ...u.data() });
+              if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
+                setAssignedUnivPlatformUrl(u.data().platformUrl);
+              }
+            });
+            setUniversitiesData(univs);
+          });
+
+          // OPTIMIZED: Server-side Filtering for Tasks
+          let studentsQuery = collection(db, 'students');
+          
+          // Apply University Filter if not "All"
+          if (data.assignedUniversity && data.assignedUniversity !== 'الكل') {
+            studentsQuery = query(studentsQuery, where('university', '==', data.assignedUniversity));
+          }
+
+          unsubStudents = onSnapshot(studentsQuery, (snap) => {
+            const matched = [];
+            snap.forEach(s => {
+              const sData = s.data();
+              // Major filter still in JS as Firestore doesn't support complex OR/In on multiple fields easily here
+              const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
+              if (matchMajor) {
+                matched.push({ id: s.id, ...sData });
+              }
+            });
+            setStudents(matched);
+          });
+
+          setLoading(false);
+        } else {
           setLoading(false);
         }
+      } catch (err) {
+        console.error("Solver Init Error:", err);
+        setLoading(false);
+      }
+    };
+
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        initSolver(user);
       } else {
         setLoading(false);
         setSolverData(null);

@@ -31,37 +31,44 @@ export default function Employees() {
   const [majors, setMajors] = useState([]);
 
   useEffect(() => {
-    // 1. Listen to Firestore (Source of Truth)
+    let fsEmployees = [];
+    let rtdbEmployees = {};
+
+    const updateMergedList = () => {
+      const merged = [...fsEmployees];
+      Object.keys(rtdbEmployees).forEach(uid => {
+        if (!merged.find(emp => emp.id === uid)) {
+          merged.push({
+            id: uid,
+            ...rtdbEmployees[uid],
+            source: 'rtdb',
+            pendingSync: true
+          });
+        }
+      });
+      setEmployeesList(merged);
+    };
+
+    // 1. Firestore Listener
     const q = query(collection(db, 'employees'), orderBy('createdAt', 'desc'));
-    const unsubscribeEmp = onSnapshot(q, (snapshot) => {
-      const fsData = snapshot.docs.map(docSnap => ({
+    const unsubscribeFs = onSnapshot(q, (snapshot) => {
+      fsEmployees = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
         ...docSnap.data(),
         source: 'firestore'
       }));
-      
-      // 2. Listen to RTDB (Fast Path Backup)
-      const rolesRef = ref(rtdb, 'employee_roles');
-      onValue(rolesRef, (rtdbSnapshot) => {
-        if (rtdbSnapshot.exists()) {
-          const rtdbData = rtdbSnapshot.val();
-          const merged = [...fsData];
-          
-          Object.keys(rtdbData).forEach(uid => {
-            if (!merged.find(emp => emp.id === uid)) {
-              merged.push({
-                id: uid,
-                ...rtdbData[uid],
-                source: 'rtdb',
-                pendingSync: true
-              });
-            }
-          });
-          setEmployeesList(merged);
-        } else {
-          setEmployeesList(fsData);
-        }
-      });
+      updateMergedList();
+    });
+
+    // 2. RTDB Listener
+    const rolesRef = ref(rtdb, 'employee_roles');
+    const unsubscribeRtdb = onValue(rolesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        rtdbEmployees = snapshot.val();
+      } else {
+        rtdbEmployees = {};
+      }
+      updateMergedList();
     });
 
     const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
@@ -72,7 +79,12 @@ export default function Employees() {
       setMajors(snapshot.docs.map(doc => doc.data().name));
     });
 
-    return () => { unsubscribeEmp(); unsubUniv(); unsubMajors(); };
+    return () => { 
+      unsubscribeFs(); 
+      unsubscribeRtdb(); 
+      unsubUniv(); 
+      unsubMajors(); 
+    };
   }, []);
 
   const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
