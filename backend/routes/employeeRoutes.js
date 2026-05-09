@@ -185,6 +185,19 @@ router.delete('/delete/:id', async (req, res) => {
     // 2. Delete from Firestore
     await db.collection('employees').doc(uid).delete();
 
+    // 3. FAST PATH: Delete from RTDB
+    try {
+      await Promise.all([
+        rtdb.ref(`employee_roles/${uid}`).remove(),
+        rtdb.ref(`chats/${uid}`).remove(),
+        rtdb.ref(`notifications/${uid}`).remove(),
+        rtdb.ref(`wa_status/${uid}`).remove()
+      ]);
+      console.log(`[API] Cleaned up RTDB data for deleted user: ${uid}`);
+    } catch (e) {
+      console.warn(`[API] RTDB cleanup partially failed for ${uid}:`, e.message);
+    }
+
     res.status(200).json({ message: 'تم حذف الموظف بنجاح' });
   } catch (error) {
     console.error('[DELETE ERROR]', error);

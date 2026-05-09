@@ -51,7 +51,7 @@ export default function SolverDashboard() {
               merged.push({ id, ...rt[id], source: 'rtdb' });
             }
           });
-          
+
           const filtered = merged.filter(s => {
             const matchUniv = info.assignedUniversity === 'الكل' || s.university === info.assignedUniversity;
             const matchMajor = info.assignedMajor === 'الكل' || s.major === info.assignedMajor;
@@ -75,7 +75,7 @@ export default function SolverDashboard() {
             setSolverData(info);
             currentSolverInfo = info;
             updateStudents(fsStudents, rtdbStudents, info);
-            
+
             // Start RTDB Students Listener once we have solver info
             const rtdbStudentsRef = ref(rtdb, 'active_students');
             onValue(rtdbStudentsRef, (snap) => {
@@ -137,22 +137,15 @@ export default function SolverDashboard() {
     navigator.clipboard.writeText('').catch(() => { });
   };
 
-  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
-
   const openStudentPanel = async (student) => {
     // If not already locked by this solver, lock it
     if (student.solverStatus !== 'in_progress' || student.lockedById !== solverData.id) {
       try {
-        const response = await fetch(`${API_URL}/api/students/update-status/${student.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            solverStatus: 'in_progress',
-            lockedById: solverData.id,
-            solvedBy: solverData.name
-          })
+        await updateDoc(doc(db, 'students', student.id), {
+          solverStatus: 'in_progress',
+          lockedById: solverData.id,
+          solvedBy: solverData.name
         });
-        if (!response.ok) throw new Error('Lock failed');
       } catch (e) {
         console.error(e);
         alert('حدث خطأ أثناء حجز المهمة');
@@ -179,16 +172,11 @@ export default function SolverDashboard() {
     if (!selectedStudent) return;
     if (window.confirm('هل أنت متأكد من إلغاء حجز هذه المهمة؟ سيتم إعادتها لقائمة المهام الجديدة ليتمكن غيرك من حلها.')) {
       try {
-        const response = await fetch(`${API_URL}/api/students/update-status/${selectedStudent.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            solverStatus: 'pending',
-            lockedById: null,
-            solvedBy: null
-          })
+        await updateDoc(doc(db, 'students', selectedStudent.id), {
+          solverStatus: 'pending',
+          lockedById: null,
+          solvedBy: null
         });
-        if (!response.ok) throw new Error('Cancel failed');
         closeStudentPanel();
       } catch (e) {
         console.error(e);
@@ -221,7 +209,7 @@ export default function SolverDashboard() {
 
     setIsSubmitting(true);
     try {
-      // 1. Save to Firestore (Primary) - This might still hang but we try
+      // 1. Save to Firestore (Primary)
       const submissionRef = await addDoc(collection(db, 'solver_submissions'), {
         studentId: selectedStudent.id,
         studentName: selectedStudent.name,
@@ -250,18 +238,20 @@ export default function SolverDashboard() {
         status: 'completed'
       });
 
-      // 3. Update Student Status via Backend API (Fast Path)
-      const response = await fetch(`${API_URL}/api/students/update-status/${selectedStudent.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          solverStatus: 'completed',
-          solvedBy: solverData.name,
-          lockedById: solverData.id
-        })
+      // 3. Update Student Status in both
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        solverStatus: 'completed',
+        solvedBy: solverData.name,
+        lockedById: solverData.id
       });
 
-      if (!response.ok) throw new Error('Status update failed');
+      // Update student status in RTDB (if students node exists there, or just a flag)
+      await rtdbSet(rtdbRef(rtdb, `student_status_updates/${selectedStudent.id}`), {
+        solverStatus: 'completed',
+        solvedBy: solverData.name,
+        lockedById: solverData.id,
+        updatedAt: Date.now()
+      });
 
       alert('تم إرسال النتيجة بنجاح للرقابة.');
       closeStudentPanel();
