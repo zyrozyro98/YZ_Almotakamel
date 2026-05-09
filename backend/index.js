@@ -51,6 +51,7 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const whatsappRoutes = require('./routes/whatsappRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
+const studentRoutes = require('./routes/studentRoutes');
 
 // Serve static files from the 'uploads' directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -59,6 +60,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/schedule', scheduleRoutes);
+app.use('/api/students', studentRoutes);
 
 // Maintenance: Reset stale WA statuses on start
 async function maintenance() {

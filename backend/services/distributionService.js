@@ -114,28 +114,30 @@ function initDistributionListener() {
  * Helps solvers see current tasks even if Firestore hits quota later.
  */
 async function syncActiveStudentsToRtdb() {
-  console.log('[SYNC] Starting active students sync to RTDB...');
+  console.log('[SYNC] Starting full students sync to RTDB...');
   try {
+    // Fetch ALL students (limited to 500 to protect RTDB size)
     const studentsSnap = await db.collection('students')
-      .where('mainStatus', 'in', ['جديد', 'انتظار', 'جاري الحل'])
+      .limit(500)
       .get();
     
     if (studentsSnap.empty) {
-      console.log('[SYNC] No active students to sync.');
+      console.log('[SYNC] No students found in Firestore.');
       return;
     }
 
     const batch = {};
     studentsSnap.docs.forEach(doc => {
+      const data = doc.data();
       batch[doc.id] = {
-        ...doc.data(),
+        ...data,
         id: doc.id,
-        syncSource: 'startup'
+        syncSource: 'full_sync'
       };
     });
 
     await rtdb.ref('active_students').update(batch);
-    console.log(`[SYNC] Successfully synced ${studentsSnap.size} students to RTDB.`);
+    console.log(`[SYNC] Successfully synced ${studentsSnap.size} students to RTDB for Solvers.`);
   } catch (err) {
     console.error('[SYNC ERROR] Failed to sync students:', err.message);
   }

@@ -135,37 +135,37 @@ router.post('/create', async (req, res) => {
 router.post('/update/:id', async (req, res) => {
   const { name, email, phone, role, status, assignedUniversity, assignedMajor } = req.body;
   const uid = req.params.id;
-
+  
   try {
-    // Update Firestore
-    await db.collection('employees').doc(uid).update({
+    // 1. Update Custom Claims if role changed
+    if (role) {
+      await auth.setCustomUserClaims(uid, { role });
+    }
+
+    // 2. FAST PATH: Update RTDB (Source of Truth for UI)
+    const updateData = {
       name,
       email,
       phone,
       role,
-      type: role, // Sync type with role
       status,
-      assignedUniversity: assignedUniversity || '',
-      assignedMajor: assignedMajor || '',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+      assignedUniversity: assignedUniversity || 'الكل',
+      assignedMajor: assignedMajor || 'الكل',
+      updatedAt: Date.now()
+    };
 
-    // Optionally update Auth display name
-    await auth.updateUser(uid, {
-        displayName: name,
-        email: email
-    });
+    await rtdb.ref(`employee_roles/${uid}`).update(updateData);
+    console.log(`[API] RTDB update success for ${uid}`);
 
-    // Update RTDB backup as well
-    await rtdb.ref(`employee_roles/${uid}`).update({
-      role,
-      name,
-      status
-    });
+    // 3. SLOW PATH: Firestore (Background - don't await if quota might be hit)
+    db.collection('employees').doc(uid).set(updateData, { merge: true })
+      .then(() => console.log(`[API] Firestore sync success for ${uid}`))
+      .catch(err => console.warn(`[API] Firestore sync failed (likely quota):`, err.message));
 
-    res.status(200).json({ message: 'تم التحديث بنجاح' });
+    res.json({ message: 'تم تحديث بيانات الموظف بنجاح' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[EMPLOYEE UPDATE ERROR]', error);
+    res.status(500).json({ error: 'حدث خطأ أثناء تحديث البيانات' });
   }
 });
 

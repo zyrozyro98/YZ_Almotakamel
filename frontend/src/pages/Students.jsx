@@ -28,6 +28,14 @@ export default function Students() {
   }, []);
   const [activeTab, setActiveTab] = useState('list');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bulkData, setBulkData] = useState({
+    university: '',
+    major: '',
+    names: '',
+    phones: '',
+    usernames: '',
+    passwords: ''
+  });
   const [studentsList, setStudentsList] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,8 +67,35 @@ export default function Students() {
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
+    // Merge Firestore + RTDB Students for immediate visibility
+    const updateStudents = (fsData, rtdbData) => {
+      const merged = [...fsData];
+      Object.keys(rtdbData || {}).forEach(id => {
+        if (!merged.find(s => s.id === id)) {
+          merged.push({ id, ...rtdbData[id], source: 'rtdb' });
+        }
+      });
+      setStudentsList(merged);
+    };
+
+    let fsStudents = [];
+    let rtdbStudents = {};
+
     const unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
-      setStudentsList(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
+      fsStudents = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+      updateStudents(fsStudents, rtdbStudents);
+    }, (err) => {
+      console.warn("Firestore students blocked:", err);
+      updateStudents(fsStudents, rtdbStudents);
+    });
+
+    const { ref, onValue } = require('firebase/database');
+    const { rtdb: rtdbInstance } = require('../firebase');
+    const rtdbRef = ref(rtdbInstance, 'active_students');
+    const unsubRtdb = onValue(rtdbRef, (snap) => {
+      if (snap.exists()) rtdbStudents = snap.val();
+      else rtdbStudents = {};
+      updateStudents(fsStudents, rtdbStudents);
     });
     
     const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
@@ -71,7 +106,7 @@ export default function Students() {
       setMajors(snapshot.docs.map(doc => doc.data().name));
     });
 
-    return () => { unsubStudents(); unsubUniv(); unsubMajors(); };
+    return () => { unsubStudents(); unsubRtdb(); unsubUniv(); unsubMajors(); };
   }, []);
 
   const validateForm = () => {
@@ -101,19 +136,21 @@ export default function Students() {
     setActiveTab('add');
   };
 
+  const cleanPhone = (phone) => {
+    let d = phone.replace(/[^0-9]/g, '');
+    if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
+    else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
+    else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
+    return d;
+  };
+
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateForm()) {
       setIsSubmitting(true);
-      
-      // JID System: Clean phone number while protecting country codes
-      let d = formData.phone.replace(/[^0-9]/g, '');
-      // Auto-prefix local numbers if we know they are likely Yemeni/Saudi/Sudanese
-      if (/^[7][0-9]{8}$/.test(d)) d = '967' + d;
-      else if (/^[5][0-9]{8}$/.test(d)) d = '966' + d;
-      else if (/^[9][0-9]{8}$/.test(d)) d = '249' + d;
-      let cleanedPhone = d;
-      
+      const cleanedPhone = cleanPhone(formData.phone);
       const finalDataToSave = { ...formData, phone: cleanedPhone };
 
       try {
@@ -122,20 +159,71 @@ export default function Students() {
           setEditingId(null);
           setActiveTab('list');
         } else {
-          await addDoc(collection(db, 'students'), {
-            ...finalDataToSave,
-            createdAt: serverTimestamp(),
-            mainStatus: 'جديد',
-            subStatus: 'لم يتم التواصل'
+          // NEW: Use Backend API to avoid Firestore hangs
+          const response = await fetch(`${API_URL}/api/students/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(finalDataToSave)
           });
+          
+          if (!response.ok) throw new Error('Failed to add student');
+          
           setActiveTab('list');
         }
         setFormData({ name: '', phone: '', username: '', password: '', university: '', major: '', notes: '', platformUrl: '' });
       } catch (err) {
         console.error(err);
+        alert('حدث خطأ أثناء إضافة الطالب. يرجى المحاولة مرة أخرى.');
       } finally {
         setIsSubmitting(false);
       }
+    }
+  };
+
+  const handleBulkSubmit = async (e) => {
+    e.preventDefault();
+    if (!bulkData.university || !bulkData.major) return alert('يرجى اختيار الجامعة والتخصص.');
+    
+    const names = bulkData.names.split('\n').map(s => s.trim()).filter(Boolean);
+    const phones = bulkData.phones.split('\n').map(s => s.trim()).filter(Boolean);
+    const usernames = bulkData.usernames.split('\n').map(s => s.trim()).filter(Boolean);
+    const passwords = bulkData.passwords.split('\n').map(s => s.trim()).filter(Boolean);
+
+    if (names.length === 0) return alert('يرجى إدخال أسماء الطلاب.');
+    if (names.length !== phones.length || names.length !== usernames.length || names.length !== passwords.length) {
+      return alert(`خطأ في توازن البيانات! \nالأسماء: ${names.length}\nالأرقام: ${phones.length}\nاليوزرات: ${usernames.length}\nكلمات المرور: ${passwords.length}\nيجب أن يكون العدد متساوياً في جميع القوائم.`);
+    }
+
+    if (!window.confirm(`هل أنت متأكد من إضافة ${names.length} طلاب دفعة واحدة؟`)) return;
+
+    setIsSubmitting(true);
+    try {
+      const studentObjects = names.map((name, i) => ({
+        name,
+        phone: cleanPhone(phones[i]),
+        username: usernames[i].replace(/\s/g, ''),
+        password: passwords[i].replace(/\s/g, ''),
+        university: bulkData.university,
+        major: bulkData.major
+      }));
+
+      // NEW: Use Backend API for bulk addition
+      const response = await fetch(`${API_URL}/api/students/bulk-add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ students: studentObjects })
+      });
+
+      if (!response.ok) throw new Error('Bulk add failed');
+
+      alert(`تمت إضافة الطلاب بنجاح!`);
+      setBulkData({ university: '', major: '', names: '', phones: '', usernames: '', passwords: '' });
+      setActiveTab('list');
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء الإضافة الجماعية.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -203,6 +291,12 @@ export default function Students() {
             <Search size={18} /> قائمة الطلاب
           </button>
           <button 
+            className={activeTab === 'bulk' ? 'btn-primary' : 'btn-secondary'} 
+            onClick={() => setActiveTab('bulk')}
+          >
+            <UserPlus size={18} /> إضافة بالجملة
+          </button>
+          <button 
             className={activeTab === 'add' ? 'btn-primary' : 'btn-secondary'} 
             onClick={() => { setActiveTab('add'); setEditingId(null); setFormData({ name: '', phone: '', username: '', password: '', university: '', major: '', notes: '' }); }}
           >
@@ -210,6 +304,100 @@ export default function Students() {
           </button>
         </div>
       </div>
+
+      {activeTab === 'bulk' && (
+        <div className="glass-panel animate-fade-in-up" style={{ padding: '2.5rem', maxWidth: '1000px', margin: '0 auto' }}>
+          <div className="flex items-center gap-3" style={{ marginBottom: '2rem' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--brand-primary)', borderRadius: '12px', color: '#fff' }}>
+              <UserPlus size={24} />
+            </div>
+            <div>
+              <h2 style={{ margin: 0 }}>إضافة طلاب بالجملة (Bulk Import)</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>أدخل البيانات كقوائم، سطر لكل طالب</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleBulkSubmit}>
+            <div className="grid grid-cols-2 sm-grid-cols-1 gap-6 mb-8">
+              <div className="flex-col gap-2">
+                <label className="input-label">الجامعة المخصصة</label>
+                <select className="input-base" value={bulkData.university} onChange={e => setBulkData({...bulkData, university: e.target.value})} required>
+                  <option value="">اختر الجامعة...</option>
+                  {univs.sort().map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div className="flex-col gap-2">
+                <label className="input-label">التخصص المخصص</label>
+                <select className="input-base" value={bulkData.major} onChange={e => setBulkData({...bulkData, major: e.target.value})} required>
+                  <option value="">اختر التخصص...</option>
+                  {majors.sort().map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 md-grid-cols-2 sm-grid-cols-1 gap-4">
+              <div className="flex-col gap-2">
+                <label className="input-label text-brand">1. أسماء الطلاب (سطر لكل اسم)</label>
+                <textarea 
+                  className="input-base" 
+                  rows="12" 
+                  placeholder="محمد أحمد&#10;خالد علي&#10;سارة حسن" 
+                  value={bulkData.names} 
+                  onChange={e => setBulkData({...bulkData, names: e.target.value})}
+                  style={{ fontSize: '0.85rem', lineHeight: '1.6' }}
+                ></textarea>
+              </div>
+              <div className="flex-col gap-2">
+                <label className="input-label text-brand">2. أرقام التواصل (سطر لكل رقم)</label>
+                <textarea 
+                  className="input-base" 
+                  rows="12" 
+                  placeholder="0512345678&#10;0587654321&#10;0599988877" 
+                  value={bulkData.phones} 
+                  onChange={e => setBulkData({...bulkData, phones: e.target.value})}
+                  style={{ fontSize: '0.85rem', lineHeight: '1.6', direction: 'ltr' }}
+                ></textarea>
+              </div>
+              <div className="flex-col gap-2">
+                <label className="input-label text-brand">3. أسماء المستخدمين (سطر لكل يوزر)</label>
+                <textarea 
+                  className="input-base" 
+                  rows="12" 
+                  placeholder="user123&#10;khalid99&#10;sara_h" 
+                  value={bulkData.usernames} 
+                  onChange={e => setBulkData({...bulkData, usernames: e.target.value})}
+                  style={{ fontSize: '0.85rem', lineHeight: '1.6', direction: 'ltr' }}
+                ></textarea>
+              </div>
+              <div className="flex-col gap-2">
+                <label className="input-label text-brand">4. كلمات المرور (سطر لكل كلمة)</label>
+                <textarea 
+                  className="input-base" 
+                  rows="12" 
+                  placeholder="pass123&#10;pass456&#10;pass789" 
+                  value={bulkData.passwords} 
+                  onChange={e => setBulkData({...bulkData, passwords: e.target.value})}
+                  style={{ fontSize: '0.85rem', lineHeight: '1.6', direction: 'ltr' }}
+                ></textarea>
+              </div>
+            </div>
+
+            <div className="mt-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-start gap-3">
+               <AlertTriangle size={20} className="text-blue-400 mt-1" />
+               <p className="text-sm text-blue-200">
+                 سيقوم النظام بتنظيف المسافات تلقائياً. تأكد أن كل قائمة تحتوي على نفس عدد الأسطر لضمان دقة البيانات.
+               </p>
+            </div>
+
+            <div className="flex justify-end gap-4 mt-8">
+              <button type="button" className="btn-secondary" onClick={() => setActiveTab('list')}>إلغاء</button>
+              <button type="submit" className="btn-primary" disabled={isSubmitting} style={{ padding: '1rem 3rem' }}>
+                {isSubmitting ? 'جاري المعالجة...' : 'بدء الإضافة الجماعية'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {activeTab === 'add' ? (
         <div className="glass-panel" style={{ padding: '2.5rem', maxWidth: '900px', margin: '0 auto' }}>

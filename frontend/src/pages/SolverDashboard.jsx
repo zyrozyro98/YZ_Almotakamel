@@ -89,12 +89,11 @@ export default function SolverDashboard() {
               }
             });
             
-            // Filter by university/major (Since RTDB doesn't support complex where clauses as easily)
+            // Filter by university/major (Show ALL regardless of status)
             const filtered = merged.filter(s => {
               const matchUniv = data.assignedUniversity === 'الكل' || s.university === data.assignedUniversity;
               const matchMajor = data.assignedMajor === 'الكل' || s.major === data.assignedMajor;
-              const isUnsolved = s.solverStatus !== 'completed';
-              return matchUniv && matchMajor && isUnsolved;
+              return matchUniv && matchMajor;
             });
             
             setStudents(filtered);
