@@ -36,32 +36,46 @@ export default function Employees() {
     let rtdbEmployees = {};
 
     const updateMergedList = () => {
-      const merged = [...fsEmployees];
+      // Use RTDB as the base if Firestore is empty/down
+      let merged = [];
+      
+      // Add all from RTDB first
       Object.keys(rtdbEmployees).forEach(uid => {
-        if (!merged.find(emp => emp.id === uid)) {
-          merged.push({
-            id: uid,
-            ...rtdbEmployees[uid],
-            source: 'rtdb',
-            pendingSync: true
-          });
+        merged.push({
+          id: uid,
+          ...rtdbEmployees[uid],
+          source: 'rtdb',
+          pendingSync: true // Assume pending until found in FS
+        });
+      });
+
+      // Overlay with Firestore data (Source of Truth for extra fields)
+      fsEmployees.forEach(fsEmp => {
+        const index = merged.findIndex(e => e.id === fsEmp.id);
+        if (index !== -1) {
+          merged[index] = { ...merged[index], ...fsEmp, pendingSync: false, source: 'firestore' };
+        } else {
+          merged.push({ ...fsEmp, source: 'firestore', pendingSync: false });
         }
       });
+
       setEmployeesList(merged);
     };
 
-    // 1. Firestore Listener
+    // 1. Firestore Listener with Error Handling
     const q = query(collection(db, 'employees'), orderBy('createdAt', 'desc'));
     const unsubscribeFs = onSnapshot(q, (snapshot) => {
       fsEmployees = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
-        ...docSnap.data(),
-        source: 'firestore'
+        ...docSnap.data()
       }));
+      updateMergedList();
+    }, (err) => {
+      console.warn("Firestore blocked by quota, relying on RTDB only.", err);
       updateMergedList();
     });
 
-    // 2. RTDB Listener
+    // 2. RTDB Listener (Our reliable source now)
     const rolesRef = ref(rtdb, 'employee_roles');
     const unsubscribeRtdb = onValue(rolesRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -70,15 +84,17 @@ export default function Employees() {
         rtdbEmployees = {};
       }
       updateMergedList();
+    }, (err) => {
+      console.error("RTDB Error:", err);
     });
 
     const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
       setUnivs(snapshot.docs.map(doc => doc.data().name));
-    });
+    }, () => {});
 
     const unsubMajors = onSnapshot(collection(db, 'majors'), (snapshot) => {
       setMajors(snapshot.docs.map(doc => doc.data().name));
-    });
+    }, () => {});
 
     return () => { 
       unsubscribeFs(); 
