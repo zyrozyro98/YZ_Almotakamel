@@ -35,6 +35,12 @@ try {
       console.log('[FIREBASE] Initializing with service account from environment variable.');
       try {
         const serviceAccount = JSON.parse(serviceAccountVar);
+        
+        // FIX: Some hosting platforms (like Render/Heroku) escape newlines in JSON env vars
+        if (serviceAccount.private_key) {
+          serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
+
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
           databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
