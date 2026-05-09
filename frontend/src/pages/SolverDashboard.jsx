@@ -39,91 +39,69 @@ export default function SolverDashboard() {
     // 2. Main Init Function
     const initSolver = async (user) => {
       try {
-        // A. FAST PATH: RTDB
+        let fsStudents = [];
+        let rtdbStudents = {};
+        let currentSolverInfo = null;
+
+        const updateStudents = (fs, rt, info) => {
+          if (!info) return;
+          const merged = [...fs];
+          Object.keys(rt || {}).forEach(id => {
+            if (!merged.find(s => s.id === id)) {
+              merged.push({ id, ...rt[id], source: 'rtdb' });
+            }
+          });
+          
+          const filtered = merged.filter(s => {
+            const matchUniv = info.assignedUniversity === 'الكل' || s.university === info.assignedUniversity;
+            const matchMajor = info.assignedMajor === 'الكل' || s.major === info.assignedMajor;
+            return matchUniv && matchMajor;
+          });
+          setStudents(filtered);
+        };
+
+        // A. FAST PATH: RTDB (Primary for unblocking UI)
         const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
         onValue(roleRef, (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.val();
-            if (data.role === 'solver' || data.role === 'admin') {
-              setSolverData(prev => ({
-                ...prev,
-                id: user.uid,
-                name: data.name,
-                role: data.role,
-                assignedUniversity: data.assignedUniversity || 'الكل',
-                assignedMajor: data.assignedMajor || 'الكل'
-              }));
-            }
+            const info = {
+              id: user.uid,
+              name: data.name,
+              role: data.role,
+              assignedUniversity: data.assignedUniversity || 'الكل',
+              assignedMajor: data.assignedMajor || 'الكل'
+            };
+            setSolverData(info);
+            currentSolverInfo = info;
+            updateStudents(fsStudents, rtdbStudents, info);
+            
+            // Start RTDB Students Listener once we have solver info
+            const rtdbStudentsRef = ref(rtdb, 'active_students');
+            onValue(rtdbStudentsRef, (snap) => {
+              rtdbStudents = snap.exists() ? snap.val() : {};
+              updateStudents(fsStudents, rtdbStudents, currentSolverInfo);
+            });
           }
         }, { onlyOnce: true });
 
-        // B. SOURCE OF TRUTH: Firestore
-        const empDoc = await getDoc(doc(db, 'employees', user.uid));
-        if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
-          const data = empDoc.data();
-          
-          if (data.role === 'admin') {
-            data.assignedUniversity = 'الكل';
-            data.assignedMajor = 'الكل';
-          }
-          
-          setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
+        // B. Firestore Students Listener (Parallel)
+        const studentsQuery = query(collection(db, 'students'), where('mainStatus', '!=', 'مكتمل'));
+        unsubStudents = onSnapshot(studentsQuery, (snap) => {
+          fsStudents = snap.docs.map(s => ({ id: s.id, ...s.data() }));
+          updateStudents(fsStudents, rtdbStudents, currentSolverInfo);
+        }, (err) => {
+          console.warn("Firestore students query blocked:", err);
+          updateStudents(fsStudents, rtdbStudents, currentSolverInfo);
+        });
 
-          unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
-            const univs = [];
-            snap.forEach(u => {
-              univs.push({ id: u.id, ...u.data() });
-              if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
-                setAssignedUnivPlatformUrl(u.data().platformUrl);
-              }
-            });
-            setUniversitiesData(univs);
-          });
+        // C. Universities Listener
+        unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
+          const univs = snap.docs.map(u => ({ id: u.id, ...u.data() }));
+          setUniversitiesData(univs);
+        });
 
-          // 3. Students Listener (Merged Firestore + RTDB)
-          const updateStudents = (fsData, rtdbData) => {
-            const merged = [...fsData];
-            Object.keys(rtdbData || {}).forEach(id => {
-              if (!merged.find(s => s.id === id)) {
-                merged.push({ id, ...rtdbData[id], source: 'rtdb' });
-              }
-            });
-            
-            // Filter by university/major (Show ALL regardless of status)
-            const filtered = merged.filter(s => {
-              const matchUniv = data.assignedUniversity === 'الكل' || s.university === data.assignedUniversity;
-              const matchMajor = data.assignedMajor === 'الكل' || s.major === data.assignedMajor;
-              return matchUniv && matchMajor;
-            });
-            
-            setStudents(filtered);
-          };
-
-          let fsStudents = [];
-          let rtdbStudents = {};
-
-          // 3a. Firestore Students
-          const studentsQuery = query(collection(db, 'students'), where('mainStatus', '!=', 'مكتمل'));
-          unsubStudents = onSnapshot(studentsQuery, (snap) => {
-            fsStudents = snap.docs.map(s => ({ id: s.id, ...s.data() }));
-            updateStudents(fsStudents, rtdbStudents);
-          }, (err) => {
-            console.warn("Firestore students query blocked:", err);
-            updateStudents(fsStudents, rtdbStudents);
-          });
-
-          // 3b. RTDB Students (Fast Path)
-          const rtdbStudentsRef = ref(rtdb, 'active_students');
-          const unsubRtdbStudents = onValue(rtdbStudentsRef, (snap) => {
-            if (snap.exists()) rtdbStudents = snap.val();
-            else rtdbStudents = {};
-            updateStudents(fsStudents, rtdbStudents);
-          });
-
-          setLoading(false);
-        } else {
-          setLoading(false);
-        }
+        setLoading(false);
       } catch (err) {
         console.error("Solver Init Error:", err);
         setLoading(false);
@@ -159,15 +137,22 @@ export default function SolverDashboard() {
     navigator.clipboard.writeText('').catch(() => { });
   };
 
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+
   const openStudentPanel = async (student) => {
     // If not already locked by this solver, lock it
     if (student.solverStatus !== 'in_progress' || student.lockedById !== solverData.id) {
       try {
-        await updateDoc(doc(db, 'students', student.id), {
-          solverStatus: 'in_progress',
-          lockedById: solverData.id,
-          solvedBy: solverData.name
+        const response = await fetch(`${API_URL}/api/students/update-status/${student.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            solverStatus: 'in_progress',
+            lockedById: solverData.id,
+            solvedBy: solverData.name
+          })
         });
+        if (!response.ok) throw new Error('Lock failed');
       } catch (e) {
         console.error(e);
         alert('حدث خطأ أثناء حجز المهمة');
@@ -194,11 +179,16 @@ export default function SolverDashboard() {
     if (!selectedStudent) return;
     if (window.confirm('هل أنت متأكد من إلغاء حجز هذه المهمة؟ سيتم إعادتها لقائمة المهام الجديدة ليتمكن غيرك من حلها.')) {
       try {
-        await updateDoc(doc(db, 'students', selectedStudent.id), {
-          solverStatus: 'pending',
-          lockedById: null,
-          solvedBy: null
+        const response = await fetch(`${API_URL}/api/students/update-status/${selectedStudent.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            solverStatus: 'pending',
+            lockedById: null,
+            solvedBy: null
+          })
         });
+        if (!response.ok) throw new Error('Cancel failed');
         closeStudentPanel();
       } catch (e) {
         console.error(e);
@@ -231,7 +221,7 @@ export default function SolverDashboard() {
 
     setIsSubmitting(true);
     try {
-      // 1. Save to Firestore (Primary)
+      // 1. Save to Firestore (Primary) - This might still hang but we try
       const submissionRef = await addDoc(collection(db, 'solver_submissions'), {
         studentId: selectedStudent.id,
         studentName: selectedStudent.name,
@@ -260,20 +250,18 @@ export default function SolverDashboard() {
         status: 'completed'
       });
 
-      // 3. Update Student Status in both
-      await updateDoc(doc(db, 'students', selectedStudent.id), {
-        solverStatus: 'completed',
-        solvedBy: solverData.name,
-        lockedById: solverData.id
+      // 3. Update Student Status via Backend API (Fast Path)
+      const response = await fetch(`${API_URL}/api/students/update-status/${selectedStudent.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          solverStatus: 'completed',
+          solvedBy: solverData.name,
+          lockedById: solverData.id
+        })
       });
-      
-      // Update student status in RTDB (if students node exists there, or just a flag)
-      await rtdbSet(rtdbRef(rtdb, `student_status_updates/${selectedStudent.id}`), {
-        solverStatus: 'completed',
-        solvedBy: solverData.name,
-        lockedById: solverData.id,
-        updatedAt: Date.now()
-      });
+
+      if (!response.ok) throw new Error('Status update failed');
 
       alert('تم إرسال النتيجة بنجاح للرقابة.');
       closeStudentPanel();

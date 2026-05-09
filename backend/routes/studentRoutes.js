@@ -83,4 +83,32 @@ router.post('/bulk-add', async (req, res) => {
   }
 });
 
+// Update Student Status / Data (Fast Path)
+router.post('/update-status/:id', async (req, res) => {
+  try {
+    const studentId = req.params.id;
+    const updateData = req.body;
+
+    // 1. FAST PATH: Update RTDB
+    await rtdb.ref(`active_students/${studentId}`).update({
+      ...updateData,
+      updatedAt: Date.now()
+    });
+    console.log(`[API] Student status updated in RTDB: ${studentId}`);
+
+    // 2. SLOW PATH: Firestore (Background)
+    db.collection('students').doc(studentId).update({
+      ...updateData,
+      updatedAt: new Date()
+    })
+    .then(() => console.log(`[API] Student status synced to Firestore: ${studentId}`))
+    .catch(err => console.warn(`[API] Firestore status sync failed:`, err.message));
+
+    res.json({ message: 'تم تحديث حالة الطالب بنجاح' });
+  } catch (error) {
+    console.error('[STATUS UPDATE ERROR]', error);
+    res.status(500).json({ error: 'حدث خطأ أثناء تحديث حالة الطالب' });
+  }
+});
+
 module.exports = router;

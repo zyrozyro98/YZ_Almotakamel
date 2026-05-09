@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { UserPlus, Search, Edit, Trash2, GraduationCap, Phone, User, Lock } from 'lucide-react';
-import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { UserPlus, Search, Edit, Trash2, GraduationCap, Phone, User, Lock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { db, auth, rtdb } from '../firebase';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, deleteDoc, updateDoc, getDoc, query, where } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 
 export default function Students() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -26,6 +26,7 @@ export default function Students() {
     });
     return () => unsub();
   }, []);
+
   const [activeTab, setActiveTab] = useState('list');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bulkData, setBulkData] = useState({
@@ -59,7 +60,7 @@ export default function Students() {
     major: '',
     batch: '',
     group: '',
-    sortBy: 'newest' // 'newest', 'oldest'
+    sortBy: 'newest'
   });
 
   const [univs, setUnivs] = useState([]);
@@ -67,20 +68,20 @@ export default function Students() {
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    // Merge Firestore + RTDB Students for immediate visibility
-    const updateStudents = (fsData, rtdbData) => {
-      const merged = [...fsData];
-      Object.keys(rtdbData || {}).forEach(id => {
+    let fsStudents = [];
+    let rtdbStudents = {};
+
+    const updateStudents = (fs, rt) => {
+      const merged = [...fs];
+      Object.keys(rt || {}).forEach(id => {
         if (!merged.find(s => s.id === id)) {
-          merged.push({ id, ...rtdbData[id], source: 'rtdb' });
+          merged.push({ id, ...rt[id], source: 'rtdb' });
         }
       });
       setStudentsList(merged);
     };
 
-    let fsStudents = [];
-    let rtdbStudents = {};
-
+    // 1. Firestore Listener
     const unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
       fsStudents = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
       updateStudents(fsStudents, rtdbStudents);
@@ -89,9 +90,8 @@ export default function Students() {
       updateStudents(fsStudents, rtdbStudents);
     });
 
-    const { ref, onValue } = require('firebase/database');
-    const { rtdb: rtdbInstance } = require('../firebase');
-    const rtdbRef = ref(rtdbInstance, 'active_students');
+    // 2. RTDB Listener (Fast Path)
+    const rtdbRef = ref(rtdb, 'active_students');
     const unsubRtdb = onValue(rtdbRef, (snap) => {
       if (snap.exists()) rtdbStudents = snap.val();
       else rtdbStudents = {};

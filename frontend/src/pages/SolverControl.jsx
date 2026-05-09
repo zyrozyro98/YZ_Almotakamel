@@ -64,9 +64,9 @@ export default function SolverControl() {
       mergeData();
     });
 
-    // RTDB Status Updates
-    const rtdbStatusRef = ref(rtdb, 'student_status_updates');
-    const unsubRtdbStatus = onValue(rtdbStatusRef, (snap) => {
+    // RTDB Status Updates (Consolidated to active_students)
+    const rtdbActiveRef = ref(rtdb, 'active_students');
+    const unsubRtdbStatus = onValue(rtdbActiveRef, (snap) => {
       if (snap.exists()) rtdbStatusUpdates = snap.val();
       else rtdbStatusUpdates = {};
       mergeData();
@@ -112,14 +112,23 @@ export default function SolverControl() {
     }
   };
 
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+
   const resetStudentSolverStatus = async (studentId, studentName) => {
     if(window.confirm(`هل أنت متأكد من إعادة الطالب (${studentName}) لقائمة "غير محلول"؟`)) {
       try {
-        await updateDoc(doc(db, 'students', studentId), {
-          solverStatus: 'pending',
-          solvedBy: null,
-          lockedById: null
+        const response = await fetch(`${API_URL}/api/students/update-status/${studentId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            solverStatus: 'pending',
+            solvedBy: null,
+            lockedById: null
+          })
         });
+
+        if (!response.ok) throw new Error('Update failed');
+        alert('تمت استعادة المهمة بنجاح');
       } catch (e) {
         console.error(e);
         alert('حدث خطأ أثناء إعادة التعيين');
