@@ -57,10 +57,11 @@ try {
       }
     } else if (fs.existsSync(serviceAccountPath)) {
       console.log('[FIREBASE] Found serviceAccountKey.json. Initializing with full credentials.');
+      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccountPath),
-        databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://yz-almotakamel-default-rtdb.firebaseio.com',
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'yz-almotakamel.appspot.com'
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`,
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.appspot.com`
       });
     } else {
       console.warn('[FIREBASE] No service account found. Initializing with project ID only (might fail on non-GCP).');

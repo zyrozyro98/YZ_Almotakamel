@@ -69,18 +69,21 @@ router.post('/create', async (req, res) => {
     // 2. FAST PATH: Save role to Realtime Database (Quota-free & Reliable)
     // We do this FIRST because it's guaranteed to work even if Firestore is at quota
     try {
-      await rtdb.ref(`employee_roles/${userRecord.uid}`).set({
+      const rtdbPath = `employee_roles/${userRecord.uid}`;
+      console.log(`[API] Attempting RTDB write to path: ${rtdbPath}`);
+      await rtdb.ref(rtdbPath).set({
         role: role || 'employee',
         name: name,
         status: 'active',
         email: email,
         assignedUniversity: assignedUniversity || 'الكل',
         assignedMajor: assignedMajor || 'الكل',
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        createdAt: new Date().toISOString()
       });
-      console.log(`[API] RTDB role created for ${userRecord.uid}`);
+      console.log(`[API] SUCCESS: RTDB record created at ${rtdbPath} for ${email}`);
     } catch (rtdbErr) {
-      console.error('[API] RTDB Write failed:', rtdbErr.message);
+      console.error(`[API ERROR] RTDB Write FAILED for ${email}:`, rtdbErr.message);
     }
 
     // 3. SLOW PATH: Add/Update details in Firestore (Source of truth)
