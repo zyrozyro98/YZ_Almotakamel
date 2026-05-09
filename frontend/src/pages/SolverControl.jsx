@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, rtdb } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc, query, orderBy, deleteDoc, getDocs, where } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 import { ShieldCheck, Image as ImageIcon, Users, CheckCircle, Clock, Search, ExternalLink, X, RotateCcw, Trash2, RefreshCw, Settings, Save } from 'lucide-react';
 
 export default function SolverControl() {
@@ -13,37 +14,74 @@ export default function SolverControl() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch submissions
+    let fsSubmissions = [];
+    let rtdbSubmissions = {};
+    let fsStudents = [];
+    let rtdbStatusUpdates = {};
+
+    const mergeData = () => {
+      // 1. Merge Submissions
+      const mergedSubs = [...fsSubmissions];
+      Object.keys(rtdbSubmissions).forEach(id => {
+        if (!mergedSubs.find(s => s.id === id)) {
+          mergedSubs.push({ id, ...rtdbSubmissions[id], source: 'rtdb' });
+        }
+      });
+      setSubmissions(mergedSubs.sort((a, b) => (b.timestamp?.seconds || b.timestamp || 0) - (a.timestamp?.seconds || a.timestamp || 0)));
+
+      // 2. Merge Students with RTDB Status Updates
+      const mergedStudents = fsStudents.map(s => {
+        if (rtdbStatusUpdates[s.id]) {
+          return { ...s, ...rtdbStatusUpdates[s.id], source: 'rtdb-sync' };
+        }
+        return s;
+      });
+      setStudents(mergedStudents);
+    };
+
+    // --- Listeners ---
+    
+    // Firestore Submissions
     const qSubmissions = query(collection(db, 'solver_submissions'), orderBy('timestamp', 'desc'));
     const unsubSubmissions = onSnapshot(qSubmissions, (snap) => {
-      const subs = [];
-      snap.forEach(s => subs.push({ id: s.id, ...s.data() }));
-      setSubmissions(subs);
+      fsSubmissions = snap.docs.map(s => ({ id: s.id, ...s.data() }));
+      mergeData();
     });
 
-    // OPTIMIZED: Fetch only relevant students (Completed or with Solver status)
-    const qStudents = query(
-      collection(db, 'students'), 
-      where('mainStatus', 'in', ['مكتمل', 'انتظار', 'جديد']) // Only fetch active/relevant ones
-    );
-    
+    // RTDB Submissions
+    const rtdbSubsRef = ref(rtdb, 'solver_submissions');
+    const unsubRtdbSubs = onValue(rtdbSubsRef, (snap) => {
+      if (snap.exists()) rtdbSubmissions = snap.val();
+      else rtdbSubmissions = {};
+      mergeData();
+    });
+
+    // Firestore Students (Filtered)
+    const qStudents = query(collection(db, 'students'), where('mainStatus', 'in', ['مكتمل', 'انتظار', 'جديد']));
     const unsubStudents = onSnapshot(qStudents, (snap) => {
-      const st = [];
-      snap.forEach(s => st.push({ id: s.id, ...s.data() }));
-      setStudents(st);
+      fsStudents = snap.docs.map(s => ({ id: s.id, ...s.data() }));
       setLoading(false);
+      mergeData();
     });
 
-    // Fetch universities for automation settings
+    // RTDB Status Updates
+    const rtdbStatusRef = ref(rtdb, 'student_status_updates');
+    const unsubRtdbStatus = onValue(rtdbStatusRef, (snap) => {
+      if (snap.exists()) rtdbStatusUpdates = snap.val();
+      else rtdbStatusUpdates = {};
+      mergeData();
+    });
+
+    // Universities
     const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
-      const univs = [];
-      snap.forEach(u => univs.push({ id: u.id, ...u.data() }));
-      setUniversities(univs);
+      setUniversities(snap.docs.map(u => ({ id: u.id, ...u.data() })));
     });
 
     return () => {
       unsubSubmissions();
+      unsubRtdbSubs();
       unsubStudents();
+      unsubRtdbStatus();
       unsubUniversities();
     };
   }, []);

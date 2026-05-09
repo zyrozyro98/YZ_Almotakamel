@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { admin, db, auth } = require('../firebaseAdmin');
+const { admin, db, rtdb, auth } = require('../firebaseAdmin');
 
 /**
  * Create a new employee in Firebase Auth and Firestore.
@@ -58,6 +58,14 @@ router.post('/create', async (req, res) => {
       }
     }
 
+    // 1.5. Set Custom Claims for instant role recognition in frontend
+    try {
+      await auth.setCustomUserClaims(userRecord.uid, { role: role || 'employee' });
+      console.log(`[API] Custom claims set for ${userRecord.uid}: ${role}`);
+    } catch (claimErr) {
+      console.error('[API] Failed to set custom claims:', claimErr.message);
+    }
+
     // 2. FAST PATH: Save role to Realtime Database (Quota-free & Reliable)
     // We do this FIRST because it's guaranteed to work even if Firestore is at quota
     try {
@@ -66,6 +74,8 @@ router.post('/create', async (req, res) => {
         name: name,
         status: 'active',
         email: email,
+        assignedUniversity: assignedUniversity || 'الكل',
+        assignedMajor: assignedMajor || 'الكل',
         updatedAt: Date.now()
       });
       console.log(`[API] RTDB role created for ${userRecord.uid}`);

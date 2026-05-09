@@ -49,6 +49,23 @@ export default function DashboardLayout() {
         const id = user.uid;
         setEmployeeId(id);
         
+        // 0. ULTIMATE PATH: Check Custom Claims from Auth Token (Instant & Guaranteed)
+        const checkClaims = async () => {
+          try {
+            const token = await user.getIdTokenResult(true);
+            const roleFromClaim = token.claims.role;
+            if (roleFromClaim) {
+              setUserRole(roleFromClaim);
+              setIsAdmin(roleFromClaim === 'admin' || user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com');
+              setIsRoleLoading(false);
+              return true;
+            }
+          } catch (e) {
+            console.error("Claims check failed:", e);
+          }
+          return false;
+        };
+
         // 1. Hardcoded Security Layer
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         
@@ -56,7 +73,6 @@ export default function DashboardLayout() {
         const safetyTimeout = setTimeout(() => {
           setIsRoleLoading(prev => {
             if (prev) {
-              console.warn("Role loading timed out, using default permissions.");
               setIsAdmin(adminStatus);
               return false;
             }
@@ -64,36 +80,44 @@ export default function DashboardLayout() {
           });
         }, 5000);
 
-        // 2. FAST PATH & SOURCE OF TRUTH (RTDB first)
-        const roleRef = ref(rtdb, `employee_roles/${id}`);
-        onValue(roleRef, async (snapshot) => {
-          clearTimeout(safetyTimeout);
-          let currentRole = 'employee';
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            currentRole = data.role || 'employee';
-            if (data.role === 'admin') adminStatus = true;
-            setUserRole(currentRole);
-            setIsAdmin(adminStatus);
-            setIsRoleLoading(false);
-          } else {
-            // If not in RTDB, fallback to Firestore
-            try {
-              const userDoc = await getDoc(doc(db, 'employees', id));
-              if (userDoc.exists()) {
-                const data = userDoc.data();
-                currentRole = data.role || 'employee';
-                if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
-                setUserRole(currentRole);
-              }
-            } catch (e) {
-              console.error("Role lookup failed:", e.message);
-            } finally {
+        // Start checking (Parallel)
+        checkClaims().then(found => {
+          if (found) {
+            clearTimeout(safetyTimeout);
+            return;
+          }
+          
+          // 2. FAST PATH & SOURCE OF TRUTH (RTDB first)
+          const roleRef = ref(rtdb, `employee_roles/${id}`);
+          onValue(roleRef, async (snapshot) => {
+            clearTimeout(safetyTimeout);
+            let currentRole = 'employee';
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              currentRole = data.role || 'employee';
+              if (data.role === 'admin') adminStatus = true;
+              setUserRole(currentRole);
               setIsAdmin(adminStatus);
               setIsRoleLoading(false);
+            } else {
+              // If not in RTDB, fallback to Firestore
+              try {
+                const userDoc = await getDoc(doc(db, 'employees', id));
+                if (userDoc.exists()) {
+                  const data = userDoc.data();
+                  currentRole = data.role || 'employee';
+                  if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
+                  setUserRole(currentRole);
+                }
+              } catch (e) {
+                console.error("Role lookup failed:", e.message);
+              } finally {
+                setIsAdmin(adminStatus);
+                setIsRoleLoading(false);
+              }
             }
-          }
-        }, { onlyOnce: true });
+          }, { onlyOnce: true });
+        });
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);

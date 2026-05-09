@@ -45,7 +45,14 @@ export default function SolverDashboard() {
           if (snapshot.exists()) {
             const data = snapshot.val();
             if (data.role === 'solver' || data.role === 'admin') {
-              setSolverData(prev => prev || { id: user.uid, name: data.name, role: data.role });
+              setSolverData(prev => ({
+                ...prev,
+                id: user.uid,
+                name: data.name,
+                role: data.role,
+                assignedUniversity: data.assignedUniversity || 'الكل',
+                assignedMajor: data.assignedMajor || 'الكل'
+              }));
             }
           }
         }, { onlyOnce: true });
@@ -204,7 +211,8 @@ export default function SolverDashboard() {
 
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'solver_submissions'), {
+      // 1. Save to Firestore (Primary)
+      const submissionRef = await addDoc(collection(db, 'solver_submissions'), {
         studentId: selectedStudent.id,
         studentName: selectedStudent.name,
         solverId: solverData.id,
@@ -217,10 +225,34 @@ export default function SolverDashboard() {
         status: 'completed'
       });
 
+      // 2. Save to RTDB (Fast Path for Monitoring)
+      const { ref: rtdbRef, set: rtdbSet } = await import('firebase/database');
+      await rtdbSet(rtdbRef(rtdb, `solver_submissions/${submissionRef.id}`), {
+        studentId: selectedStudent.id,
+        studentName: selectedStudent.name,
+        solverId: solverData.id,
+        solverName: solverData.name,
+        university: selectedStudent.university,
+        major: selectedStudent.major,
+        proofImage: submissionData.proofImage,
+        notes: submissionData.notes,
+        timestamp: Date.now(),
+        status: 'completed'
+      });
+
+      // 3. Update Student Status in both
       await updateDoc(doc(db, 'students', selectedStudent.id), {
         solverStatus: 'completed',
         solvedBy: solverData.name,
         lockedById: solverData.id
+      });
+      
+      // Update student status in RTDB (if students node exists there, or just a flag)
+      await rtdbSet(rtdbRef(rtdb, `student_status_updates/${selectedStudent.id}`), {
+        solverStatus: 'completed',
+        solvedBy: solverData.name,
+        lockedById: solverData.id,
+        updatedAt: Date.now()
       });
 
       alert('تم إرسال النتيجة بنجاح للرقابة.');
