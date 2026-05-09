@@ -95,7 +95,10 @@ server.listen(PORT, async () => {
   scheduleService.init();
 
   // --- AUTO-BOOT SESSIONS ---
-  // Detect active sessions from Firestore and re-init sessions automatically
+  // DISABLED: Auto-booting 20+ sessions crashes Render starter instances.
+  // Sessions will now initialize on-demand when employees log in or via the dashboard.
+  console.log('[SYSTEM] Auto-boot disabled to preserve memory. Sessions will start on-demand.');
+  /*
   try {
     const sessionsSnap = await db.collection('whatsapp_sessions').get();
     const potentialSessions = sessionsSnap.docs.map(doc => doc.id);
@@ -109,11 +112,12 @@ server.listen(PORT, async () => {
           console.error(`[AUTO-BOOT ERROR] Failed for ${employeeId}:`, err.message);
         });
       }, delay);
-      delay += 10000; // Increased to 10 seconds to prevent memory spikes
+      delay += 10000; 
     }
   } catch (e) {
     console.error('[AUTO-BOOT] Failed to scan sessions:', e.message);
   }
+  */
 
   // Anti-sleep mechanism (Ping itself)
   const appUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
