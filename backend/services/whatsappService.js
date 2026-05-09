@@ -305,7 +305,20 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+  let state, saveCreds;
+  try {
+    const authData = await useMultiFileAuthState(sessionPath);
+    state = authData.state;
+    saveCreds = authData.saveCreds;
+  } catch (err) {
+    console.error(`[WA-${employeeId}] Auth state corrupted. Wiping session and restarting:`, err.message);
+    if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+    await sync.clearCloud();
+    
+    // Fallback: If it fails, update RTDB to disconnected so the UI doesn't hang forever
+    rtdb.ref(`wa_status/${employeeId}`).update({ status: 'disconnected', isConnected: false }).catch(() => {});
+    return null; // Return null, user must click 'ربط جديد'
+  }
 
   // 1. Fetch Proxy Configuration from Firestore
   let agent;
@@ -387,7 +400,8 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const isQrTimeout = lastDisconnect.error?.message?.includes('QR refs');
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isQrTimeout;
       
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: false,
@@ -400,9 +414,10 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         console.log(`[WA-${employeeId}] Reconnecting (Code: ${statusCode || 'NoCode'})...`);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
+        console.log(`[WA-${employeeId}] Permanent disconnect or QR Timeout. Clearing memory session.`);
         sessions.delete(employeeId);
-        await sync.clearCloud();
-        if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+        // We do NOT wipe the cloud backup or local files on QR timeout or generic loggedOut.
+        // The user must explicitly press Logout to wipe data. This prevents accidental data loss!
       }
     } else if (connection === 'open') {
       console.log(`[WA-${employeeId}] Connected Successfully.`);

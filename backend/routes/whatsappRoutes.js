@@ -22,8 +22,14 @@ router.post('/init', async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: 'employeeId is required.' });
   try {
-    // We no longer call logout() here because it's destructive (deletes credentials).
-    // initializeSession handles existing sockets internally and only recreates if dead.
+    // If the user manually clicked "New Connection", clear old corrupted data first
+    const statusSnap = await rtdb.ref(`wa_status/${employeeId}`).once('value');
+    const statusData = statusSnap.val();
+    if (!statusData?.isConnected && statusData?.status !== 'online') {
+       console.log(`[WA-${employeeId}] Manual init requested. Wiping old state to ensure fresh QR.`);
+       await whatsappService.logout(employeeId).catch(() => {});
+    }
+
     whatsappService.initializeSession(employeeId).catch(err => console.error(`[WA-${employeeId}] Init failed:`, err.message));
     res.status(200).json({ status: 'initializing', message: 'Session check/start triggered.' });
   } catch (error) {
