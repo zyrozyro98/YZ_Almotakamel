@@ -373,15 +373,9 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     
-    // Periodically sync other files in the directory
-    if (connection === 'open' || qr) {
-        const files = fs.readdirSync(sessionPath);
-        for (const file of files) {
-            if (file !== 'creds.json') {
-                await sync.uploadFile(path.join(sessionPath, file));
-            }
-        }
-    }
+    // Non-essential file syncing removed to save Firestore quota. 
+    // creds.json is already handled via auth state events.
+
 
     if (qr) {
       qrCache.set(employeeId, qr);

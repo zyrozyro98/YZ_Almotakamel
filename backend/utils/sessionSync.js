@@ -12,12 +12,16 @@ const syncToCloud = async (employeeId, localPath) => {
     // Watch for file changes and upload to Firestore
     const uploadFile = async (filePath) => {
         try {
-            if (!fs.existsSync(filePath)) return; // Prevent ENOENT for rapid pre-key deletions
+            if (!fs.existsSync(filePath)) return; 
+            const fileName = path.basename(filePath);
             
+            // CRITICAL: Only sync creds.json to avoid hitting Firestore free quota limits
+            // Other files like app-state-sync or pre-keys are too many and not strictly necessary for persistence
+            if (fileName !== 'creds.json') return;
+
             // Ensure parent document exists so auto-boot can find it
             await db.collection('whatsapp_sessions').doc(employeeId).set({ active: true }, { merge: true });
 
-            const fileName = path.basename(filePath);
             const content = fs.readFileSync(filePath);
             const safeName = Buffer.from(fileName).toString('hex');
             
@@ -26,9 +30,13 @@ const syncToCloud = async (employeeId, localPath) => {
                 content: content.toString('base64'),
                 updatedAt: new Date().toISOString()
             });
-            // console.log(`[SYNC] Uploaded ${fileName} for ${employeeId}`);
+            console.log(`[SYNC] Saved critical session state (creds.json) for ${employeeId}`);
         } catch (e) {
-            console.error(`[SYNC ERROR] Upload failed for ${employeeId}:`, e.message);
+            if (e.message && e.message.includes('Quota exceeded')) {
+                console.error(`[SYNC FATAL] Firestore Quota Exceeded! Stopping sync for ${employeeId}`);
+            } else {
+                console.error(`[SYNC ERROR] Upload failed for ${employeeId}:`, e.message);
+            }
         }
     };
 
