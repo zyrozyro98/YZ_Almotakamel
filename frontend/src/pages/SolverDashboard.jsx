@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
+import { db, auth, rtdb } from '../firebase';
 import { collection, onSnapshot, doc, getDoc, getDocs, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { ref, onValue } from 'firebase/database';
 import { ExternalLink, Copy, Check, Lock, Shield, ImagePlus, Send, AlertTriangle, User, RefreshCw, X, Clock, CheckCircle, FileText, ArrowRight, BookOpen, GraduationCap, Eye, EyeOff } from 'lucide-react';
 
 export default function SolverDashboard() {
@@ -34,70 +35,48 @@ export default function SolverDashboard() {
 
     const unsubAuth = auth.onAuthStateChanged(async user => {
       if (user) {
-        const fetchEmployeeData = async () => {
-          try {
-            // 1. FAST PATH: Try Realtime Database first for role/assignment info
-            const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
-            onValue(roleRef, (snapshot) => {
-              if (snapshot.exists()) {
-                const data = snapshot.val();
-                // If found in RTDB, we can proceed even if Firestore is slow
+        try {
+          // 1. FAST PATH: Fetch from Realtime Database (Instant role check)
+          const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
+          onValue(roleRef, (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              if (data.role === 'solver' || data.role === 'admin') {
+                setSolverData(prev => prev || { id: user.uid, name: data.name, role: data.role });
               }
-            }, { onlyOnce: true });
-
-            // 2. Main Fetch from Firestore
-            const empDoc = await getDoc(doc(db, 'employees', user.uid));
-            if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
-              const data = empDoc.data();
-              // If admin, give them full access for testing purposes
-              if (data.role === 'admin') {
-                data.assignedUniversity = 'الكل';
-                data.assignedMajor = 'الكل';
-              }
-              setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
-
-              // Fetch universities dynamically
-              const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
-                const univs = [];
-                snap.forEach(u => {
-                  univs.push({ id: u.id, ...u.data() });
-                  if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
-                    setAssignedUnivPlatformUrl(u.data().platformUrl);
-                  }
-                });
-                setUniversitiesData(univs);
-              });
-
-              const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-                const matched = [];
-                snap.forEach(s => {
-                  const sData = s.data();
-                  const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
-                  const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
-                  if (matchUniv && matchMajor) {
-                    matched.push({ id: s.id, ...sData });
-                  }
-                });
-                setStudents(matched);
-              });
-              setLoading(false);
-              return () => { unsubStudents(); unsubUniversities(); };
-            } else {
-              setLoading(false);
             }
+          }, { onlyOnce: true });
+
+          // 2. SOURCE OF TRUTH: Fetch from Firestore
+          const empDoc = await getDoc(doc(db, 'employees', user.uid));
+          if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
+            const data = empDoc.data();
+            
+            // If admin, give them full access
+            if (data.role === 'admin') {
+              data.assignedUniversity = 'الكل';
+              data.assignedMajor = 'الكل';
+            }
+            
+            setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
+
+            // Fetch Universities
+            const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
+              const univs = [];
+              snap.forEach(u => {
+                univs.push({ id: u.id, ...u.data() });
+                if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
                   setAssignedUnivPlatformUrl(u.data().platformUrl);
                 }
               });
               setUniversitiesData(univs);
             });
 
+            // Fetch Students (Tasks)
             const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
               const matched = [];
               snap.forEach(s => {
                 const sData = s.data();
-                // Fix: Allow new students to appear by removing the 'مكتمل' restriction
-                // if (sData.mainStatus !== 'مكتمل') return;
-
                 const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
                 const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
                 if (matchUniv && matchMajor) {
@@ -106,13 +85,14 @@ export default function SolverDashboard() {
               });
               setStudents(matched);
             });
+
             setLoading(false);
-            return () => unsubStudents();
+            return () => { unsubStudents(); unsubUniversities(); };
           } else {
             setLoading(false);
           }
-        } catch (e) {
-          console.error(e);
+        } catch (err) {
+          console.error("Solver Init Error:", err);
           setLoading(false);
         }
       } else {
@@ -120,11 +100,7 @@ export default function SolverDashboard() {
       }
     });
 
-    return () => { 
-      unsubLock(); 
-      unsubAuth(); 
-      // unsubUniversities might not be in the top scope, let's just make it safely ignored if it's trapped.
-    };
+    return () => { unsubAuth(); unsubLock(); };
   }, []);
 
   const handleCopy = (text, field) => {
