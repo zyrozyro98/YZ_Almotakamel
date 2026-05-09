@@ -417,6 +417,38 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   });
 
+  const autoMergeBackground = async (employeeId, lidKey, phoneJid) => {
+    try {
+      const lidChatRef = rtdb.ref(`chats/${employeeId}/${lidKey}`);
+      const lidSnap = await lidChatRef.once('value');
+      if (lidSnap.exists()) {
+        const lidData = lidSnap.val();
+        if (lidData.messages) {
+          const phoneChatRef = rtdb.ref(`chats/${employeeId}/${phoneJid}`);
+          const phoneSnap = await phoneChatRef.once('value');
+          let phoneData = phoneSnap.exists() ? phoneSnap.val() : { messages: {} };
+          if (!phoneData.messages) phoneData.messages = {};
+          
+          for (const [msgId, msg] of Object.entries(lidData.messages)) {
+            phoneData.messages[msgId] = msg;
+          }
+          
+          phoneData.timestamp = Math.max(phoneData.timestamp || 0, lidData.timestamp || 0);
+          phoneData.lastMessage = lidData.lastMessage || phoneData.lastMessage;
+          phoneData.lastSender = lidData.lastSender === 'them' ? 'them' : phoneData.lastSender;
+          phoneData.name = (phoneData.name && phoneData.name !== 'مجهول') ? phoneData.name : (lidData.name || phoneData.name);
+          phoneData.fullJid = phoneData.fullJid || `${phoneJid}@s.whatsapp.net`;
+          
+          await phoneChatRef.update(phoneData);
+          await lidChatRef.remove();
+          console.log(`[AUTO-MERGE] Merged ${lidKey} into ${phoneJid} automatically in background.`);
+        }
+      }
+    } catch (e) {
+      console.error('[AUTO-MERGE ERROR]', e);
+    }
+  };
+
   sock.ev.on('contacts.upsert', async (contacts) => {
     for (const contact of contacts) {
       if (contact.lid && contact.id) {
@@ -424,6 +456,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         const phoneJid = contact.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await autoMergeBackground(employeeId, jidKey, phoneJid);
         }
       }
     }
@@ -436,6 +469,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         const phoneJid = update.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
           await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await autoMergeBackground(employeeId, jidKey, phoneJid);
         }
       }
     }
