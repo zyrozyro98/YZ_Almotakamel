@@ -59,19 +59,26 @@ router.post('/create', async (req, res) => {
     }
 
     // 2. Add/Update details in Firestore
-    // We use set with merge:true or just set since we want to ensure these fields exist
     await db.collection('employees').doc(userRecord.uid).set({
       uid: userRecord.uid,
       name,
       email,
       phone: phone || '',
       role: role || 'employee',
-      type: role || 'employee', // Adding 'type' for compatibility with some parts of the system
+      type: role || 'employee',
       status: 'active',
       assignedUniversity: assignedUniversity || '',
       assignedMajor: assignedMajor || '',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
+
+    // 3. ALTERNATIVE: Save role to Realtime Database (Quota-free backup)
+    // This ensures the app can always find the user's role even if Firestore is at quota
+    await rtdb.ref(`employee_roles/${userRecord.uid}`).set({
+      role: role || 'employee',
+      name: name,
+      status: 'active'
+    });
 
     res.status(201).json({ 
       message: 'تم إنشاء الموظف بنجاح', 
@@ -115,6 +122,13 @@ router.post('/update/:id', async (req, res) => {
     await auth.updateUser(uid, {
         displayName: name,
         email: email
+    });
+
+    // Update RTDB backup as well
+    await rtdb.ref(`employee_roles/${uid}`).update({
+      role,
+      name,
+      status
     });
 
     res.status(200).json({ message: 'تم التحديث بنجاح' });

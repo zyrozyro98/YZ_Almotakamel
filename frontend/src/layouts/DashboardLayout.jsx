@@ -49,10 +49,21 @@ export default function DashboardLayout() {
         const id = user.uid;
         setEmployeeId(id);
         
-        // Initial hardcoded check
+        // 1. Hardcoded Security Layer
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         
-        // Fetch from Firestore for dynamic roles
+        // 2. FAST PATH: Fetch from Realtime Database (Quota-free & Instant)
+        const roleRef = ref(rtdb, `employee_roles/${id}`);
+        onValue(roleRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            setUserRole(data.role || 'employee');
+            if (data.role === 'admin') setIsAdmin(true);
+            setIsRoleLoading(false);
+          }
+        }, { onlyOnce: true });
+
+        // 3. SOURCE OF TRUTH: Fetch from Firestore (More details, might be slow/quota-hit)
         try {
           const userDoc = await getDoc(doc(db, 'employees', id));
           if (userDoc.exists()) {
@@ -61,7 +72,7 @@ export default function DashboardLayout() {
             if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
           }
         } catch (e) {
-          console.error("Error checking admin role:", e);
+          console.error("Firestore Role Check Failed (likely quota):", e.message);
         }
         
         setIsAdmin(adminStatus);
