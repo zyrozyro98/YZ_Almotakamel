@@ -59,7 +59,10 @@ export default function Employees() {
     try {
       console.log('Sending request to:', `${BASE_URL}/api/employees/${editingId ? 'update/' + editingId : 'create'}`);
       
-      const response = await axios.post(`${BASE_URL}/api/employees/${editingId ? 'update/' + editingId : 'create'}`, formData);
+      const submissionData = { ...formData };
+      if (submissionData.role === 'solver') submissionData.phone = '';
+      
+      const response = await axios.post(`${BASE_URL}/api/employees/${editingId ? 'update/' + editingId : 'create'}`, submissionData);
       
       if (editingId) {
         setEditingId(null);
@@ -185,10 +188,12 @@ export default function Employees() {
               </div>
             )}
 
-            <div className="flex-col gap-2">
-              <label className="input-label">رقم الهاتف</label>
-              <input type="tel" className="input-base" placeholder="05XXXXXXXX" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-            </div>
+            {formData.role !== 'solver' && (
+              <div className="flex-col gap-2 animate-fade-in-up">
+                <label className="input-label">رقم الهاتف</label>
+                <input type="tel" className="input-base" placeholder="05XXXXXXXX" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+              </div>
+            )}
 
             <div className="flex-col gap-2">
               <label className="input-label">الدور الوظيفي</label>
