@@ -275,6 +275,9 @@ export default function DashboardLayout() {
               <LogOut size={18} />
             </button>
           </div>
+          <div style={{ textAlign: 'center', marginTop: '10px' }}>
+            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.2)', fontWeight: 'bold' }}>SYSTEM V2.1.0-FIX</span>
+          </div>
         </div>
       </aside>
 
