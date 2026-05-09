@@ -77,15 +77,18 @@ export default function Employees() {
 
     // 2. RTDB Listener (Our reliable source now)
     const rolesRef = ref(rtdb, 'employee_roles');
+    console.log("[RTDB] Listening to path: employee_roles");
     const unsubscribeRtdb = onValue(rolesRef, (snapshot) => {
+      console.log("[RTDB] Data received. Exists:", snapshot.exists());
       if (snapshot.exists()) {
         rtdbEmployees = snapshot.val();
+        console.log("[RTDB] Employees count:", Object.keys(rtdbEmployees).length);
       } else {
         rtdbEmployees = {};
       }
       updateMergedList();
     }, (err) => {
-      console.error("RTDB Error:", err);
+      console.error("[RTDB ERROR] Listener failed:", err);
     });
 
     const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
