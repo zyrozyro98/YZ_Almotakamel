@@ -66,6 +66,8 @@ router.post('/create', async (req, res) => {
         name: name,
         status: 'active',
         email: email,
+        assignedUniversity: assignedUniversity || '',
+        assignedMajor: assignedMajor || '',
         updatedAt: Date.now()
       });
       console.log(`[API] RTDB role created for ${userRecord.uid}`);
@@ -147,7 +149,10 @@ router.post('/update/:id', async (req, res) => {
     await rtdb.ref(`employee_roles/${uid}`).update({
       role,
       name,
-      status
+      status,
+      assignedUniversity: assignedUniversity || '',
+      assignedMajor: assignedMajor || '',
+      updatedAt: Date.now()
     });
 
     res.status(200).json({ message: 'تم التحديث بنجاح' });
