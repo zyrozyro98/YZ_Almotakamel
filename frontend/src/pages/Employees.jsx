@@ -97,11 +97,13 @@ export default function Employees() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
+    if (window.confirm('هل أنت متأكد من حذف هذا الموظف؟ سيتم حذف حسابه نهائياً من النظام ومن سجلات الدخول.')) {
       try {
-        await deleteDoc(doc(db, 'employees', id));
+        await axios.delete(`${BASE_URL}/api/employees/delete/${id}`);
+        alert('تم حذف الموظف بنجاح');
       } catch (err) {
-        console.error(err);
+        console.error('[DELETE ERROR]', err);
+        alert('حدث خطأ أثناء محاولة حذف الموظف.');
       }
     }
   };
@@ -258,6 +260,7 @@ export default function Employees() {
                   <option value="admin">المدراء</option>
                   <option value="supervisor">المشرفين</option>
                   <option value="employee">الموظفين</option>
+                  <option value="solver">حل اختبارات</option>
                 </select>
                 <select className="input-base" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
                   <option value="">كل الحالات</option>

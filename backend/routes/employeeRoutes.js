@@ -18,26 +18,40 @@ router.post('/create', async (req, res) => {
   }
 
   try {
-    // 1. Create User in Firebase Auth
-    const userRecord = await auth.createUser({
-      email: email,
-      password: password,
-      displayName: name,
-      phoneNumber: phone ? (phone.startsWith('+') ? phone : `+966${phone.replace(/^0/, '')}`) : undefined,
-    });
+    let userRecord;
+    try {
+      // 1. Try to Create User in Firebase Auth
+      userRecord = await auth.createUser({
+        email: email,
+        password: password,
+        displayName: name,
+        phoneNumber: phone ? (phone.startsWith('+') ? phone : `+966${phone.replace(/^0/, '')}`) : undefined,
+      });
+    } catch (authError) {
+      // If user already exists in Auth, try to fetch them instead of failing
+      if (authError.code === 'auth/email-already-exists') {
+        console.log('[API] User already exists in Auth, fetching record...');
+        userRecord = await auth.getUserByEmail(email);
+        // If we found them, we proceed to ensure they are in Firestore
+      } else {
+        throw authError; // Rethrow if it's another error
+      }
+    }
 
-    // 2. Add extra details to Firestore
+    // 2. Add/Update details in Firestore
+    // We use set with merge:true or just set since we want to ensure these fields exist
     await db.collection('employees').doc(userRecord.uid).set({
       uid: userRecord.uid,
       name,
       email,
       phone: phone || '',
       role: role || 'employee',
+      type: role || 'employee', // Adding 'type' for compatibility with some parts of the system
       status: 'active',
       assignedUniversity: assignedUniversity || '',
       assignedMajor: assignedMajor || '',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    }, { merge: true });
 
     res.status(201).json({ 
       message: 'تم إنشاء الموظف بنجاح', 
@@ -50,6 +64,7 @@ router.post('/create', async (req, res) => {
     if (error.code === 'auth/email-already-exists') errorMessage = 'البريد الإلكتروني مسجل مسبقاً لموظف آخر.';
     if (error.code === 'auth/invalid-phone-number') errorMessage = 'رقم الهاتف غير صحيح (يجب أن يبدأ بـ 05 ويتكون من 10 أرقام).';
     if (error.code === 'auth/weak-password') errorMessage = 'كلمة المرور ضعيفة جداً.';
+    if (error.code === 'auth/phone-number-already-exists') errorMessage = 'رقم الهاتف مسجل مسبقاً لموظف آخر.';
     
     res.status(400).json({ error: errorMessage, details: error.message });
   }
@@ -69,6 +84,7 @@ router.post('/update/:id', async (req, res) => {
       email,
       phone,
       role,
+      type: role, // Sync type with role
       status,
       assignedUniversity: assignedUniversity || '',
       assignedMajor: assignedMajor || '',
@@ -84,6 +100,29 @@ router.post('/update/:id', async (req, res) => {
     res.status(200).json({ message: 'تم التحديث بنجاح' });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Delete employee from Auth and Firestore
+ */
+router.delete('/delete/:id', async (req, res) => {
+  const uid = req.params.id;
+  try {
+    // 1. Delete from Firebase Auth
+    try {
+      await auth.deleteUser(uid);
+    } catch (e) {
+      console.warn('[DELETE WARNING] User not found in Auth or already deleted:', e.message);
+    }
+
+    // 2. Delete from Firestore
+    await db.collection('employees').doc(uid).delete();
+
+    res.status(200).json({ message: 'تم حذف الموظف بنجاح' });
+  } catch (error) {
+    console.error('[DELETE ERROR]', error);
+    res.status(500).json({ error: 'فشل حذف الموظف من النظام.' });
   }
 });
 
