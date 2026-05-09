@@ -31,13 +31,37 @@ export default function Employees() {
   const [majors, setMajors] = useState([]);
 
   useEffect(() => {
+    // 1. Listen to Firestore (Source of Truth)
     const q = query(collection(db, 'employees'), orderBy('createdAt', 'desc'));
     const unsubscribeEmp = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(docSnap => ({
+      const fsData = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
-        ...docSnap.data()
+        ...docSnap.data(),
+        source: 'firestore'
       }));
-      setEmployeesList(data);
+      
+      // 2. Listen to RTDB (Fast Path Backup)
+      const rolesRef = ref(rtdb, 'employee_roles');
+      onValue(rolesRef, (rtdbSnapshot) => {
+        if (rtdbSnapshot.exists()) {
+          const rtdbData = rtdbSnapshot.val();
+          const merged = [...fsData];
+          
+          Object.keys(rtdbData).forEach(uid => {
+            if (!merged.find(emp => emp.id === uid)) {
+              merged.push({
+                id: uid,
+                ...rtdbData[uid],
+                source: 'rtdb',
+                pendingSync: true
+              });
+            }
+          });
+          setEmployeesList(merged);
+        } else {
+          setEmployeesList(fsData);
+        }
+      });
     });
 
     const unsubUniv = onSnapshot(collection(db, 'universities'), (snapshot) => {
@@ -288,7 +312,9 @@ export default function Employees() {
                     </div>
                     <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-[#1e293b] ${emp.status === 'active' ? 'bg-emerald-500' : 'bg-slate-500'}`}></div>
                   </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex flex-col items-end gap-2">
+                    {emp.pendingSync && <span className="badge badge-warning animate-pulse" style={{ fontSize: '0.65rem' }}>جاري المزامنة...</span>}
+                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => handleEditClick(emp)} className="p-2.5 bg-white/5 hover:bg-blue-500/20 text-blue-400 rounded-xl border border-white/10 transition-colors"><Edit size={16} /></button>
                     <button onClick={() => handleDelete(emp.id)} className="p-2.5 bg-white/5 hover:bg-red-500/20 text-red-400 rounded-xl border border-white/10 transition-colors"><Trash2 size={16} /></button>
                   </div>
