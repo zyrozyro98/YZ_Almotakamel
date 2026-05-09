@@ -281,11 +281,17 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   }
 };
 
+const reconnectTimers = new Map();
+
 async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
+  if (reconnectTimers.has(employeeId)) {
+    clearTimeout(reconnectTimers.get(employeeId));
+    reconnectTimers.delete(employeeId);
+  }
+
   const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
   const sync = await syncToCloud(employeeId, sessionPath);
 
-  // Restore from cloud if local is empty
   if (!fs.existsSync(path.join(sessionPath, 'creds.json'))) {
       await sync.downloadAll();
   }
@@ -301,7 +307,6 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   }
 
-  // Memory Safety Check
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
   console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
@@ -314,13 +319,10 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     console.error(`[WA-${employeeId}] Auth state corrupted. Wiping session and restarting:`, err.message);
     if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
     await sync.clearCloud();
-    
-    // Fallback: If it fails, update RTDB to disconnected so the UI doesn't hang forever
     rtdb.ref(`wa_status/${employeeId}`).update({ status: 'disconnected', isConnected: false }).catch(() => {});
-    return null; // Return null, user must click 'ربط جديد'
+    return null;
   }
 
-  // 1. Fetch Proxy Configuration from Firestore
   let agent;
   try {
     const empDoc = await db.collection('employees').doc(employeeId).get();
@@ -330,21 +332,17 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         const { host, port, user, pass, protocol = 'http' } = data.proxy;
         const proxyUrl = user ? `${protocol}://${user}:${pass}@${host}:${port}` : `${protocol}://${host}:${port}`;
         agent = new HttpsProxyAgent(proxyUrl);
-        console.log(`[WA] Using proxy for ${employeeId}: ${host}:${port}`);
       }
     }
-  } catch (err) {
-    console.error(`[WA] Proxy fetch error for ${employeeId}:`, err.message);
-  }
+  } catch (err) { }
 
-  // Fetch version with a 10s timeout to prevent hanging
   const fetchVersionWithTimeout = async () => {
     try {
-      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000));
       const { version, isLatest } = await Promise.race([fetchLatestBaileysVersion(), timeout]);
       return { version, isLatest };
     } catch (e) {
-      return { version: [2, 3000, 1015901307] }; // Modern fallback
+      return { version: [2, 3000, 1015901307] };
     }
   };
 
@@ -363,17 +361,14 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   sessions.set(employeeId, sock);
 
-  // Sync to Cloud on every creds update
   sock.ev.on('creds.update', async () => {
       await saveCreds();
       await sync.uploadFile(path.join(sessionPath, 'creds.json'));
   });
 
-  // Sync keys to cloud
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     
-    // Periodically sync other files in the directory
     if (connection === 'open' || qr) {
         const files = fs.readdirSync(sessionPath);
         for (const file of files) {
@@ -410,14 +405,13 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       }).catch(() => {});
       
       if (shouldReconnect) {
-        const delay = 5000 + (Math.random() * 10000); 
+        const delay = 3000; 
         console.log(`[WA-${employeeId}] Reconnecting (Code: ${statusCode || 'NoCode'})...`);
-        setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
+        const timer = setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
+        reconnectTimers.set(employeeId, timer);
       } else {
         console.log(`[WA-${employeeId}] Permanent disconnect or QR Timeout. Clearing memory session.`);
         sessions.delete(employeeId);
-        // We do NOT wipe the cloud backup or local files on QR timeout or generic loggedOut.
-        // The user must explicitly press Logout to wipe data. This prevents accidental data loss!
       }
     } else if (connection === 'open') {
       console.log(`[WA-${employeeId}] Connected Successfully.`);
