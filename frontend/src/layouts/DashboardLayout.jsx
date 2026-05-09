@@ -52,54 +52,31 @@ export default function DashboardLayout() {
         // 1. Hardcoded Security Layer
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         
-        // 2. FETCHING LOGIC (With Fallback, Auto-Sync & Safety Timeout)
-        try {
-          // Try RTDB first (Instant & Quota-free)
-          const roleRef = ref(rtdb, `employee_roles/${id}`);
-          onValue(roleRef, async (snapshot) => {
-            if (snapshot.exists()) {
-              const data = snapshot.val();
-              setUserRole(data.role || 'employee');
-              if (data.role === 'admin') setIsAdmin(true);
-              setIsRoleLoading(false);
-            } else {
-              // If not in RTDB, try Firestore with a 3-second timeout
-              const firestorePromise = (async () => {
-                try {
-                  const userDoc = await getDoc(doc(db, 'employees', id));
-                  if (userDoc.exists()) {
-                    const data = userDoc.data();
-                    const role = data.role || 'employee';
-                    setUserRole(role);
-                    if (role === 'admin' || data.type === 'admin') setIsAdmin(true);
-                    
-                    // SYNC to RTDB for next time
-                    update(ref(rtdb, `employee_roles/${id}`), {
-                      role: role,
-                      name: data.name || 'مستخدم',
-                      status: data.status || 'active',
-                      assignedUniversity: data.assignedUniversity || '',
-                      assignedMajor: data.assignedMajor || ''
-                    });
-                  }
-                } catch (fsErr) {
-                  console.error("Firestore Fallback Error:", fsErr.message);
-                }
-              })();
+        // 2. FAST PATH: Fetch from Realtime Database (Quota-free & Instant)
+        const roleRef = ref(rtdb, `employee_roles/${id}`);
+        onValue(roleRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            setUserRole(data.role || 'employee');
+            if (data.role === 'admin') setIsAdmin(true);
+            setIsRoleLoading(false);
+          }
+        }, { onlyOnce: true });
 
-              // Timeout safety: Don't hang more than 3 seconds
-              const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
-              await Promise.race([firestorePromise, timeoutPromise]);
-              
-              setIsRoleLoading(false); // Release the screen regardless
-            }
-          }, { onlyOnce: true });
+        // 3. SOURCE OF TRUTH: Fetch from Firestore (More details, might be slow/quota-hit)
+        try {
+          const userDoc = await getDoc(doc(db, 'employees', id));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserRole(data.role || 'employee');
+            if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
+          }
         } catch (e) {
-          console.error("Critical Role Fetch Error:", e);
-          setIsRoleLoading(false);
+          console.error("Firestore Role Check Failed (likely quota):", e.message);
         }
         
-        if (adminStatus) setIsAdmin(true);
+        setIsAdmin(adminStatus);
+        setIsRoleLoading(false);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);

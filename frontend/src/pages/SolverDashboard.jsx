@@ -34,79 +34,91 @@ export default function SolverDashboard() {
 
     const unsubAuth = auth.onAuthStateChanged(async user => {
       if (user) {
-        // 1. FAST PATH: Fetch solver details from RTDB (Quota-free)
-        const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
-        onValue(roleRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            if (data.role === 'solver' || data.role === 'admin') {
-              const solverInfo = {
-                id: user.uid,
-                name: data.name || 'موظف',
-                role: data.role,
-                assignedUniversity: data.assignedUniversity || (data.role === 'admin' ? 'الكل' : ''),
-                assignedMajor: data.assignedMajor || (data.role === 'admin' ? 'الكل' : '')
-              };
-              setSolverData(solverInfo);
-              setupListeners(solverInfo);
-            }
-          }
-        }, { onlyOnce: true });
+        const fetchEmployeeData = async () => {
+          try {
+            // 1. FAST PATH: Try Realtime Database first for role/assignment info
+            const roleRef = ref(rtdb, `employee_roles/${user.uid}`);
+            onValue(roleRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const data = snapshot.val();
+                // If found in RTDB, we can proceed even if Firestore is slow
+              }
+            }, { onlyOnce: true });
 
-        // 2. SLOW PATH: Fallback to Firestore
-        try {
-          const empDoc = await getDoc(doc(db, 'employees', user.uid));
-          if (empDoc.exists()) {
-            const data = empDoc.data();
-            if (data.role === 'solver' || data.role === 'admin') {
-              const solverInfo = {
-                id: user.uid,
-                name: data.name || 'موظف',
-                role: data.role,
-                assignedUniversity: data.role === 'admin' ? 'الكل' : (data.assignedUniversity || ''),
-                assignedMajor: data.role === 'admin' ? 'الكل' : (data.assignedMajor || '')
-              };
-              setSolverData(solverInfo);
-              setupListeners(solverInfo);
+            // 2. Main Fetch from Firestore
+            const empDoc = await getDoc(doc(db, 'employees', user.uid));
+            if (empDoc.exists() && (empDoc.data().role === 'solver' || empDoc.data().role === 'admin')) {
+              const data = empDoc.data();
+              // If admin, give them full access for testing purposes
+              if (data.role === 'admin') {
+                data.assignedUniversity = 'الكل';
+                data.assignedMajor = 'الكل';
+              }
+              setSolverData({ id: user.uid, name: data.name || 'مدير النظام', ...data });
+
+              // Fetch universities dynamically
+              const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
+                const univs = [];
+                snap.forEach(u => {
+                  univs.push({ id: u.id, ...u.data() });
+                  if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
+                    setAssignedUnivPlatformUrl(u.data().platformUrl);
+                  }
+                });
+                setUniversitiesData(univs);
+              });
+
+              const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+                const matched = [];
+                snap.forEach(s => {
+                  const sData = s.data();
+                  const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
+                  const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
+                  if (matchUniv && matchMajor) {
+                    matched.push({ id: s.id, ...sData });
+                  }
+                });
+                setStudents(matched);
+              });
+              setLoading(false);
+              return () => { unsubStudents(); unsubUniversities(); };
+            } else {
+              setLoading(false);
             }
+                  setAssignedUnivPlatformUrl(u.data().platformUrl);
+                }
+              });
+              setUniversitiesData(univs);
+            });
+
+            const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+              const matched = [];
+              snap.forEach(s => {
+                const sData = s.data();
+                // Fix: Allow new students to appear by removing the 'مكتمل' restriction
+                // if (sData.mainStatus !== 'مكتمل') return;
+
+                const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
+                const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
+                if (matchUniv && matchMajor) {
+                  matched.push({ id: s.id, ...sData });
+                }
+              });
+              setStudents(matched);
+            });
+            setLoading(false);
+            return () => unsubStudents();
+          } else {
+            setLoading(false);
           }
         } catch (e) {
-          console.warn("Firestore solver data fetch failed (likely quota):", e.message);
+          console.error(e);
+          setLoading(false);
         }
-        setLoading(false);
       } else {
         setLoading(false);
       }
     });
-
-    const setupListeners = (data) => {
-      // Fetch universities dynamically
-      const unsubUniversities = onSnapshot(collection(db, 'universities'), (snap) => {
-        const univs = [];
-        snap.forEach(u => {
-          univs.push({ id: u.id, ...u.data() });
-          if (data.assignedUniversity !== 'الكل' && u.data().name === data.assignedUniversity && u.data().platformUrl) {
-            setAssignedUnivPlatformUrl(u.data().platformUrl);
-          }
-        });
-        setUniversitiesData(univs);
-      });
-
-      const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-        const matched = [];
-        snap.forEach(s => {
-          const sData = s.data();
-          const matchUniv = !data.assignedUniversity || data.assignedUniversity === 'الكل' || sData.university === data.assignedUniversity;
-          const matchMajor = !data.assignedMajor || data.assignedMajor === 'الكل' || sData.major === data.assignedMajor;
-          if (matchUniv && matchMajor) {
-            matched.push({ id: s.id, ...sData });
-          }
-        });
-        setStudents(matched);
-      });
-
-      return () => { unsubUniversities(); unsubStudents(); };
-    };
 
     return () => { 
       unsubLock(); 
