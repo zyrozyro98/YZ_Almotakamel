@@ -58,17 +58,31 @@ export default function SolverDashboard() {
 
         const updateStudents = (fs, rt, info) => {
           if (!info) return;
-          const merged = [...fs];
+          
+          // Create a map of all students, prioritizing RTDB data
+          const studentMap = {};
+          
+          // 1. Fill with Firestore data (Slow Path)
+          fs.forEach(s => { studentMap[s.id] = { ...s, source: 'firestore' }; });
+          
+          // 2. Overwrite with RTDB data (Fast Path)
           Object.keys(rt || {}).forEach(id => {
-            if (!merged.find(s => s.id === id)) {
-              merged.push({ id, ...rt[id], source: 'rtdb' });
-            }
+            studentMap[id] = { 
+              ...(studentMap[id] || {}), 
+              ...rt[id], 
+              id, 
+              source: 'rtdb' 
+            };
           });
+
+          const merged = Object.values(studentMap);
 
           const filtered = merged.filter(s => {
             const matchUniv = info.assignedUniversity === 'الكل' || s.university === info.assignedUniversity;
             const matchMajor = info.assignedMajor === 'الكل' || s.major === info.assignedMajor;
-            return matchUniv && matchMajor;
+            // Also ensure we only show students who are still relevant
+            const isRelevant = ['جديد', 'مكتمل', 'انتظار'].includes(s.mainStatus) || s.solverStatus === 'completed';
+            return matchUniv && matchMajor && isRelevant;
           });
           setStudents(filtered);
         };
