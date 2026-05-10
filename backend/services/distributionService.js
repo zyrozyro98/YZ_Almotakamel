@@ -156,7 +156,8 @@ async function syncEmployeesToRtdb() {
         name: data.name,
         role: data.role,
         assignedUniversity: data.assignedUniversity || 'الكل',
-        assignedMajor: data.assignedMajor || 'الكل'
+        assignedMajor: data.assignedMajor || 'الكل',
+        proxy: data.proxy || null
       };
     });
     await rtdb.ref('employee_roles').update(batch);

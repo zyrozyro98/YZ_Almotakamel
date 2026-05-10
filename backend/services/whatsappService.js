@@ -297,21 +297,36 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     return null; 
   }
 
-  // 1. Fetch Proxy Configuration from Firestore (Safe Fallback)
+  // 1. Fetch Proxy Configuration from RTDB (Fast Path) or Firestore (Fallback)
   let agent;
   try {
-    const empDoc = await db.collection('employees').doc(employeeId).get();
-    if (empDoc.exists) {
-      const data = empDoc.data();
-      if (data.proxy && data.proxy.host) {
-        const { host, port, user, pass, protocol = 'http' } = data.proxy;
-        const proxyUrl = user ? `${protocol}://${user}:${pass}@${host}:${port}` : `${protocol}://${host}:${port}`;
-        agent = new HttpsProxyAgent(proxyUrl);
-        console.log(`[WA] Using proxy for ${employeeId}: ${host}:${port}`);
+    // A. Try RTDB Cache first
+    const rtdbEmpSnap = await rtdb.ref(`employee_roles/${employeeId}`).once('value');
+    let proxyData = null;
+    
+    if (rtdbEmpSnap.exists() && rtdbEmpSnap.val().proxy) {
+      proxyData = rtdbEmpSnap.val().proxy;
+      console.log(`[WA] Using cached proxy from RTDB for ${employeeId}`);
+    } else {
+      // B. Fallback to Firestore if RTDB cache is missing
+      try {
+        const empDoc = await db.collection('employees').doc(employeeId).get();
+        if (empDoc.exists) {
+          proxyData = empDoc.data().proxy;
+        }
+      } catch (fe) {
+        console.warn(`[WA WARNING] Firestore quota reached, no proxy cache in RTDB for ${employeeId}.`);
       }
     }
+
+    if (proxyData && proxyData.host) {
+      const { host, port, user, pass, protocol = 'http' } = proxyData;
+      const proxyUrl = user ? `${protocol}://${user}:${pass}@${host}:${port}` : `${protocol}://${host}:${port}`;
+      agent = new HttpsProxyAgent(proxyUrl);
+      console.log(`[WA] Proxy configured: ${host}:${port}`);
+    }
   } catch (err) {
-    console.warn(`[WA WARNING] Could not fetch proxy for ${employeeId} due to Firestore quota. Continuing without proxy.`);
+    console.warn(`[WA ERROR] Proxy setup failed for ${employeeId}:`, err.message);
   }
 
   // Fetch version with a 10s timeout to prevent hanging
