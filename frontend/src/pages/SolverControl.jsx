@@ -122,7 +122,7 @@ export default function SolverControl() {
     }
   };
 
-  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+
 
   const resetStudentSolverStatus = async (studentId, studentName) => {
     if(window.confirm(`هل أنت متأكد من إعادة الطالب (${studentName}) لقائمة "غير محلول"؟`)) {
