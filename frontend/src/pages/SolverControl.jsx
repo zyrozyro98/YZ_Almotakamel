@@ -161,17 +161,18 @@ export default function SolverControl() {
 
     setIsUpdatingLock(true);
     try {
-      const { set: rtdbSet, ref: rtdbRef } = await import('firebase/database');
-      await rtdbSet(rtdbRef(rtdb, 'system_settings/solverSystemLocked'), newStatus);
-      
-      // Also try Firestore in background but don't let it block
-      updateDoc(doc(db, 'system_settings', 'global'), { solverSystemLocked: newStatus })
-        .catch(e => console.warn('Firestore lock sync failed (quota):', e.message));
+      const response = await fetch(`${API_URL}/api/students/system/toggle-lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: newStatus })
+      });
+
+      if (!response.ok) throw new Error('Failed to update system status via API');
 
       alert(`تم ${newStatus ? 'إقفال' : 'فتح'} النظام بنجاح.`);
     } catch (e) {
       console.error(e);
-      alert('حدث خطأ أثناء تغيير حالة النظام');
+      alert('حدث خطأ أثناء تغيير حالة النظام: ' + e.message);
     } finally {
       setIsUpdatingLock(false);
     }
