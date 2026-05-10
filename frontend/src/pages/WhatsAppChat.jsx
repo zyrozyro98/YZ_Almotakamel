@@ -153,54 +153,39 @@ export default function WhatsAppChat() {
     setSelectedChat(null);
     setMessages([]);
 
-    // Listen to Active Chats from RTDB (Fluid Loading)
+    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE (Incremental Loading)
     if (!targetId) return;
 
-    const activeMetaRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(100));
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
     
-    const handleSnap = (snap, isUpdate = false) => {
-      const val = snap.val();
-      if (!val || typeof val !== 'object') return;
-      
-      const chatData = { id: snap.key, phone: snap.key, ...val };
-      
-      setActiveChats(prev => {
-        const index = prev.findIndex(c => c.phone === chatData.phone);
-        let newList;
-        if (index > -1) {
-          // Update existing
-          newList = [...prev];
-          newList[index] = { ...newList[index], ...chatData };
-        } else {
-          // Add new
-          newList = [...prev, chatData];
-        }
-        // Sort by timestamp desc
-        return newList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      });
-    };
-
-    const unsubAdded = onChildAdded(activeMetaRef, (snap) => handleSnap(snap));
-    const unsubChanged = onChildChanged(activeMetaRef, (snap) => handleSnap(snap, true));
-    const unsubRemoved = onChildRemoved(activeMetaRef, (snap) => {
-      setActiveChats(prev => prev.filter(c => c.phone !== snap.key));
+    const unsubAdded = onChildAdded(activeRef, (snapshot) => {
+      const val = snapshot.val();
+      if (val && typeof val === 'object') {
+        const chat = { id: snapshot.key, phone: snapshot.key, ...val };
+        setActiveChats(prev => {
+          // Avoid duplicates
+          if (prev.find(c => c.phone === chat.phone)) return prev;
+          return [...prev, chat].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        });
+      }
     });
 
-    // Fallback logic: If chats_meta is empty, try loading from chats
-    // (Only for initial load to ensure something shows up)
-    const checkRef = ref(rtdb, `chats_meta/${targetId}`);
-    get(checkRef).then(snapshot => {
-      if (!snapshot.exists()) {
-        console.log("chats_meta empty, falling back to legacy chats node...");
-        const legacyRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
-        onValue(legacyRef, (snap) => {
-          const data = snap.val();
-          if (data && !snapshot.exists()) { // Only if meta still empty
-            const list = Object.entries(data).map(([id, val]) => ({ id, phone: id, ...val }));
-            setActiveChats(list.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
-          }
-        }, { onlyOnce: true });
+    const unsubChanged = onChildChanged(activeRef, (snapshot) => {
+      const val = snapshot.val();
+      if (val && typeof val === 'object') {
+        const chat = { id: snapshot.key, phone: snapshot.key, ...val };
+        setActiveChats(prev => {
+          const index = prev.findIndex(c => c.phone === chat.phone);
+          if (index === -1) return [...prev, chat].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          const updated = [...prev];
+          updated[index] = chat;
+          return updated.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        });
       }
+    });
+
+    const unsubRemoved = onChildRemoved(activeRef, (snapshot) => {
+      setActiveChats(prev => prev.filter(c => c.phone !== snapshot.key));
     });
 
     return () => { 
