@@ -62,23 +62,33 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/students', studentRoutes);
 
-// Maintenance: Reset stale WA statuses on start
+// Maintenance & Auto-Init Sessions
 async function maintenance() {
   try {
     const waStatusRef = rtdb.ref('wa_status');
     const snap = await waStatusRef.once('value');
     if (snap.exists()) {
-      const updates = {};
-      const data = snap.val();
-      for (const key in data) {
-        updates[`${key}/isConnected`] = false;
-        updates[`${key}/status`] = 'disconnected';
+      const statuses = snap.val();
+      for (const empId in statuses) {
+        if (statuses[empId].status === 'connecting' || statuses[empId].status === 'qr_ready') {
+          await waStatusRef.child(empId).update({ status: 'disconnected', isConnected: false, qr: null });
+        }
       }
-      await waStatusRef.update(updates);
-      console.log('[SYSTEM] Reset stale WhatsApp statuses');
     }
-  } catch (err) {
-    console.error('[SYSTEM ERROR] Maintenance failed:', err.message);
+
+    // AUTO-INIT: Try to restore all active sessions from Firestore
+    console.log('[SYSTEM] Attempting to auto-restore active WhatsApp sessions...');
+    const employeesSnap = await db.collection('employees').get();
+    for (const doc of employeesSnap.docs) {
+       const empId = doc.id;
+       // We call initialize without onQrGenerated to let it restore in background
+       whatsappService.initializeSession(empId).catch(e => {
+         console.warn(`[SYSTEM] Auto-init failed for ${empId}:`, e.message);
+       });
+    }
+
+  } catch (e) {
+    console.error('[MAINTENANCE ERROR]', e);
   }
 }
 
