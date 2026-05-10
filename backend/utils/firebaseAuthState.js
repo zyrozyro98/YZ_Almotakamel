@@ -1,6 +1,5 @@
 const { rtdb } = require('../firebaseAdmin');
-const { BufferJSON, Curve, generateRegistrationId } = require('@whiskeysockets/baileys');
-const crypto = require('crypto');
+const { BufferJSON, initAuthCreds } = require('@whiskeysockets/baileys');
 
 /**
  * Optimized Baileys Auth State using Realtime Database (RTDB)
@@ -44,41 +43,8 @@ const useFirestoreAuthState = async (employeeId) => {
         }
     };
 
-    const initCreds = () => {
-        const noiseKey = Curve.generateKeyPair();
-        const signedIdentityKey = Curve.generateKeyPair();
-        const signedPreKey = Curve.generateKeyPair();
-        
-        return {
-            registrationId: generateRegistrationId(),
-            advSecretKey: crypto.randomBytes(32).toString('base64'),
-            nextPreKeyId: 1,
-            firstUnuploadedPreKeyId: 1,
-            serverHasPreKeys: false,
-            noiseKey: {
-                public: Buffer.from(noiseKey.public),
-                private: Buffer.from(noiseKey.private)
-            },
-            signedIdentityKey: {
-                public: Buffer.from(signedIdentityKey.public),
-                private: Buffer.from(signedIdentityKey.private)
-            },
-            signedPreKey: {
-                keyPair: {
-                    public: Buffer.from(signedPreKey.public),
-                    private: Buffer.from(signedPreKey.private)
-                },
-                signature: Buffer.alloc(64),
-                keyId: 1
-            },
-            accountSettings: {
-                unarchiveChats: false
-            }
-        };
-    };
-
     const savedCreds = await readData('creds');
-    const creds = savedCreds || initCreds();
+    const creds = savedCreds || initAuthCreds();
 
     return {
         state: {
