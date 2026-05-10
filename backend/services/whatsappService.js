@@ -92,38 +92,65 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     let mediaType = "text";
     let mediaData = null;
 
-    if (msg.message.conversation) textMsg = msg.message.conversation;
-    else if (msg.message.extendedTextMessage) textMsg = msg.message.extendedTextMessage.text;
-    else if (msg.message.imageMessage) {
-      textMsg = msg.message.imageMessage.caption || "📷 صورة";
+    // --- MESSAGE UNWRAPPING (Fix for Ephemeral, ViewOnce, and Documents) ---
+    let rawMsg = msg.message;
+    if (!rawMsg) continue;
+    
+    if (rawMsg.ephemeralMessage) rawMsg = rawMsg.ephemeralMessage.message;
+    if (rawMsg.viewOnceMessage) rawMsg = rawMsg.viewOnceMessage.message;
+    if (rawMsg.viewOnceMessageV2) rawMsg = rawMsg.viewOnceMessageV2.message;
+    if (rawMsg.viewOnceMessageV2Extension) rawMsg = rawMsg.viewOnceMessageV2Extension.message;
+    if (rawMsg.documentWithCaptionMessage) rawMsg = rawMsg.documentWithCaptionMessage.message;
+
+    if (rawMsg.conversation) textMsg = rawMsg.conversation;
+    else if (rawMsg.extendedTextMessage) textMsg = rawMsg.extendedTextMessage.text;
+    else if (rawMsg.imageMessage) {
+      textMsg = rawMsg.imageMessage.caption || "📷 صورة";
       mediaType = "image";
     }
-    else if (msg.message.videoMessage) {
-      textMsg = msg.message.videoMessage.caption || "🎥 فيديو";
+    else if (rawMsg.videoMessage) {
+      textMsg = rawMsg.videoMessage.caption || "🎥 فيديو";
       mediaType = "video";
     }
-    else if (msg.message.audioMessage) {
-      textMsg = "🎤 رسالة صوتية";
+    else if (rawMsg.audioMessage) {
+      const isVoiceNote = rawMsg.audioMessage.ptt;
+      textMsg = isVoiceNote ? "🎤 بصمة صوتية" : "🎵 مقطع صوتي";
       mediaType = "audio";
     }
-    else if (msg.message.documentMessage) {
-      textMsg = msg.message.documentMessage.fileName || "📎 ملف";
+    else if (rawMsg.documentMessage) {
+      textMsg = rawMsg.documentMessage.fileName || "📎 ملف";
       mediaType = "document";
     }
-    else if (msg.message.stickerMessage) {
+    else if (rawMsg.stickerMessage) {
       textMsg = "🏷️ ملصق";
       mediaType = "sticker";
     }
+    else if (rawMsg.contactMessage) {
+      const vcard = rawMsg.contactMessage.vcard || '';
+      const phoneMatch = vcard.match(/waid=([0-9]+)/i) || vcard.match(/TEL.*:([0-9\+\-\s]+)/i);
+      let extractedPhone = phoneMatch ? phoneMatch[1].replace(/[^0-9]/g, '') : '';
+      
+      textMsg = `👤 جهة اتصال: ${rawMsg.contactMessage.displayName || 'بدون اسم'}`;
+      if (extractedPhone) textMsg += `\n📞 رقم الهاتف: ${extractedPhone}`;
+      mediaType = "contact";
+    }
 
-    if (mediaType !== "text") {
+    if (mediaType !== "text" && mediaType !== "contact") {
       try {
+        // downloadMediaMessage expects the original msg object wrapper
         const buffer = await downloadMediaMessage(msg, 'buffer', {});
-        let mime = msg.message[mediaType + 'Message']?.mimetype || 'image/jpeg';
-        let fileName = msg.message[mediaType + 'Message']?.fileName || `${mediaType}_${Date.now()}`;
+        let mime = rawMsg[mediaType + 'Message']?.mimetype || 'application/octet-stream';
+        let fileName = rawMsg[mediaType + 'Message']?.fileName;
+
+        if (!fileName) {
+          fileName = `${mediaType}_${Date.now()}`;
+        }
         
-        // Ensure extension exists for proper serving
+        // Ensure proper extension for serving correctly in the browser
         if (!fileName.includes('.')) {
-          const extension = mime.split('/')[1]?.split(';')[0] || 'bin';
+          let extension = mime.split('/')[1]?.split(';')[0] || 'bin';
+          if (mediaType === 'sticker' || mime.includes('webp')) extension = 'webp';
+          if (mediaType === 'audio' && (extension === 'ogg' || mime.includes('opus'))) extension = 'ogg';
           fileName += `.${extension}`;
         }
         
@@ -211,6 +238,33 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     }
 
     const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
+    
+    // --- AUTO-MIGRATION & REASSIGNMENT START ---
+    try {
+      const chatSnap = await chatRef.once('value');
+      if (!chatSnap.exists() || !chatSnap.val().messages) {
+        const studentDoc = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+        if (!studentDoc.empty) {
+          const studentData = studentDoc.docs[0].data();
+          const studentId = studentDoc.docs[0].id;
+          const oldEmployeeId = studentData.assignedTo;
+          
+          if (oldEmployeeId && oldEmployeeId !== employeeId) {
+            const oldChatSnap = await rtdb.ref(`chats/${oldEmployeeId}/${chatId}`).once('value');
+            if (oldChatSnap.exists()) {
+              await chatRef.set(oldChatSnap.val());
+            }
+            await db.collection('students').doc(studentId).update({ assignedTo: employeeId });
+            await rtdb.ref(`active_students/${studentId}`).update({ assignedTo: employeeId });
+            console.log(`[Auto-Migration] Transferred student ${studentData.name || chatId} from ${oldEmployeeId} to ${employeeId}`);
+          }
+        }
+      }
+    } catch (migErr) {
+      console.error('[Auto-Migration Error]', migErr.message);
+    }
+    // --- AUTO-MIGRATION & REASSIGNMENT END ---
+
     const msgData = {
       id: msgId,
       text: textMsg,
@@ -348,6 +402,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: getStableBrowser(employeeId),
+    markOnlineOnConnect: false,
     connectTimeoutMs: 30000,
     generateHighQualityQR: true,
     agent
@@ -440,6 +495,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
           phoneData.lastSender = lidData.lastSender === 'them' ? 'them' : phoneData.lastSender;
           phoneData.name = (phoneData.name && phoneData.name !== 'مجهول') ? phoneData.name : (lidData.name || phoneData.name);
           phoneData.fullJid = phoneData.fullJid || `${phoneJid}@s.whatsapp.net`;
+          phoneData.phone = phoneJid;
           
           await phoneChatRef.update(phoneData);
           await lidChatRef.remove();

@@ -337,6 +337,9 @@ router.post('/send-image', async (req, res) => {
     // 2. Prepare Content (Spintax & Jitter)
     const finalCaption = addInvisibleJitter(parseSpintax(caption || ''));
 
+    // 3. Human Simulation
+    await simulateHumanTyping(sock, targetJid, finalCaption);
+
     // 4. Frequency Guard Check
     if (!checkFrequency(employeeId, 120)) { // Lower limit for media
        return res.status(429).json({ error: 'تم تجاوز حد إرسال الوسائط لهذا الحساب. يرجى الانتظار.' });

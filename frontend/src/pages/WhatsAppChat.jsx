@@ -53,6 +53,7 @@ export default function WhatsAppChat() {
   const [stickers, setStickers] = useState([]);
   const [showQuickMessages, setShowQuickMessages] = useState(false);
   const [activeQuickTab, setActiveQuickTab] = useState('text'); // 'text' or 'stickers'
+  const [previewMedia, setPreviewMedia] = useState(null); // { type, url }
   const fileInputRef = useRef(null);
 
   const BASE_URL = window.location.hostname === 'localhost' 
@@ -717,6 +718,21 @@ export default function WhatsAppChat() {
     }
   };
 
+  const saveStickerToLibrary = async (url) => {
+    try {
+      await addDoc(collection(db, 'stickers'), {
+        url: url,
+        addedBy: auth.currentUser?.email || 'Unknown',
+        timestamp: Date.now()
+      });
+      alert('تم حفظ الملصق في المكتبة المشتركة بنجاح ✔️');
+      setPreviewMedia(null);
+    } catch (err) {
+      console.error(err);
+      alert('فشل حفظ الملصق في المكتبة');
+    }
+  };
+
 
   const handleReceiptSave = async (e) => {
     e?.preventDefault();
@@ -1061,22 +1077,29 @@ export default function WhatsAppChat() {
                           {m.type === 'image' && m.mediaData && (
                             <img
                               src={m.mediaData} alt="Shared"
-                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover' }}
+                              onClick={(e) => { e.stopPropagation(); setPreviewMedia({ type: 'image', url: m.mediaData }); }}
+                              style={{ width: '100%', borderRadius: '8px', marginBottom: '8px', display: 'block', maxHeight: '300px', objectFit: 'cover', cursor: 'pointer' }}
                             />
                           )}
                           {m.type === 'video' && m.mediaData && (
-                            <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                            <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px', cursor: 'pointer' }}>
                               <video
                                 src={m.mediaData}
                                 controls
+                                onClick={(e) => e.stopPropagation()}
                                 style={{ width: '100%', maxHeight: '300px', display: 'block', background: '#000' }}
                               />
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setPreviewMedia({ type: 'video', url: m.mediaData }); }} 
+                                style={{position: 'absolute', top: 5, right: 5, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '5px', fontSize: '0.7rem', cursor: 'pointer'}}
+                              >توسيع</button>
                             </div>
                           )}
                           {m.type === 'sticker' && m.mediaData && (
                             <img
                               src={m.mediaData} alt="Sticker"
-                              style={{ width: isMobile ? '120px' : '160px', height: isMobile ? '120px' : '160px', objectFit: 'contain', display: 'block', margin: '0 auto' }}
+                              onClick={(e) => { e.stopPropagation(); setPreviewMedia({ type: 'sticker', url: m.mediaData }); }}
+                              style={{ width: isMobile ? '120px' : '160px', height: isMobile ? '120px' : '160px', objectFit: 'contain', display: 'block', margin: '0 auto', cursor: 'pointer' }}
                             />
                           )}
                           {m.type === 'audio' && m.mediaData && (
@@ -1681,6 +1704,33 @@ export default function WhatsAppChat() {
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Media Preview Modal */}
+      {previewMedia && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setPreviewMedia(null)}>
+          <button onClick={() => setPreviewMedia(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '10px', borderRadius: '50%', cursor: 'pointer', zIndex: 10001 }}><X size={24} /></button>
+          
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            {previewMedia.type === 'video' ? (
+              <video src={previewMedia.url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '80vh', borderRadius: '10px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} />
+            ) : (
+              <img src={previewMedia.url} alt="Preview" style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: '10px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} />
+            )}
+            
+            {previewMedia.type === 'sticker' && (
+              <button 
+                onClick={() => {
+                  saveStickerToLibrary(previewMedia.url);
+                }}
+                className="btn-primary" 
+                style={{ marginTop: '20px', padding: '10px 20px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Save size={18} /> حفظ الملصق في المكتبة المشتركة
+              </button>
             )}
           </div>
         </div>

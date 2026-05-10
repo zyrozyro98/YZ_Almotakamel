@@ -24,8 +24,7 @@ function getRandomBrowser() {
 function getStableBrowser(id) {
   const index = Math.abs(id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % BROWSERS.length;
   const base = BROWSERS[index];
-  // Make the version unique per employee to prevent WhatsApp from merging sessions
-  return [base[0], base[1], `${base[2]}-${id.substring(0, 5)}` ];
+  return [base[0], base[1], base[2]];
 }
 
 /**

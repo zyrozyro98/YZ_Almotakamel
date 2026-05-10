@@ -1202,7 +1202,7 @@ export default function PhotoSender() {
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '5px' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>المتغيرات المتاحة:</span>
-                {['{name}', '{greeting}', '{university}', '{major}', '{closing}', '{option1|option2}'].map(v => (
+                {['{name}', '{list_name}', '{greeting}', '{university}', '{major}', '{closing}', '{option1|option2}'].map(v => (
                     <code 
                         key={v} 
                         style={{ fontSize: '0.7rem', color: 'var(--brand-secondary)', cursor: 'pointer', background: 'rgba(0,0,0,0.2)', padding: '2px 5px', borderRadius: '4px' }}
