@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue, get, query as rtdbQuery, limitToLast as rtdbLimitToLast, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
+import { ref, onValue, get, query as rtdbQuery, limitToLast as rtdbLimitToLast } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast, getDoc } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
@@ -36,6 +36,7 @@ export default function WhatsAppChat() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [view, setView] = useState('list');
   const [sidebarTab, setSidebarTab] = useState('chats'); // 'chats' or 'directory'
+  const [chatLimit, setChatLimit] = useState(20);
 
   // Modals State
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
@@ -153,40 +154,26 @@ export default function WhatsAppChat() {
     setSelectedChat(null);
     setMessages([]);
 
-    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE (Incremental Loading)
+    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
-    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
-    
-    const handleSnap = (snap) => {
-      const val = snap.val();
-      if (!val || typeof val !== 'object') return;
-      
-      const newChat = { id: snap.key, phone: snap.key, ...val };
-      
-      setActiveChats(prev => {
-        // Remove existing if any (to update)
-        const filtered = prev.filter(c => c.phone !== newChat.phone);
-        const combined = [...filtered, newChat];
-        // Sort by timestamp desc
-        return combined.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      });
-    };
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(chatLimit));
+    const unsubActive = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const chatList = Object.entries(data).map(([id, val]) => {
+          if (!val || typeof val !== 'object') return null;
+          return { id, phone: id, ...val };
+        }).filter(Boolean);
 
-    // Use child events for "one-by-one" appearance
-    const unsubAdded = onChildAdded(activeRef, handleSnap);
-    const unsubChanged = onChildChanged(activeRef, handleSnap);
-    const unsubRemoved = onChildRemoved(activeRef, (snap) => {
-        setActiveChats(prev => prev.filter(c => c.phone !== snap.key));
+        setActiveChats(chatList);
+      } else {
+        setActiveChats([]);
+      }
     });
 
-    return () => { 
-        unsubStudents(); 
-        unsubAdded(); 
-        unsubChanged(); 
-        unsubRemoved(); 
-    };
-  }, [employeeId, viewingEmployeeId, isAdmin]);
+    return () => { unsubStudents(); unsubActive(); };
+  }, [employeeId, viewingEmployeeId, isAdmin, chatLimit]);
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
@@ -907,6 +894,19 @@ export default function WhatsAppChat() {
                 </div>
               </div>
             ))}
+
+            {sidebarTab === 'chats' && activeChats.length >= chatLimit && (
+              <div style={{ padding: '15px', textAlign: 'center' }}>
+                <button 
+                  onClick={() => setChatLimit(prev => prev + 20)}
+                  className="btn-secondary"
+                  style={{ width: '100%', fontSize: '0.8rem', padding: '10px', borderRadius: '10px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}
+                >
+                  <RefreshCw size={16} style={{ marginLeft: '8px' }} />
+                  تحميل المزيد من المحادثات...
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
