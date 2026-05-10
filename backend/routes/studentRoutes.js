@@ -121,19 +121,20 @@ router.post('/system/toggle-lock', async (req, res) => {
 
   try {
     // 1. FAST PATH: Update RTDB immediately
+    // Using a promise to ensure we know it finished
     await rtdb.ref('system_settings/solverSystemLocked').set(locked);
-    console.log(`[API] System lock status updated to: ${locked}`);
+    console.log(`[API SUCCESS] System lock status pushed to RTDB: ${locked}`);
 
     // 2. BACKWARD SYNC: Update Firestore (Non-blocking)
-    db.collection('system_settings').doc('global').update({ 
+    db.collection('system_settings').doc('global').set({ 
       solverSystemLocked: locked,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }).catch(e => console.warn('[API] Firestore lock sync failed (quota):', e.message));
+      updatedAt: new Date()
+    }, { merge: true }).catch(e => console.warn('[API] Firestore lock sync failed:', e.message));
 
     res.status(200).json({ message: `System ${locked ? 'locked' : 'opened'} successfully` });
   } catch (error) {
-    console.error('[API ERROR] Toggle Lock Failed:', error);
-    res.status(500).json({ error: 'Failed to update system lock status' });
+    console.error('[API FATAL ERROR] Toggle Lock Failed:', error);
+    res.status(500).json({ error: 'Failed to update system lock status: ' + error.message });
   }
 });
 
