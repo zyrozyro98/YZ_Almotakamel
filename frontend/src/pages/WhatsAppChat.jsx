@@ -157,22 +157,46 @@ export default function WhatsAppChat() {
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
-    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(chatLimit));
+    let fallbackUnsub = () => {};
+    let isFallbackActive = false;
+
+    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(chatLimit));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const chatList = Object.entries(data).map(([id, val]) => {
-          if (!val || typeof val !== 'object') return null;
-          return { id, phone: id, ...val };
-        }).filter(Boolean);
-
-        setActiveChats(chatList);
+        if (isFallbackActive) {
+          fallbackUnsub();
+          isFallbackActive = false;
+        }
+        const chatList = Object.entries(data).map(([id, val]) => ({ id, phone: id, ...val }));
+        
+        setActiveChats(prevChats => {
+          chatList.forEach(chat => {
+            const prev = prevChats.find(pc => pc.phone === chat.phone);
+            if (prev && chat.timestamp > prev.timestamp && chat.lastSender === 'them') {
+              notificationSound.current.play().catch(() => {});
+            }
+          });
+          return chatList;
+        });
       } else {
-        setActiveChats([]);
+        // Fallback to slow node but with VERY small limit (20) to ensure something shows up
+        if (!isFallbackActive) {
+          isFallbackActive = true;
+          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
+          fallbackUnsub = onValue(fallbackRef, (snap) => {
+            const fbData = snap.val();
+            if (fbData) {
+              setActiveChats(Object.entries(fbData).map(([id, val]) => ({ id, phone: id, ...val })));
+            } else {
+              setActiveChats([]);
+            }
+          });
+        }
       }
     });
 
-    return () => { unsubStudents(); unsubActive(); };
+    return () => { unsubStudents(); unsubActive(); fallbackUnsub(); };
   }, [employeeId, viewingEmployeeId, isAdmin, chatLimit]);
 
   useEffect(() => {
