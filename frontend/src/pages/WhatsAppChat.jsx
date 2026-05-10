@@ -155,20 +155,22 @@ export default function WhatsAppChat() {
     setMessages([]);
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    if (!targetId) return;
+    const targetId = (isAdmin && viewingEmployeeId) ? viewingEmployeeId : employeeId;
+    if (!targetId || targetId === 'emp1') return;
 
-    let fallbackUnsub = () => {};
-    let isFallbackActive = false;
+    let fallbackUnsub = null;
 
     const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(chatLimit));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (isFallbackActive) {
-          fallbackUnsub();
-          isFallbackActive = false;
-        }
-        const chatList = Object.entries(data).map(([id, val]) => ({ id, phone: id, ...val }));
+        if (fallbackUnsub) { fallbackUnsub(); fallbackUnsub = null; }
+        const chatList = Object.entries(data).map(([id, val]) => ({ 
+          id, 
+          phone: id, 
+          timestamp: 0, 
+          ...val 
+        }));
         
         setActiveChats(prevChats => {
           chatList.forEach(chat => {
@@ -180,14 +182,18 @@ export default function WhatsAppChat() {
           return chatList;
         });
       } else {
-        // Fallback to slow node but with VERY small limit (20) to ensure something shows up
-        if (!isFallbackActive) {
-          isFallbackActive = true;
-          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
-          fallbackUnsub = onValue(fallbackRef, (snap) => {
+        // Fallback to main chats node if meta is empty
+        if (!fallbackUnsub) {
+          const fbRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(chatLimit));
+          fallbackUnsub = onValue(fbRef, (snap) => {
             const fbData = snap.val();
             if (fbData) {
-              setActiveChats(Object.entries(fbData).map(([id, val]) => ({ id, phone: id, ...val })));
+              setActiveChats(Object.entries(fbData).map(([id, val]) => ({ 
+                id, 
+                phone: id, 
+                timestamp: 0, 
+                ...val 
+              })));
             } else {
               setActiveChats([]);
             }
@@ -196,7 +202,11 @@ export default function WhatsAppChat() {
       }
     });
 
-    return () => { unsubStudents(); unsubActive(); fallbackUnsub(); };
+    return () => { 
+      unsubStudents(); 
+      unsubActive(); 
+      if (fallbackUnsub) fallbackUnsub(); 
+    };
   }, [employeeId, viewingEmployeeId, isAdmin, chatLimit]);
 
   useEffect(() => {
