@@ -11,9 +11,10 @@ const useFirestoreAuthState = async (employeeId) => {
     const writeData = async (data, id) => {
         try {
             const safeId = Buffer.from(id).toString('hex');
-            // RTDB is better with JSON directly, but we use BufferJSON for binary safety
-            const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
-            await rtdb.ref(`${rootPath}/${safeId}`).set(serialized);
+            // RTDB doesn't allow keys with ".", "#", "$", "/", "[", or "]"
+            // So we store the serialized JSON string directly instead of parsing it back to an object.
+            const serializedStr = JSON.stringify(data, BufferJSON.replacer);
+            await rtdb.ref(`${rootPath}/${safeId}`).set(serializedStr);
         } catch (e) {
             console.error(`[RTDB AUTH] Write error for ${id}:`, e.message);
         }
@@ -25,6 +26,10 @@ const useFirestoreAuthState = async (employeeId) => {
             const snap = await rtdb.ref(`${rootPath}/${safeId}`).once('value');
             if (snap.exists()) {
                 const payload = snap.val();
+                if (typeof payload === 'string') {
+                    return JSON.parse(payload, BufferJSON.reviver);
+                }
+                // Backward compatibility if it was saved as an object previously
                 return JSON.parse(JSON.stringify(payload), BufferJSON.reviver);
             }
             return null;
