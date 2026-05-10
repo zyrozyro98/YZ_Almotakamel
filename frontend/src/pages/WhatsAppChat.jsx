@@ -179,7 +179,7 @@ export default function WhatsAppChat() {
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const cleanId = getMatchKey(selectedChat.phone);
     const actualChatId = selectedChat.chatId || cleanId;
-    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${actualChatId}/messages`), limitToLast(100));
+    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${actualChatId}/messages`), rtdbLimitToLast(100));
     const unsubMsg = onValue(messagesQuery, (snapshot) => {
       const data = snapshot.val();
       if (data) {
