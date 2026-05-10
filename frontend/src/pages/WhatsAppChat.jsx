@@ -140,7 +140,7 @@ export default function WhatsAppChat() {
     if (!employeeId || employeeId === 'emp1') return;
 
     // Listen to Students (Optimized Query)
-    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    const targetId = (isAdmin && viewingEmployeeId) ? viewingEmployeeId : employeeId;
     const studentsBaseQuery = isAdmin 
       ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(300))
       : query(collection(db, 'students'), where('assignedTo', '==', employeeId));
@@ -155,7 +155,6 @@ export default function WhatsAppChat() {
     setMessages([]);
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    const targetId = (isAdmin && viewingEmployeeId) ? viewingEmployeeId : employeeId;
     if (!targetId || targetId === 'emp1') return;
 
     let fallbackUnsub = null;
