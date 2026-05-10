@@ -158,41 +158,33 @@ export default function WhatsAppChat() {
 
     const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
     
-    const unsubAdded = onChildAdded(activeRef, (snapshot) => {
-      const val = snapshot.val();
-      if (val && typeof val === 'object') {
-        const chat = { id: snapshot.key, phone: snapshot.key, ...val };
-        setActiveChats(prev => {
-          // Avoid duplicates
-          if (prev.find(c => c.phone === chat.phone)) return prev;
-          return [...prev, chat].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        });
-      }
-    });
+    const handleSnap = (snap) => {
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      
+      const newChat = { id: snap.key, phone: snap.key, ...val };
+      
+      setActiveChats(prev => {
+        // Remove existing if any (to update)
+        const filtered = prev.filter(c => c.phone !== newChat.phone);
+        const combined = [...filtered, newChat];
+        // Sort by timestamp desc
+        return combined.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      });
+    };
 
-    const unsubChanged = onChildChanged(activeRef, (snapshot) => {
-      const val = snapshot.val();
-      if (val && typeof val === 'object') {
-        const chat = { id: snapshot.key, phone: snapshot.key, ...val };
-        setActiveChats(prev => {
-          const index = prev.findIndex(c => c.phone === chat.phone);
-          if (index === -1) return [...prev, chat].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-          const updated = [...prev];
-          updated[index] = chat;
-          return updated.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        });
-      }
-    });
-
-    const unsubRemoved = onChildRemoved(activeRef, (snapshot) => {
-      setActiveChats(prev => prev.filter(c => c.phone !== snapshot.key));
+    // Use child events for "one-by-one" appearance
+    const unsubAdded = onChildAdded(activeRef, handleSnap);
+    const unsubChanged = onChildChanged(activeRef, handleSnap);
+    const unsubRemoved = onChildRemoved(activeRef, (snap) => {
+        setActiveChats(prev => prev.filter(c => c.phone !== snap.key));
     });
 
     return () => { 
-      unsubStudents(); 
-      unsubAdded(); 
-      unsubChanged(); 
-      unsubRemoved(); 
+        unsubStudents(); 
+        unsubAdded(); 
+        unsubChanged(); 
+        unsubRemoved(); 
     };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
