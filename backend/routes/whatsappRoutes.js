@@ -659,6 +659,7 @@ router.post('/delete-chat', async (req, res) => {
   try {
     const cleanId = getPureNumber(phoneNumber);
     await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
+    await rtdb.ref(`chats_meta/${employeeId}/${cleanId}`).remove();
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -744,6 +745,8 @@ router.post('/cleanup-database', async (req, res) => {
     if (!allChats) return res.json({ success: true, transformed: 0 });
 
     let count = 0;
+    const bulkMetaUpdates = {};
+
     for (const [rawOldKey, chatData] of Object.entries(allChats)) {
       // Normalize oldKey to handle cases like "number@lid" or "number:1"
       const oldKey = rawOldKey.split(':')[0].split('@')[0];
@@ -751,8 +754,8 @@ router.post('/cleanup-database', async (req, res) => {
         phoneToCanonical[getPureNumber(oldKey)] ||
         getPureNumber(oldKey);
 
-      // 1. Migrate ALL chats to chats_meta
-      const meta = {
+      // 1. Prepare ALL chats for chats_meta
+      bulkMetaUpdates[`chats_meta/${employeeId}/${newKey}`] = {
           name: chatData.name || "",
           phone: newKey,
           fullJid: chatData.fullJid || "",
@@ -760,7 +763,6 @@ router.post('/cleanup-database', async (req, res) => {
           timestamp: chatData.timestamp || 0,
           lastSender: chatData.lastSender || 'them'
       };
-      await rtdb.ref(`chats_meta/${employeeId}/${newKey}`).update(meta);
 
       // 2. If the actual folder name in DB is different from its pure version
       if (rawOldKey !== newKey) {
@@ -785,6 +787,11 @@ router.post('/cleanup-database', async (req, res) => {
         await chatsRef.child(rawOldKey).remove();
         count++;
       }
+    }
+
+    // Perform bulk update for meta (Fast)
+    if (Object.keys(bulkMetaUpdates).length > 0) {
+        await rtdb.ref().update(bulkMetaUpdates);
     }
 
     res.json({ success: true, transformed: count });

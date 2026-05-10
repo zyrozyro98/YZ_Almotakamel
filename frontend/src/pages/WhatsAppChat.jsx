@@ -156,13 +156,16 @@ export default function WhatsAppChat() {
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
+    let isFallback = false;
+    let unsubFallback = () => {};
+
     const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), limitToLast(200));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
+        if (isFallback) { unsubFallback(); isFallback = false; }
         const chatList = Object.entries(data).map(([id, val]) => ({ phone: id, ...val }));
         
-        // Notification Logic: If last message changed and it's not from 'me'
         chatList.forEach(chat => {
            const prev = activeChats.find(pc => pc.phone === chat.phone);
            if (prev && chat.timestamp > prev.timestamp && chat.lastSender === 'them') {
@@ -171,11 +174,24 @@ export default function WhatsAppChat() {
         });
 
         setActiveChats(chatList);
+      } else {
+        if (!isFallback) {
+          isFallback = true;
+          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(20));
+          unsubFallback = onValue(fallbackRef, (snap) => {
+            const fallbackData = snap.val();
+            if (fallbackData) {
+               const chatList = Object.entries(fallbackData).map(([id, val]) => ({ phone: id, ...val }));
+               setActiveChats(chatList);
+            } else {
+               setActiveChats([]);
+            }
+          });
+        }
       }
-      else setActiveChats([]);
     });
 
-    return () => { unsubStudents(); unsubActive(); };
+    return () => { unsubStudents(); unsubActive(); unsubFallback(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
