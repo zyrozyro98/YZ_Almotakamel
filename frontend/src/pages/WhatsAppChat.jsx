@@ -36,7 +36,6 @@ export default function WhatsAppChat() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [view, setView] = useState('list');
   const [sidebarTab, setSidebarTab] = useState('chats'); // 'chats' or 'directory'
-  const [chatLimit, setChatLimit] = useState(20);
 
   // Modals State
   const [activeModal, setActiveModal] = useState(null); // 'add', 'edit', 'receipt', 'withdraw'
@@ -140,7 +139,7 @@ export default function WhatsAppChat() {
     if (!employeeId || employeeId === 'emp1') return;
 
     // Listen to Students (Optimized Query)
-    const targetId = (isAdmin && viewingEmployeeId) ? viewingEmployeeId : employeeId;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
     const studentsBaseQuery = isAdmin 
       ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(300))
       : query(collection(db, 'students'), where('assignedTo', '==', employeeId));
@@ -155,58 +154,25 @@ export default function WhatsAppChat() {
     setMessages([]);
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    if (!targetId || targetId === 'emp1') return;
+    if (!targetId) return;
 
-    let fallbackUnsub = null;
-
-    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(chatLimit));
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (fallbackUnsub) { fallbackUnsub(); fallbackUnsub = null; }
-        const chatList = Object.entries(data).map(([id, val]) => ({ 
-          id, 
-          phone: id, 
-          timestamp: 0, 
-          ...val 
-        }));
-        
-        setActiveChats(prevChats => {
-          chatList.forEach(chat => {
-            const prev = prevChats.find(pc => pc.phone === chat.phone);
-            if (prev && chat.timestamp > prev.timestamp && chat.lastSender === 'them') {
-              notificationSound.current.play().catch(() => {});
-            }
-          });
-          return chatList;
-        });
+        const chatList = Object.entries(data).map(([id, val]) => {
+          if (!val || typeof val !== 'object') return null;
+          return { id, phone: id, ...val };
+        }).filter(Boolean);
+
+        setActiveChats(chatList);
       } else {
-        // Fallback to main chats node if meta is empty
-        if (!fallbackUnsub) {
-          const fbRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(chatLimit));
-          fallbackUnsub = onValue(fbRef, (snap) => {
-            const fbData = snap.val();
-            if (fbData) {
-              setActiveChats(Object.entries(fbData).map(([id, val]) => ({ 
-                id, 
-                phone: id, 
-                timestamp: 0, 
-                ...val 
-              })));
-            } else {
-              setActiveChats([]);
-            }
-          });
-        }
+        setActiveChats([]);
       }
     });
 
-    return () => { 
-      unsubStudents(); 
-      unsubActive(); 
-      if (fallbackUnsub) fallbackUnsub(); 
-    };
-  }, [employeeId, viewingEmployeeId, isAdmin, chatLimit]);
+    return () => { unsubStudents(); unsubActive(); };
+  }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
@@ -927,19 +893,6 @@ export default function WhatsAppChat() {
                 </div>
               </div>
             ))}
-
-            {sidebarTab === 'chats' && activeChats.length >= chatLimit && (
-              <div style={{ padding: '15px', textAlign: 'center' }}>
-                <button 
-                  onClick={() => setChatLimit(prev => prev + 20)}
-                  className="btn-secondary"
-                  style={{ width: '100%', fontSize: '0.8rem', padding: '10px', borderRadius: '10px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}
-                >
-                  <RefreshCw size={16} style={{ marginLeft: '8px' }} />
-                  تحميل المزيد من المحادثات...
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
