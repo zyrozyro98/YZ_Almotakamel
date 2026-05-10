@@ -156,52 +156,22 @@ export default function WhatsAppChat() {
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
-    let fallbackUnsub = null;
-
-    // Helper to process data safely
-    const processData = (data) => {
-      try {
-        if (!data || typeof data !== 'object') return [];
-        return Object.entries(data).map(([id, val]) => {
-          if (!val || typeof val !== 'object') return null;
-          return { 
-            id: id, 
-            phone: id, 
-            timestamp: Date.now(), // Default to now if missing
-            ...val 
-          };
-        }).filter(Boolean);
-      } catch (e) {
-        console.error("Data processing error:", e);
-        return [];
-      }
-    };
-
-    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(200));
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (fallbackUnsub) {
-          fallbackUnsub();
-          fallbackUnsub = null;
-        }
-        const chatList = processData(data);
+        const chatList = Object.entries(data).map(([id, val]) => {
+          if (!val || typeof val !== 'object') return null;
+          return { id, phone: id, ...val };
+        }).filter(Boolean);
+
         setActiveChats(chatList);
       } else {
-        if (!fallbackUnsub) {
-          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
-          fallbackUnsub = onValue(fallbackRef, (snap) => {
-            setActiveChats(processData(snap.val()));
-          });
-        }
+        setActiveChats([]);
       }
-    }, (err) => console.error("RTDB Listener Error:", err));
+    });
 
-    return () => { 
-      unsubStudents(); 
-      unsubActive(); 
-      if (fallbackUnsub) fallbackUnsub(); 
-    };
+    return () => { unsubStudents(); unsubActive(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
