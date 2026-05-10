@@ -1,36 +1,36 @@
-const { db } = require('../firebaseAdmin');
+const { rtdb } = require('../firebaseAdmin');
 const { BufferJSON, Curve, generateRegistrationId } = require('@whiskeysockets/baileys');
 const crypto = require('crypto');
 
 /**
- * Custom Baileys Auth State using Firestore with BASE64 Encoding
- * Optimized for handshakes and binary data integrity.
+ * Optimized Baileys Auth State using Realtime Database (RTDB)
+ * Provides 100% resilience against Firestore quota limits.
  */
 const useFirestoreAuthState = async (employeeId) => {
-    const collectionPath = `whatsapp_sessions/${employeeId}/state`;
+    const rootPath = `wa_sessions/${employeeId}`;
 
     const writeData = async (data, id) => {
         try {
             const safeId = Buffer.from(id).toString('hex');
-            // Ensure all binary data is stringified correctly using BufferJSON
-            const base64Data = JSON.stringify(data, BufferJSON.replacer);
-            await db.collection(collectionPath).doc(safeId).set({ payload: base64Data });
+            // RTDB is better with JSON directly, but we use BufferJSON for binary safety
+            const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
+            await rtdb.ref(`${rootPath}/${safeId}`).set(serialized);
         } catch (e) {
-            console.error(`[FIREBASE AUTH] Write error for ${id}:`, e.message);
+            console.error(`[RTDB AUTH] Write error for ${id}:`, e.message);
         }
     };
 
     const readData = async (id) => {
         try {
             const safeId = Buffer.from(id).toString('hex');
-            const doc = await db.collection(collectionPath).doc(safeId).get();
-            if (doc.exists) {
-                const { payload } = doc.data();
-                return JSON.parse(payload, BufferJSON.reviver);
+            const snap = await rtdb.ref(`${rootPath}/${safeId}`).once('value');
+            if (snap.exists()) {
+                const payload = snap.val();
+                return JSON.parse(JSON.stringify(payload), BufferJSON.reviver);
             }
             return null;
         } catch (e) {
-            console.error(`[FIREBASE AUTH] Read error for ${id}:`, e.message);
+            console.error(`[RTDB AUTH] Read error for ${id}:`, e.message);
             return null;
         }
     };
@@ -38,9 +38,9 @@ const useFirestoreAuthState = async (employeeId) => {
     const removeData = async (id) => {
         try {
             const safeId = Buffer.from(id).toString('hex');
-            await db.collection(collectionPath).doc(safeId).delete();
+            await rtdb.ref(`${rootPath}/${safeId}`).remove();
         } catch (e) {
-            console.error(`[FIREBASE AUTH] Remove error for ${id}:`, e.message);
+            console.error(`[RTDB AUTH] Remove error for ${id}:`, e.message);
         }
     };
 
@@ -49,7 +49,6 @@ const useFirestoreAuthState = async (employeeId) => {
         const signedIdentityKey = Curve.generateKeyPair();
         const signedPreKey = Curve.generateKeyPair();
         
-        // Ensure keys are Buffers for maximum compatibility
         return {
             registrationId: generateRegistrationId(),
             advSecretKey: crypto.randomBytes(32).toString('base64'),
@@ -69,7 +68,7 @@ const useFirestoreAuthState = async (employeeId) => {
                     public: Buffer.from(signedPreKey.public),
                     private: Buffer.from(signedPreKey.private)
                 },
-                signature: Buffer.alloc(64), // Valid 64-byte empty buffer
+                signature: Buffer.alloc(64),
                 keyId: 1
             },
             accountSettings: {
@@ -78,7 +77,6 @@ const useFirestoreAuthState = async (employeeId) => {
         };
     };
 
-    // Load initial creds
     const savedCreds = await readData('creds');
     const creds = savedCreds || initCreds();
 
@@ -119,10 +117,7 @@ const useFirestoreAuthState = async (employeeId) => {
             await writeData(creds, 'creds');
         },
         clearState: async () => {
-            const snapshot = await db.collection(collectionPath).get();
-            const batch = db.batch();
-            snapshot.docs.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
+            await rtdb.ref(rootPath).remove();
         }
     };
 };

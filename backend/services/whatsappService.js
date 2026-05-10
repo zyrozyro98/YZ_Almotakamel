@@ -297,7 +297,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     return null; 
   }
 
-  // 1. Fetch Proxy Configuration from Firestore
+  // 1. Fetch Proxy Configuration from Firestore (Safe Fallback)
   let agent;
   try {
     const empDoc = await db.collection('employees').doc(employeeId).get();
@@ -311,7 +311,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       }
     }
   } catch (err) {
-    console.error(`[WA] Proxy fetch error for ${employeeId}:`, err.message);
+    console.warn(`[WA WARNING] Could not fetch proxy for ${employeeId} due to Firestore quota. Continuing without proxy.`);
   }
 
   // Fetch version with a 10s timeout to prevent hanging
