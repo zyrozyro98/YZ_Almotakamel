@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue, get, query as rtdbQuery, limitToLast } from 'firebase/database';
+import { ref, onValue, get, query as rtdbQuery, limitToLast as rtdbLimitToLast } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast, getDoc } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
@@ -156,42 +156,52 @@ export default function WhatsAppChat() {
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
-    let isFallback = false;
-    let unsubFallback = () => {};
+    let fallbackUnsub = null;
 
-    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), limitToLast(200));
+    // Helper to process data safely
+    const processData = (data) => {
+      try {
+        if (!data || typeof data !== 'object') return [];
+        return Object.entries(data).map(([id, val]) => {
+          if (!val || typeof val !== 'object') return null;
+          return { 
+            id: id, 
+            phone: id, 
+            timestamp: Date.now(), // Default to now if missing
+            ...val 
+          };
+        }).filter(Boolean);
+      } catch (e) {
+        console.error("Data processing error:", e);
+        return [];
+      }
+    };
+
+    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(200));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (isFallback) { unsubFallback(); isFallback = false; }
-        const chatList = Object.entries(data).map(([id, val]) => ({ phone: id, ...val }));
-        
-        chatList.forEach(chat => {
-           const prev = activeChats.find(pc => pc.phone === chat.phone);
-           if (prev && chat.timestamp > prev.timestamp && chat.lastSender === 'them') {
-              notificationSound.current.play().catch(() => {});
-           }
-        });
-
+        if (fallbackUnsub) {
+          fallbackUnsub();
+          fallbackUnsub = null;
+        }
+        const chatList = processData(data);
         setActiveChats(chatList);
       } else {
-        if (!isFallback) {
-          isFallback = true;
-          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(20));
-          unsubFallback = onValue(fallbackRef, (snap) => {
-            const fallbackData = snap.val();
-            if (fallbackData) {
-               const chatList = Object.entries(fallbackData).map(([id, val]) => ({ phone: id, ...val }));
-               setActiveChats(chatList);
-            } else {
-               setActiveChats([]);
-            }
+        if (!fallbackUnsub) {
+          const fallbackRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
+          fallbackUnsub = onValue(fallbackRef, (snap) => {
+            setActiveChats(processData(snap.val()));
           });
         }
       }
-    });
+    }, (err) => console.error("RTDB Listener Error:", err));
 
-    return () => { unsubStudents(); unsubActive(); unsubFallback(); };
+    return () => { 
+      unsubStudents(); 
+      unsubActive(); 
+      if (fallbackUnsub) fallbackUnsub(); 
+    };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
