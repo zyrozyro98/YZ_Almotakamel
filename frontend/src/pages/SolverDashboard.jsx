@@ -281,8 +281,8 @@ export default function SolverDashboard() {
   // --- Render Logic ---
   
   // 1. Emergency Lock Screen (Highest Priority)
-  // We show the lock screen if system is locked, UNLESS we are 100% sure the user is an admin
-  if (isLocked && solverData?.role !== 'admin') {
+  // We show this to everyone. Admins get a special "Bypass" button.
+  if (isLocked) {
     return (
       <div style={{ padding: '40px', textAlign: 'center', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)' }}>
         <div className="glass-panel animate-fade-in" style={{ padding: '50px', borderRadius: '32px', maxWidth: '550px', width: '100%', border: '1px solid rgba(255, 255, 255, 0.1)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
@@ -295,9 +295,23 @@ export default function SolverDashboard() {
             تم إيقاف العمل في المنصة مؤقتاً من قبل الإدارة. 
             يرجى التواصل مع المشرف للمزيد من المعلومات.
           </p>
-          <div style={{ padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-             تلقائي: سيتم فتح اللوحة فور تفعيلها من الإدارة
-          </div>
+          
+          {solverData?.role === 'admin' ? (
+            <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '20px', marginTop: '10px' }}>
+              <p style={{ color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '15px' }}>مرحباً أيها المدير، القفل يعمل بنجاح. يمكنك الدخول للمعاينة:</p>
+              <button 
+                className="btn-primary" 
+                style={{ width: '100%', background: 'linear-gradient(135deg, var(--brand-primary), #2563eb)' }}
+                onClick={() => setIsLocked(false)} // Local bypass for this session
+              >
+                دخول كمدير (تجاوز القفل)
+              </button>
+            </div>
+          ) : (
+            <div style={{ padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+               تلقائي: سيتم فتح اللوحة فور تفعيلها من الإدارة
+            </div>
+          )}
         </div>
       </div>
     );
