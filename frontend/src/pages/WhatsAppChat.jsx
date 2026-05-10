@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
-import { ref, onValue, get, query as rtdbQuery, limitToLast as rtdbLimitToLast } from 'firebase/database';
+import { ref, onValue, get, query as rtdbQuery, limitToLast as rtdbLimitToLast, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, getDocs, query, where, Timestamp, orderBy, limitToLast as firestoreLimitToLast, getDoc } from 'firebase/firestore';
 import Picker from '@emoji-mart/react';
@@ -153,25 +153,62 @@ export default function WhatsAppChat() {
     setSelectedChat(null);
     setMessages([]);
 
-    // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
+    // Listen to Active Chats from RTDB (Fluid Loading)
     if (!targetId) return;
 
-    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
-    const unsubActive = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const chatList = Object.entries(data).map(([id, val]) => {
-          if (!val || typeof val !== 'object') return null;
-          return { id, phone: id, ...val };
-        }).filter(Boolean);
+    const activeMetaRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), rtdbLimitToLast(100));
+    
+    const handleSnap = (snap, isUpdate = false) => {
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      
+      const chatData = { id: snap.key, phone: snap.key, ...val };
+      
+      setActiveChats(prev => {
+        const index = prev.findIndex(c => c.phone === chatData.phone);
+        let newList;
+        if (index > -1) {
+          // Update existing
+          newList = [...prev];
+          newList[index] = { ...newList[index], ...chatData };
+        } else {
+          // Add new
+          newList = [...prev, chatData];
+        }
+        // Sort by timestamp desc
+        return newList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      });
+    };
 
-        setActiveChats(chatList);
-      } else {
-        setActiveChats([]);
+    const unsubAdded = onChildAdded(activeMetaRef, (snap) => handleSnap(snap));
+    const unsubChanged = onChildChanged(activeMetaRef, (snap) => handleSnap(snap, true));
+    const unsubRemoved = onChildRemoved(activeMetaRef, (snap) => {
+      setActiveChats(prev => prev.filter(c => c.phone !== snap.key));
+    });
+
+    // Fallback logic: If chats_meta is empty, try loading from chats
+    // (Only for initial load to ensure something shows up)
+    const checkRef = ref(rtdb, `chats_meta/${targetId}`);
+    get(checkRef).then(snapshot => {
+      if (!snapshot.exists()) {
+        console.log("chats_meta empty, falling back to legacy chats node...");
+        const legacyRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(20));
+        onValue(legacyRef, (snap) => {
+          const data = snap.val();
+          if (data && !snapshot.exists()) { // Only if meta still empty
+            const list = Object.entries(data).map(([id, val]) => ({ id, phone: id, ...val }));
+            setActiveChats(list.sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0)));
+          }
+        }, { onlyOnce: true });
       }
     });
 
-    return () => { unsubStudents(); unsubActive(); };
+    return () => { 
+      unsubStudents(); 
+      unsubAdded(); 
+      unsubChanged(); 
+      unsubRemoved(); 
+    };
   }, [employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
