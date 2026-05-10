@@ -24,6 +24,11 @@ export default function SolverDashboard() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+
+  useEffect(() => {
+    console.log('[DEBUG] SolverDashboard State - isLocked:', isLocked, 'solverData:', solverData);
+  }, [isLocked, solverData]);
 
   useEffect(() => {
     let unsubStudents = null;
@@ -74,6 +79,7 @@ export default function SolverDashboard() {
             setSolverData(info);
             currentSolverInfo = info;
             updateStudents(fsStudents, rtdbStudents, info);
+            setLoading(false); // Move here to prevent "unauthorized" flicker
 
             // Start RTDB Students Listener once we have solver info
             const rtdbStudentsRef = ref(rtdb, 'active_students');
@@ -81,6 +87,8 @@ export default function SolverDashboard() {
               rtdbStudents = snap.exists() ? snap.val() : {};
               updateStudents(fsStudents, rtdbStudents, currentSolverInfo);
             });
+          } else {
+            setLoading(false); // No data found, still stop loading
           }
         }, { onlyOnce: true });
 
@@ -100,7 +108,6 @@ export default function SolverDashboard() {
           setUniversitiesData(univs);
         });
 
-        setLoading(false);
       } catch (err) {
         console.error("Solver Init Error:", err);
         setLoading(false);
