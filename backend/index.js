@@ -76,15 +76,27 @@ async function maintenance() {
       }
     }
 
-    // AUTO-INIT: Try to restore all active sessions from Firestore
+    // AUTO-INIT: Try to restore all active sessions
     console.log('[SYSTEM] Attempting to auto-restore active WhatsApp sessions...');
-    const employeesSnap = await db.collection('employees').get();
-    for (const doc of employeesSnap.docs) {
-       const empId = doc.id;
-       // We call initialize without onQrGenerated to let it restore in background
-       whatsappService.initializeSession(empId).catch(e => {
-         console.warn(`[SYSTEM] Auto-init failed for ${empId}:`, e.message);
-       });
+    
+    // Try RTDB first (Fast Path)
+    const rtdbEmployeesSnap = await rtdb.ref('employee_roles').once('value');
+    if (rtdbEmployeesSnap.exists()) {
+      const employees = rtdbEmployeesSnap.val();
+      for (const empId in employees) {
+        whatsappService.initializeSession(empId).catch(() => {});
+      }
+      console.log(`[SYSTEM] Auto-initialized ${Object.keys(employees).length} sessions from RTDB.`);
+    } else {
+      // Fallback to Firestore (Slow Path) - wrapped in try/catch for quota safety
+      try {
+        const employeesSnap = await db.collection('employees').get();
+        for (const doc of employeesSnap.docs) {
+          whatsappService.initializeSession(doc.id).catch(() => {});
+        }
+      } catch (fe) {
+        console.warn('[SYSTEM] Firestore quota exceeded during auto-init. Using RTDB only.');
+      }
     }
 
   } catch (e) {
@@ -100,35 +112,15 @@ server.listen(PORT, '0.0.0.0', async () => {
   
   await maintenance();
   
-  // Start distribution service
+  // Sync core data to RTDB (Quota-proof Cache)
+  await distributionService.syncEmployeesToRtdb();
+  await distributionService.syncActiveStudentsToRtdb();
+
+  // Start background services
   distributionService.initDistributionListener();
-  
-  // SYNC: Populate RTDB with active students for quota-proof dashboard
-  distributionService.syncActiveStudentsToRtdb();
-  
-  // Start schedule service
   scheduleService.init();
 
-  // --- AUTO-BOOT SESSIONS ---
-  // Detect active sessions from Firestore and re-init sessions automatically
-  try {
-    const sessionsSnap = await db.collection('whatsapp_sessions').get();
-    const potentialSessions = sessionsSnap.docs.map(doc => doc.id);
-    console.log(`[AUTO-BOOT] Found ${potentialSessions.length} potential sessions in Firestore.`);
-
-    let delay = 0;
-    for (const employeeId of potentialSessions) {
-      setTimeout(() => {
-        console.log(`[AUTO-BOOT] Restoring session for: ${employeeId}`);
-        whatsappService.initializeSession(employeeId).catch(err => {
-          console.error(`[AUTO-BOOT ERROR] Failed for ${employeeId}:`, err.message);
-        });
-      }, delay);
-      delay += 10000; // Increased to 10 seconds to prevent memory spikes
-    }
-  } catch (e) {
-    console.error('[AUTO-BOOT] Failed to scan sessions:', e.message);
-  }
+  console.log('[SYSTEM] Backend initialization complete.');
 
   // Anti-sleep mechanism (Ping itself)
   const appUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;

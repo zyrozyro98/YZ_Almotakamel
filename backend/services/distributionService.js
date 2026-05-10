@@ -114,17 +114,16 @@ function initDistributionListener() {
  * Helps solvers see current tasks even if Firestore hits quota later.
  */
 async function syncActiveStudentsToRtdb() {
-  console.log('[SYNC] Starting full students sync to RTDB...');
+  console.log('[SYNC] Starting light students sync to RTDB...');
   try {
-    // Fetch ALL students (limited to 500 to protect RTDB size)
+    // Only sync the 20 most recent students to save quota.
+    // The rest should already be in RTDB from previous syncs/events.
     const studentsSnap = await db.collection('students')
-      .limit(500)
+      .orderBy('updatedAt', 'desc')
+      .limit(20)
       .get();
     
-    if (studentsSnap.empty) {
-      console.log('[SYNC] No students found in Firestore.');
-      return;
-    }
+    if (studentsSnap.empty) return;
 
     const batch = {};
     studentsSnap.docs.forEach(doc => {
@@ -132,18 +131,43 @@ async function syncActiveStudentsToRtdb() {
       batch[doc.id] = {
         ...data,
         id: doc.id,
-        syncSource: 'full_sync'
+        syncSource: 'light_sync'
       };
     });
 
     await rtdb.ref('active_students').update(batch);
-    console.log(`[SYNC] Successfully synced ${studentsSnap.size} students to RTDB for Solvers.`);
+    console.log(`[SYNC] Light sync completed: ${studentsSnap.size} students updated in RTDB.`);
   } catch (err) {
-    console.error('[SYNC ERROR] Failed to sync students:', err.message);
+    console.warn('[SYNC WARNING] Firestore quota reached. Dashboard will rely on existing RTDB data:', err.message);
+  }
+}
+
+/**
+ * Caches employee data in RTDB for quota-proof session initialization.
+ */
+async function syncEmployeesToRtdb() {
+  try {
+    const employeesSnap = await db.collection('employees').get();
+    const batch = {};
+    employeesSnap.docs.forEach(doc => {
+      const data = doc.data();
+      batch[doc.id] = {
+        id: doc.id,
+        name: data.name,
+        role: data.role,
+        assignedUniversity: data.assignedUniversity || 'الكل',
+        assignedMajor: data.assignedMajor || 'الكل'
+      };
+    });
+    await rtdb.ref('employee_roles').update(batch);
+    console.log('[SYNC] Employees cached in RTDB.');
+  } catch (err) {
+    console.warn('[SYNC WARNING] Could not cache employees in RTDB (Quota?):', err.message);
   }
 }
 
 module.exports = {
   initDistributionListener,
-  syncActiveStudentsToRtdb
+  syncActiveStudentsToRtdb,
+  syncEmployeesToRtdb
 };
