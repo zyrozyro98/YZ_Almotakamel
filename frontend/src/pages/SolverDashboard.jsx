@@ -232,47 +232,23 @@ export default function SolverDashboard() {
 
     setIsSubmitting(true);
     try {
-      // 1. Save to Firestore (Primary)
-      const submissionRef = await addDoc(collection(db, 'solver_submissions'), {
-        studentId: selectedStudent.id,
-        studentName: selectedStudent.name,
-        solverId: solverData.id,
-        solverName: solverData.name,
-        university: selectedStudent.university,
-        major: selectedStudent.major,
-        proofImage: submissionData.proofImage,
-        notes: submissionData.notes,
-        timestamp: serverTimestamp(),
-        status: 'completed'
-      });
-
-      // 2. Save to RTDB (Fast Path for Monitoring)
-      const { ref: rtdbRef, set: rtdbSet } = await import('firebase/database');
-      await rtdbSet(rtdbRef(rtdb, `solver_submissions/${submissionRef.id}`), {
-        studentId: selectedStudent.id,
-        studentName: selectedStudent.name,
-        solverId: solverData.id,
-        solverName: solverData.name,
-        university: selectedStudent.university,
-        major: selectedStudent.major,
-        proofImage: submissionData.proofImage,
-        notes: submissionData.notes,
-        timestamp: Date.now(),
-        status: 'completed'
-      });
-
-      // 3. Update Student Status via Backend API (Fast Path)
-      const response = await fetch(`${API_URL}/api/students/update-status/${selectedStudent.id}`, {
+      // Use the Backend API (Fast Path) to handle the submission
+      const response = await fetch(`${API_URL}/api/students/submit-result`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          solverStatus: 'completed',
-          solvedBy: solverData.name,
-          lockedById: solverData.id
+          studentId: selectedStudent.id,
+          studentName: selectedStudent.name,
+          solverId: solverData.id,
+          solverName: solverData.name,
+          university: selectedStudent.university,
+          major: selectedStudent.major,
+          proofImage: submissionData.proofImage,
+          notes: submissionData.notes
         })
       });
 
-      if (!response.ok) throw new Error('Status update failed');
+      if (!response.ok) throw new Error('Submission failed');
 
       alert('تم إرسال النتيجة بنجاح للرقابة.');
       closeStudentPanel();

@@ -111,7 +111,7 @@ router.post('/update-status/:id', async (req, res) => {
   }
 });
 
-// Toggle System Lock (RTDB ONLY - FAST PATH)
+// Toggle System Lock
 router.post('/system/toggle-lock', async (req, res) => {
   const { locked } = req.body;
   
@@ -120,20 +120,92 @@ router.post('/system/toggle-lock', async (req, res) => {
   }
 
   try {
-    console.log(`[API] Attempting to set system lock to: ${locked}`);
-    
-    // Update RTDB - This is our primary source of truth for the lock
+    // 1. FAST PATH: Update RTDB immediately
+    // Using a promise to ensure we know it finished
     await rtdb.ref('system_settings/solverSystemLocked').set(locked);
-    
-    console.log(`[API SUCCESS] System lock status is now: ${locked}`);
-    res.status(200).json({ 
-      success: true, 
-      locked: locked,
-      message: `System ${locked ? 'locked' : 'opened'} successfully in RTDB` 
-    });
+    console.log(`[API SUCCESS] System lock status pushed to RTDB: ${locked}`);
+
+    // 2. BACKWARD SYNC: Update Firestore (Non-blocking)
+    db.collection('system_settings').doc('global').set({ 
+      solverSystemLocked: locked,
+      updatedAt: new Date()
+    }, { merge: true }).catch(e => console.warn('[API] Firestore lock sync failed:', e.message));
+
+    res.status(200).json({ message: `System ${locked ? 'locked' : 'opened'} successfully` });
   } catch (error) {
     console.error('[API FATAL ERROR] Toggle Lock Failed:', error);
     res.status(500).json({ error: 'Failed to update system lock status: ' + error.message });
+  }
+});
+
+// Submit Solver Result
+router.post('/submit-result', async (req, res) => {
+  try {
+    const { 
+      studentId, studentName, solverId, solverName, 
+      university, major, proofImage, notes 
+    } = req.body;
+
+    if (!studentId || !solverId || !proofImage) {
+      return res.status(400).json({ error: 'Missing required submission data' });
+    }
+
+    // 1. Generate IDs and Timestamps
+    const submissionId = rtdb.ref('solver_submissions').push().key;
+    const timestamp = Date.now();
+
+    // 2. FAST PATH: Write Submission and Update Student Status in RTDB
+    const rtdbUpdates = {};
+    
+    // Create submission record
+    rtdbUpdates[`solver_submissions/${submissionId}`] = {
+      id: submissionId,
+      studentId, studentName, solverId, solverName,
+      university, major, proofImage, notes,
+      timestamp,
+      status: 'completed'
+    };
+
+    // Update student status
+    rtdbUpdates[`active_students/${studentId}/solverStatus`] = 'completed';
+    rtdbUpdates[`active_students/${studentId}/solvedBy`] = solverName;
+    rtdbUpdates[`active_students/${studentId}/lockedById`] = solverId;
+    rtdbUpdates[`active_students/${studentId}/updatedAt`] = timestamp;
+
+    await rtdb.ref().update(rtdbUpdates);
+    console.log(`[API SUCCESS] Submission ${submissionId} recorded in RTDB for student ${studentId}`);
+
+    // 3. BACKWARD SYNC: Firestore (Background)
+    const firestorePromises = [];
+
+    // Create submission in Firestore
+    firestorePromises.push(
+      db.collection('solver_submissions').doc(submissionId).set({
+        studentId, studentName, solverId, solverName,
+        university, major, proofImage, notes,
+        timestamp: new Date(),
+        status: 'completed'
+      })
+    );
+
+    // Update student in Firestore
+    firestorePromises.push(
+      db.collection('students').doc(studentId).update({
+        solverStatus: 'completed',
+        solvedBy: solverName,
+        lockedById: solverId,
+        updatedAt: new Date()
+      })
+    );
+
+    Promise.all(firestorePromises)
+      .then(() => console.log(`[API] Submission ${submissionId} synced to Firestore`))
+      .catch(err => console.warn(`[API] Firestore submission sync failed (quota):`, err.message));
+
+    res.status(200).json({ message: 'Result submitted successfully', submissionId });
+  } catch (error) {
+    console.error('[API ERROR] Submit Result Failed:', error);
+    res.status(500).json({ error: 'حدث خطأ أثناء إرسال النتيجة' });
   }
 });
 
