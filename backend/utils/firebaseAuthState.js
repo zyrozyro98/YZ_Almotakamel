@@ -29,7 +29,28 @@ const useFirestoreAuthState = async (employeeId) => {
                 if (typeof payload === 'string') {
                     return JSON.parse(payload, BufferJSON.reviver);
                 }
-                // Backward compatibility if it was saved as an object previously
+                
+                // Backward compatibility & Firebase empty object fix
+                // Firebase RTDB strips empty objects `{}`, causing `_chains` and `messageKeys` to be undefined!
+                if (payload && typeof payload === 'object') {
+                    if (payload._sessions) {
+                        for (const sessionKey in payload._sessions) {
+                            if (!payload._sessions[sessionKey]._chains) {
+                                payload._sessions[sessionKey]._chains = {};
+                            } else {
+                                for (const chainKey in payload._sessions[sessionKey]._chains) {
+                                    if (!payload._sessions[sessionKey]._chains[chainKey].messageKeys) {
+                                        payload._sessions[sessionKey]._chains[chainKey].messageKeys = {};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (payload.keys) {
+                         // Some other structures might need defaults if they were stripped
+                    }
+                }
+                
                 return JSON.parse(JSON.stringify(payload), BufferJSON.reviver);
             }
             return null;
