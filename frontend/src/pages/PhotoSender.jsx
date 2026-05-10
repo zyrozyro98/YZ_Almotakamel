@@ -32,7 +32,9 @@ export default function PhotoSender() {
       });
 
       // Background Self-Healing Sync
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
       const sync = async () => {
         try {
           const res = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
@@ -203,7 +205,9 @@ export default function PhotoSender() {
   };
 
   const fetchAllStatuses = async () => {
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
     try {
       const res = await axios.get(`${BASE_URL}/api/whatsapp/status-all`);
       const statusMap = {};
@@ -408,7 +412,9 @@ export default function PhotoSender() {
 
   const processQueue = async (startIndex) => {
     let current = startIndex;
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
     const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
 
     let currentAutoIndex = 0;
@@ -664,7 +670,9 @@ export default function PhotoSender() {
   };
 
   const handleBulkSchedule = async () => {
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
     const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
     
     if (!scheduledTime) {

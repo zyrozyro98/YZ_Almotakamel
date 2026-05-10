@@ -129,7 +129,9 @@ export default function Reports() {
   useEffect(() => {
     const fetchStatuses = async () => {
       const statuses = {};
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
       
       for (const emp of employees) {
         try {
@@ -154,7 +156,9 @@ export default function Reports() {
     setIsLoading(true);
     setQrString('');
     try {
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
       const res = await axios.post(`${BASE_URL}/api/whatsapp/init`, { employeeId: selectedEmp });
       
       if (res.data.status === 'qr_generated') setQrString(res.data.qr);

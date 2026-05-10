@@ -14,7 +14,7 @@ export default function SolverControl() {
   const [loading, setLoading] = useState(true);
   const [isSystemLocked, setIsSystemLocked] = useState(false);
   const [isUpdatingLock, setIsUpdatingLock] = useState(false);
-  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://yz-almotakamel-backend.onrender.com';
 
   useEffect(() => {
     let fsSubmissions = [];

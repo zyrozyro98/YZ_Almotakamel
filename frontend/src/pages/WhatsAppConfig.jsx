@@ -28,7 +28,9 @@ export default function WhatsAppConfig() {
   const [stickerFile, setStickerFile] = useState(null);
 
 
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
 
   // 1. Auth Listener
   useEffect(() => {

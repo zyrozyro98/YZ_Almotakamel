@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -132,3 +133,4 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 app.get('/', (req, res) => res.send('YZ Almotakamel Backend is Running.'));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));

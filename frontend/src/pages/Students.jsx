@@ -144,7 +144,7 @@ export default function Students() {
     return d;
   };
 
-  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://yz-almotakamel-backend.onrender.com';
 
   const handleSubmit = async (e) => {
     e.preventDefault();

@@ -24,7 +24,7 @@ export default function SolverDashboard() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://yz-almotakamel-backend.onrender.com';
+  const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://yz-almotakamel-backend.onrender.com';
 
   useEffect(() => {
     console.log('[DEBUG] SolverDashboard State - isLocked:', isLocked, 'solverData:', solverData);

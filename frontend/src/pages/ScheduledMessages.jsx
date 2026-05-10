@@ -6,7 +6,9 @@ export default function ScheduledMessages() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : (import.meta.env.VITE_API_BASE_URL || 'https://yz-almotakamel-backend.onrender.com');
 
   useEffect(() => {
     fetchMessages();
