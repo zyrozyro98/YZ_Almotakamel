@@ -270,14 +270,6 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 };
 
 async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
-  const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
-  const sync = await syncToCloud(employeeId, sessionPath);
-
-  // Restore from cloud if local is empty
-  if (!fs.existsSync(path.join(sessionPath, 'creds.json'))) {
-      await sync.downloadAll();
-  }
-
   const existingSock = sessions.get(employeeId);
   if (existingSock) {
     if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
@@ -291,21 +283,18 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   // Memory Safety Check
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
-  console.log(`[SYSTEM] Initializing WA session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
+  console.log(`[SYSTEM] Initializing WA Cloud session for ${employeeId}. Current Heap: ${Math.round(usage)}MB`);
 
   let state, saveCreds;
   try {
-    const authData = await useMultiFileAuthState(sessionPath);
+    // SWITCHED: Using Firestore Auth State for permanent persistence (Render Safe)
+    const authData = await useFirestoreAuthState(employeeId);
     state = authData.state;
     saveCreds = authData.saveCreds;
   } catch (err) {
-    console.error(`[WA-${employeeId}] Auth state corrupted. Wiping session and restarting:`, err.message);
-    if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
-    await sync.clearCloud();
-    
-    // Fallback: If it fails, update RTDB to disconnected so the UI doesn't hang forever
+    console.error(`[WA-${employeeId}] Firestore Auth state failed:`, err.message);
     rtdb.ref(`wa_status/${employeeId}`).update({ status: 'disconnected', isConnected: false }).catch(() => {});
-    return null; // Return null, user must click 'ربط جديد'
+    return null; 
   }
 
   // 1. Fetch Proxy Configuration from Firestore
@@ -351,10 +340,9 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   sessions.set(employeeId, sock);
 
-  // Sync to Cloud on every creds update
+  // Sync to Firestore on every creds update
   sock.ev.on('creds.update', async () => {
       await saveCreds();
-      await sync.uploadFile(path.join(sessionPath, 'creds.json'));
   });
 
   // Sync keys to cloud
