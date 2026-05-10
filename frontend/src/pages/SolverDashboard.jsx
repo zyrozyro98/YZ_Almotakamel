@@ -34,11 +34,20 @@ export default function SolverDashboard() {
     let unsubStudents = null;
     let unsubUniversities = null;
 
-    // 1. Lock Status (RTDB Fast Path)
+    // 1. Lock Status (RTDB Fast Path) - Isolated for stability
     const lockRef = ref(rtdb, 'system_settings/solverSystemLocked');
     const unsubLock = onValue(lockRef, (snap) => {
-      setIsLocked(snap.val() === true);
+      const val = snap.val();
+      console.log('[RTDB LOCK] Raw Value:', val);
+      setIsLocked(val === true || val === 'true');
     });
+
+    return () => unsubLock();
+  }, []);
+
+  useEffect(() => {
+    let unsubStudents = null;
+    let unsubUniversities = null;
 
     // 2. Main Init Function
     const initSolver = async (user) => {
@@ -125,10 +134,8 @@ export default function SolverDashboard() {
 
     return () => {
       unsubAuth();
-      unsubLock();
       if (unsubStudents) unsubStudents();
       if (unsubUniversities) unsubUniversities();
-      // unsubRtdbStudents is local to initSolver, so we handle it there or via a ref
     };
   }, []);
 
@@ -414,8 +421,15 @@ export default function SolverDashboard() {
             <BookOpen size={16} /> الجامعة المخصصة: <strong style={{ color: '#fff' }}>{solverData.assignedUniversity || 'الكل'}</strong> | التخصص: <strong style={{ color: '#fff' }}>{solverData.assignedMajor || 'الكل'}</strong>
           </p>
         </div>
-        <div style={{ background: isLocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: isLocked ? 'var(--danger)' : '#10b981', padding: '10px 20px', borderRadius: '14px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', border: `1px solid ${isLocked ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}` }}>
-          {isLocked ? <Lock size={18} /> : <Shield size={18} />} {isLocked ? 'النظام مقفل حالياً' : 'النظام نشط ومفتوح'}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
+          <div style={{ background: isLocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: isLocked ? 'var(--danger)' : '#10b981', padding: '10px 20px', borderRadius: '14px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', border: `1px solid ${isLocked ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}` }}>
+            {isLocked ? <Lock size={18} /> : <Shield size={18} />} {isLocked ? 'النظام مقفل حالياً' : 'النظام نشط ومفتوح'}
+          </div>
+          {solverData?.role === 'admin' && (
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', opacity: 0.5 }}>
+              RTDB Path: system_settings/solverSystemLocked | Status: {isLocked ? 'TRUE' : 'FALSE'}
+            </span>
+          )}
         </div>
       </div>
 
