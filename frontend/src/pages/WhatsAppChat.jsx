@@ -156,7 +156,7 @@ export default function WhatsAppChat() {
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
     if (!targetId) return;
 
-    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), limitToLast(200));
+    const activeRef = rtdbQuery(ref(rtdb, `chats_meta/${targetId}`), limitToLast(200));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {

@@ -257,7 +257,7 @@ export default function PhotoSender() {
     if (!text) return "";
     return text.replace(/\{([^{}]+)\}/g, (match, options) => {
       // If it contains variables we know, skip spintax parsing for them here
-      const vars = ['name', 'greeting', 'university', 'major', 'closing'];
+      const vars = ['name', 'list_name', 'greeting', 'university', 'major', 'closing'];
       if (vars.includes(options.toLowerCase())) return match;
 
       const choices = options.split('|');

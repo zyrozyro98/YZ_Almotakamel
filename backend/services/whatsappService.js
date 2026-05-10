@@ -299,14 +299,16 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     }
 
     await chatRef.child('messages').child(msgId).update(msgData);
-    await chatRef.update({
+    const metaPayload = {
       lastMessage: textMsg,
       timestamp: Date.now(),
       phone: chatId,
       fullJid: normalizedJid,
       name: finalName,
       lastSender: isMe ? 'me' : 'them'
-    });
+    };
+    await chatRef.update(metaPayload);
+    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaPayload);
 
     if (!isMe) {
       const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
@@ -498,6 +500,15 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
           phoneData.phone = phoneJid;
           
           await phoneChatRef.update(phoneData);
+          const metaData = {
+            lastMessage: phoneData.lastMessage,
+            timestamp: phoneData.timestamp,
+            name: phoneData.name,
+            phone: phoneData.phone,
+            fullJid: phoneData.fullJid,
+            lastSender: phoneData.lastSender
+          };
+          await rtdb.ref(`chats_meta/${employeeId}/${phoneJid}`).update(metaData);
           await lidChatRef.remove();
           console.log(`[AUTO-MERGE] Merged ${lidKey} into ${phoneJid} automatically in background.`);
         }

@@ -137,13 +137,15 @@ router.post('/send', async (req, res) => {
       await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
       
       // Update chat metadata to instantly reflect in the UI sidebar
-      await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+      const metaData = {
         lastMessage: finalMessage.substring(0, 50),
         timestamp: Date.now(),
         phone: chatId,
         fullJid: targetJid,
         lastSender: 'me'
-      }).catch(() => { });
+      };
+      await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+      await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
@@ -364,13 +366,15 @@ router.post('/send-image', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update({
+    const metaData = {
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: finalChatId,
       fullJid: targetJid,
       lastSender: "me"
-    }).catch(() => { });
+    };
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -440,13 +444,15 @@ router.post('/send-document', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+    const metaData = {
       lastMessage: caption || "📎 ملف",
       timestamp: Date.now(),
       phone: chatId,
       fullJid: targetJid,
       lastSender: "me"
-    }).catch(() => { });
+    };
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -512,13 +518,15 @@ router.post('/send-video', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    await rtdb.ref(`chats/${employeeId}/${chatId}`).update({
+    const metaData = {
       lastMessage: caption || "🎥 فيديو",
       timestamp: Date.now(),
       phone: chatId,
       fullJid: targetJid,
       lastSender: "me"
-    }).catch(() => { });
+    };
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
 
     res.json({ success: true });
   } catch (err) {
@@ -584,13 +592,15 @@ router.post('/send-sticker', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update({
+    const metaData = {
       lastMessage: "🏷️ ملصق",
       timestamp: Date.now(),
       phone: finalChatId,
       fullJid: targetJid,
       lastSender: "me"
-    }).catch(() => { });
+    };
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { 
@@ -680,13 +690,16 @@ router.post('/merge-chat', async (req, res) => {
       const newData = newSnap.exists() ? newSnap.val() : {};
 
       // Merge metadata
-      await newRef.update({
+      const metaData = {
         name: newData.name || oldData.name || "مجهول",
         phone: cleanPhone,
         fullJid: fullJid || oldData.fullJid || newData.fullJid || "",
         lastMessage: oldData.lastMessage || newData.lastMessage || "",
-        timestamp: Math.max(oldData.timestamp || 0, newData.timestamp || 0)
-      });
+        timestamp: Math.max(oldData.timestamp || 0, newData.timestamp || 0),
+        lastSender: oldData.lastSender || newData.lastSender || 'them'
+      };
+      await newRef.update(metaData);
+      await rtdb.ref(`chats_meta/${employeeId}/${cleanPhone}`).update(metaData);
 
       // Merge messages
       if (oldData.messages) {
@@ -738,7 +751,18 @@ router.post('/cleanup-database', async (req, res) => {
         phoneToCanonical[getPureNumber(oldKey)] ||
         getPureNumber(oldKey);
 
-      // If the actual folder name in DB is different from its pure version
+      // 1. Migrate ALL chats to chats_meta
+      const meta = {
+          name: chatData.name || "",
+          phone: newKey,
+          fullJid: chatData.fullJid || "",
+          lastMessage: chatData.lastMessage || "",
+          timestamp: chatData.timestamp || 0,
+          lastSender: chatData.lastSender || 'them'
+      };
+      await rtdb.ref(`chats_meta/${employeeId}/${newKey}`).update(meta);
+
+      // 2. If the actual folder name in DB is different from its pure version
       if (rawOldKey !== newKey) {
         console.log(`[CLEANUP] Force Merging: ${rawOldKey} -> ${newKey}`);
         const newRef = chatsRef.child(newKey);
