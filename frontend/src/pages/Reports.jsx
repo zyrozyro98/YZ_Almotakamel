@@ -114,9 +114,9 @@ export default function Reports() {
       if (!data) return;
       
       let messageCount = 0;
-      Object.values(data).forEach(empChats => {
-        Object.values(empChats).forEach(chat => {
-          if (chat.messages) messageCount += Object.keys(chat.messages).length;
+      Object.values(data || {}).forEach(empChats => {
+        Object.values(empChats || {}).forEach(chat => {
+          if (chat.messages) messageCount += Object.keys(chat.messages || {}).length;
         });
       });
       

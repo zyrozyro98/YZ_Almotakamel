@@ -39,7 +39,7 @@ async function findBestEmployee() {
     let bestEmp = employeeIds[0];
     let minLoad = loads[bestEmp];
 
-    for (const [empId, load] of Object.entries(loads)) {
+    for (const [empId, load] of Object.entries(loads || {})) {
       if (load < minLoad) {
         minLoad = load;
         bestEmp = empId;

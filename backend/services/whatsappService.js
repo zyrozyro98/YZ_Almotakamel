@@ -159,7 +159,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
             const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
             if (allChatsSnap.exists()) {
               const chatsData = allChatsSnap.val();
-              for (const [phoneKey, chatObj] of Object.entries(chatsData)) {
+              for (const [phoneKey, chatObj] of Object.entries(chatsData || {})) {
                 if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
                   mappedPhone = phoneKey;
                   break;

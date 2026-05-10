@@ -137,9 +137,9 @@ export default function PhotoSender() {
 
   // Derived state for auto routing
   const activeAutoStatus = {
-    isConnected: Object.values(allStatuses).some(s => s && s.isConnected),
+    isConnected: Object.values(allStatuses || {}).some(s => s && s.isConnected),
     isAuto: true,
-    count: Object.values(allStatuses).filter(s => s && s.isConnected).length
+    count: Object.values(allStatuses || {}).filter(s => s && s.isConnected).length
   };
   const currentSenderStatus = senderId === 'auto' ? activeAutoStatus : (allStatuses[senderId] || { isConnected: false });
   
@@ -157,7 +157,7 @@ export default function PhotoSender() {
   }, [isRunning, isPaused]);
 
   useEffect(() => {
-    const connected = Object.keys(allStatuses).filter(key => allStatuses[key]?.isConnected && key !== 'emp1');
+    const connected = Object.keys(allStatuses || {}).filter(key => allStatuses[key]?.isConnected && key !== 'emp1');
     if (autoIncludedAccounts.length === 0 && connected.length > 0) {
       setAutoIncludedAccounts(connected);
     }
@@ -990,7 +990,7 @@ export default function PhotoSender() {
                         </label>
                       );
                     })}
-                    {Object.values(allStatuses).filter(s => s && s.isConnected).length === 0 && (
+                    {Object.values(allStatuses || {}).filter(s => s && s.isConnected).length === 0 && (
                       <span style={{ fontSize: '0.7rem', color: 'var(--danger)' }}>لا يوجد أي حساب متصل حالياً.</span>
                     )}
                   </div>
