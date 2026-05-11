@@ -798,6 +798,14 @@ router.post('/cleanup-database', async (req, res) => {
     const bulkMetaUpdates = {};
 
     for (const [rawOldKey, chatData] of Object.entries(allChats)) {
+      // 0. Aggressive Cleanup of Groups/Channels/Broadcasts
+      if (rawOldKey.endsWith('@g.us') || rawOldKey.endsWith('@newsletter') || rawOldKey.includes('@broadcast') || rawOldKey === 'status') {
+        console.log(`[CLEANUP] Removing non-individual chat: ${rawOldKey}`);
+        await chatsRef.child(rawOldKey).remove();
+        await rtdb.ref(`chats_meta/${employeeId}/${rawOldKey}`).remove();
+        continue;
+      }
+
       // Normalize oldKey to handle cases like "number@lid" or "number:1"
       const oldKey = rawOldKey.split(':')[0].split('@')[0];
       const newKey = jidToCanonical[chatData.fullJid] ||
@@ -843,6 +851,9 @@ router.post('/cleanup-database', async (req, res) => {
     if (Object.keys(bulkMetaUpdates).length > 0) {
         await rtdb.ref().update(bulkMetaUpdates);
     }
+
+    // Also clear notifications to get rid of group/channel noise
+    await rtdb.ref(`notifications/${employeeId}`).remove();
 
     res.json({ success: true, transformed: count });
   } catch (error) {

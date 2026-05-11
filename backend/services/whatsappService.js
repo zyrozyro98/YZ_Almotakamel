@@ -66,8 +66,16 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   if (type !== 'notify') return;
 
   for (const msg of messages) {
-    const remoteJid = msg.key.remoteJid;
-    if (!msg.message || remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@newsletter')) continue;
+    const remoteJid = msg.key.remoteJid || '';
+    const cleanRemoteJid = remoteJid.split(':')[0]; // Remove multi-device suffixes like :1, :2
+    
+    // STRICT FILTER: Only allow individual messages (@s.whatsapp.net or @lid)
+    // This blocks groups (@g.us), channels (@newsletter), and broadcast lists (@broadcast)
+    const isUser = cleanRemoteJid.endsWith('@s.whatsapp.net') || cleanRemoteJid.endsWith('@lid');
+    
+    if (!msg.message || !isUser || cleanRemoteJid === 'status@broadcast') {
+      continue;
+    }
 
     const msgId = msg.key.id;
     if (processedMessageIds.has(msgId)) continue;
