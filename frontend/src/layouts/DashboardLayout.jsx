@@ -34,7 +34,6 @@ export default function DashboardLayout() {
   const [userRole, setUserRole] = useState('employee');
   const [isRoleLoading, setIsRoleLoading] = useState(true);
   const [waStatus, setWaStatus] = useState({ isConnected: false });
-  const [employeeName, setEmployeeName] = useState('');
 
   // Persistent Tabs State: Keeps track of which pages have been visited to keep them mounted
   const [visitedRoutes, setVisitedRoutes] = useState(new Set([location.pathname]));
@@ -97,7 +96,6 @@ export default function DashboardLayout() {
               const data = snapshot.val();
               currentRole = data.role || 'employee';
               if (data.role === 'admin') adminStatus = true;
-              setEmployeeName(data.name || '');
               setUserRole(currentRole);
               setIsAdmin(adminStatus);
               setIsRoleLoading(false);
@@ -109,7 +107,6 @@ export default function DashboardLayout() {
                   const data = userDoc.data();
                   currentRole = data.role || 'employee';
                   if (data.role === 'admin' || data.type === 'admin') adminStatus = true;
-                  setEmployeeName(data.name || '');
                   setUserRole(currentRole);
                 }
               } catch (e) {
@@ -131,15 +128,12 @@ export default function DashboardLayout() {
     return () => unsubAuth();
   }, []);
 
-  // Enforce solver routing and employee redirect from Home
+  // Enforce solver routing
   useEffect(() => {
-    if (isRoleLoading) return;
     if (userRole === 'solver' && location.pathname !== '/solver') {
       navigate('/solver', { replace: true });
-    } else if (!isAdmin && userRole === 'employee' && (location.pathname === '/dashboard' || location.pathname === '/')) {
-      navigate('/chat', { replace: true });
     }
-  }, [userRole, isAdmin, isRoleLoading, location.pathname, navigate]);
+  }, [userRole, location.pathname, navigate]);
 
   // 2. Real-time Notifications Listener using Golden Key
   useEffect(() => {
@@ -213,7 +207,7 @@ export default function DashboardLayout() {
   };
 
   const allNavItems = [
-    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: true, component: <DashboardHome /> },
+    { path: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard size={20} />, adminOnly: false, component: <DashboardHome /> },
     { path: '/students', label: 'الطلاب', icon: <Users size={20} />, adminOnly: true, component: <Students /> },
     { path: '/employees', label: 'فريق العمل', icon: <Users size={20} />, adminOnly: true, component: <Employees /> },
     { path: '/universities', label: 'الجامعات والتخصصات', icon: <Building size={20} />, adminOnly: true, component: <Universities /> },
@@ -303,10 +297,10 @@ export default function DashboardLayout() {
                 background: isAdmin ? 'linear-gradient(135deg, #f59e0b, #ef4444)' : 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))', 
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#fff',
                 boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
-              }}>{(employeeName || 'موظف').substring(0, 2).toUpperCase()}</div>
+              }}>{employeeId.substring(0, 2).toUpperCase()}</div>
               <div>
                 <p style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {isAdmin ? 'المسؤول' : (employeeName || `موظف: ${employeeId.substring(0,6)}`)}
+                  {isAdmin ? 'المسؤول' : `هوية: ${employeeId.substring(0,6)}`}
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span>

@@ -6,13 +6,6 @@ const { getPureNumber } = require('../utils/numberUtils');
 const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage, checkFrequency, simulateRead } = require('../utils/antiBan');
 const sharp = require('sharp');
 
-// Helper to get linked number for an employee
-async function getLinkedNumber(employeeId) {
-  const statusSnap = await rtdb.ref(`wa_status/${employeeId}`).once('value');
-  const data = statusSnap.val();
-  return data?.linkedNumber || null;
-}
-
 // Logout
 router.post('/logout', async (req, res) => {
   const { employeeId } = req.body;
@@ -61,9 +54,6 @@ router.post('/send', async (req, res) => {
   }
 
   try {
-    const linkedNumber = await getLinkedNumber(employeeId);
-    if (!linkedNumber) return res.status(400).json({ error: 'لم يتم العثور على رقم مرتبط لهذه الجلسة.' });
-
     const sock = whatsappService.getSession(employeeId);
     // Relaxed check: If sock exists in memory, Baileys will queue or throw a proper error
     const isConnected = sock && (sock.user || sock.authState?.creds?.me);
@@ -144,7 +134,7 @@ router.post('/send', async (req, res) => {
         };
       }
 
-      await rtdb.ref(`chats/${linkedNumber}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
+      await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
       
       // Update chat metadata to instantly reflect in the UI sidebar
       const metaData = {
@@ -154,8 +144,8 @@ router.post('/send', async (req, res) => {
         fullJid: targetJid,
         lastSender: 'me'
       };
-      await rtdb.ref(`chats/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
-      await rtdb.ref(`chats_meta/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
+      await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+      await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
     }
 
     return res.status(200).json({ status: 'sent', to: targetJid });
@@ -180,7 +170,6 @@ router.get('/status/:employeeId', async (req, res) => {
 
     if (status.isConnected && sock?.user?.id) {
       updatePayload.phoneNumber = sock.user.id.split(':')[0];
-      updatePayload.linkedNumber = sock.user.id.split(':')[0].split('@')[0];
     }
 
     await rtdb.ref(`wa_status/${employeeId}`).update(updatePayload).catch(e => console.error('RTDB Sync failed:', e.message));
@@ -209,7 +198,6 @@ router.get('/status-all', async (req, res) => {
         isConnected: rtdbData.isConnected || false,
         status: rtdbData.status || 'disconnected',
         phoneNumber: rtdbData.phoneNumber || null,
-        linkedNumber: rtdbData.linkedNumber || null,
         lastUpdate: rtdbData.lastUpdate || null
       });
     }
@@ -224,17 +212,14 @@ router.get('/status-all', async (req, res) => {
 async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
   const cleanPhone = getPureNumber(phoneNumber); // cleanPhone is now perfectly normalized to international format (e.g., 9665...)
   const sock = whatsappService.getSession(employeeId);
-  const linkedNumber = await getLinkedNumber(employeeId);
   
   // 1. Check if we already have a mapping for this ID (if it's a LID)
-  if (linkedNumber) {
-    try {
-      const snap = await rtdb.ref(`jid_mappings/${linkedNumber}/${cleanPhone}`).once('value');
-      if (snap.exists()) {
-        return `${snap.val()}@s.whatsapp.net`;
-      }
-    } catch(e) {}
-  }
+  try {
+    const snap = await rtdb.ref(`jid_mappings/${employeeId}/${cleanPhone}`).once('value');
+    if (snap.exists()) {
+      return `${snap.val()}@s.whatsapp.net`;
+    }
+  } catch(e) {}
 
   // 2. If targetJid is provided and it's a LID, AND we don't have a mapped standard number,
   // we must use the LID to reply, otherwise it will try to send to LID@s.whatsapp.net which doesn't exist.
@@ -248,10 +233,10 @@ async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
     const results = await sock.onWhatsApp(cleanPhone);
     if (results && results.length > 0) {
       const lidJid = results.find(r => r.exists && r.jid.includes('@lid'));
-      if (lidJid && linkedNumber) {
+      if (lidJid) {
         const lid = lidJid.jid.split('@')[0].split(':')[0];
         // Cache the mapping permanently so normal text replies don't split the chat!
-        await rtdb.ref(`jid_mappings/${linkedNumber}/${lid}`).set(cleanPhone).catch(() => { });
+        await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
         
         // Also update the Firestore student profile
         const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
@@ -279,7 +264,7 @@ async function getAutoEmployeeId(chatId) {
       for (const key in statuses) {
         // Exclude emp1 (admin/system) and verify connection/memory state
         if (statuses[key].isConnected && key !== 'emp1' && whatsappService.isSessionActive(key)) {
-          connectedEmps.push({ id: key, linkedNumber: statuses[key].linkedNumber });
+          connectedEmps.push(key);
         }
       }
     }
@@ -291,24 +276,24 @@ async function getAutoEmployeeId(chatId) {
     // 2. Try to find who this student chatted with before
     const chatsSnap = await rtdb.ref('chats').once('value');
     if (chatsSnap.exists()) {
-      const allChatsByNumber = chatsSnap.val();
-      let bestEmpId = null;
+      const allChats = chatsSnap.val();
+      let bestEmp = null;
       let latestTime = 0;
 
-      for (const emp of connectedEmps) {
-        if (emp.linkedNumber && allChatsByNumber[emp.linkedNumber] && allChatsByNumber[emp.linkedNumber][chatId]) {
-          const t = allChatsByNumber[emp.linkedNumber][chatId].timestamp || 0;
-          if (t > latestTime) {
+      for (const empKey in allChats) {
+        if (allChats[empKey][chatId]) {
+          const t = allChats[empKey][chatId].timestamp || 0;
+          if (t > latestTime && connectedEmps.includes(empKey)) {
             latestTime = t;
-            bestEmpId = emp.id;
+            bestEmp = empKey;
           }
         }
       }
-      if (bestEmpId) return bestEmpId;
+      if (bestEmp) return bestEmp;
     }
 
     // 3. Fallback: Return the first connected employee
-    return connectedEmps[0].id;
+    return connectedEmps[0];
   } catch (e) {
     console.error('[AUTO-ROUTING ERROR]', e.message);
   }
@@ -379,7 +364,7 @@ router.post('/send-image', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${linkedNumber}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
     const metaData = {
       lastMessage: caption || "📷 صورة",
@@ -388,8 +373,8 @@ router.post('/send-image', async (req, res) => {
       fullJid: targetJid,
       lastSender: "me"
     };
-    await rtdb.ref(`chats/${linkedNumber}/${finalChatId}`).update(metaData).catch(() => { });
-    await rtdb.ref(`chats_meta/${linkedNumber}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -457,7 +442,7 @@ router.post('/send-document', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${linkedNumber}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
     const metaData = {
       lastMessage: caption || "📎 ملف",
@@ -466,8 +451,8 @@ router.post('/send-document', async (req, res) => {
       fullJid: targetJid,
       lastSender: "me"
     };
-    await rtdb.ref(`chats/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
-    await rtdb.ref(`chats_meta/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -531,7 +516,7 @@ router.post('/send-video', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${linkedNumber}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
     const metaData = {
       lastMessage: caption || "🎥 فيديو",
@@ -540,8 +525,8 @@ router.post('/send-video', async (req, res) => {
       fullJid: targetJid,
       lastSender: "me"
     };
-    await rtdb.ref(`chats/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
-    await rtdb.ref(`chats_meta/${linkedNumber}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${chatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
 
     res.json({ success: true });
   } catch (err) {
@@ -605,7 +590,7 @@ router.post('/send-sticker', async (req, res) => {
       senderId: senderId || "system"
     };
 
-    await rtdb.ref(`chats/${linkedNumber}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
     const metaData = {
       lastMessage: "🏷️ ملصق",
@@ -614,8 +599,8 @@ router.post('/send-sticker', async (req, res) => {
       fullJid: targetJid,
       lastSender: "me"
     };
-    await rtdb.ref(`chats/${linkedNumber}/${finalChatId}`).update(metaData).catch(() => { });
-    await rtdb.ref(`chats_meta/${linkedNumber}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
   } catch (err) { 
@@ -632,13 +617,10 @@ router.post('/delete-message', async (req, res) => {
   }
 
   try {
-    const linkedNumber = await getLinkedNumber(employeeId);
-    if (!linkedNumber) return res.status(400).json({ error: 'لم يتم العثور على رقم مرتبط.' });
-
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '').slice(-9);
 
     // 1. Mark as deleted in RTDB (this is what ensures Admin can see it and others can't)
-    await rtdb.ref(`chats/${linkedNumber}/${cleanPhone}/messages/${messageId}`).update({
+    await rtdb.ref(`chats/${employeeId}/${cleanPhone}/messages/${messageId}`).update({
       isDeleted: true,
       deletedAt: Date.now()
     });
@@ -675,12 +657,9 @@ router.post('/delete-chat', async (req, res) => {
   if (!employeeId || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
 
   try {
-    const linkedNumber = await getLinkedNumber(employeeId);
-    if (!linkedNumber) return res.status(400).json({ error: 'لم يتم العثور على رقم مرتبط.' });
-
     const cleanId = getPureNumber(phoneNumber);
-    await rtdb.ref(`chats/${linkedNumber}/${cleanId}`).remove();
-    await rtdb.ref(`chats_meta/${linkedNumber}/${cleanId}`).remove();
+    await rtdb.ref(`chats/${employeeId}/${cleanId}`).remove();
+    await rtdb.ref(`chats_meta/${employeeId}/${cleanId}`).remove();
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -693,19 +672,16 @@ router.post('/merge-chat', async (req, res) => {
   if (!employeeId || !lidIdentifier || !phoneNumber) return res.status(400).json({ error: 'Missing parameters' });
 
   try {
-    const linkedNumber = await getLinkedNumber(employeeId);
-    if (!linkedNumber) return res.status(400).json({ error: 'لم يتم العثور على رقم مرتبط.' });
-
     const cleanPhone = getPureNumber(phoneNumber);
     const rawLid = getPureNumber(lidIdentifier); // e.g. 123456@lid -> 123456
     
     if (rawLid === cleanPhone) return res.json({ success: true, message: 'Same ID' });
 
     // 1. Save to global mappings
-    await rtdb.ref(`jid_mappings/${linkedNumber}/${rawLid}`).set(cleanPhone);
+    await rtdb.ref(`jid_mappings/${employeeId}/${rawLid}`).set(cleanPhone);
 
     // 2. Move chat in RTDB
-    const chatsRef = rtdb.ref(`chats/${linkedNumber}`);
+    const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const oldSnap = await chatsRef.child(rawLid).once('value');
     
     if (oldSnap.exists()) {
@@ -724,7 +700,7 @@ router.post('/merge-chat', async (req, res) => {
         lastSender: oldData.lastSender || newData.lastSender || 'them'
       };
       await newRef.update(metaData);
-      await rtdb.ref(`chats_meta/${linkedNumber}/${cleanPhone}`).update(metaData);
+      await rtdb.ref(`chats_meta/${employeeId}/${cleanPhone}`).update(metaData);
 
       // Merge messages
       if (oldData.messages) {
@@ -748,8 +724,6 @@ router.post('/cleanup-database', async (req, res) => {
   if (!employeeId) return res.status(400).json({ error: 'Missing employeeId' });
 
   try {
-    const linkedNumber = await getLinkedNumber(employeeId);
-    if (!linkedNumber) return res.status(400).json({ error: 'لم يتم العثور على رقم مرتبط.' });
     // 1. Build an Identity Map from Firestore Students
     const studentSnap = await db.collection('students').get();
     const jidToCanonical = {}; // fullJid -> phone
@@ -765,7 +739,7 @@ router.post('/cleanup-database', async (req, res) => {
     });
 
     // 2. Process RTDB Chats
-    const chatsRef = rtdb.ref(`chats/${linkedNumber}`);
+    const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
     const allChats = snapshot.val();
     if (!allChats) return res.json({ success: true, transformed: 0 });
@@ -781,7 +755,7 @@ router.post('/cleanup-database', async (req, res) => {
         getPureNumber(oldKey);
 
       // 1. Prepare ALL chats for chats_meta
-      bulkMetaUpdates[`chats_meta/${linkedNumber}/${newKey}`] = {
+      bulkMetaUpdates[`chats_meta/${employeeId}/${newKey}`] = {
           name: chatData.name || "",
           phone: newKey,
           fullJid: chatData.fullJid || "",
