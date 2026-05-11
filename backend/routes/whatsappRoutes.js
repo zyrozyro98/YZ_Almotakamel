@@ -136,8 +136,18 @@ router.post('/send', async (req, res) => {
 
       await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
       
+      // Resolve Name for the UI
+      let resolvedName = chatId;
+      try {
+        const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+        if (!studentSnap.empty) {
+          resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
+        }
+      } catch (e) {}
+
       // Update chat metadata to instantly reflect in the UI sidebar
       const metaData = {
+        name: resolvedName,
         lastMessage: finalMessage.substring(0, 50),
         timestamp: Date.now(),
         phone: chatId,
@@ -366,7 +376,17 @@ router.post('/send-image', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
+    // Resolve Name for the UI
+    let resolvedName = finalChatId;
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', finalChatId).limit(1).get();
+      if (!studentSnap.empty) {
+        resolvedName = `${studentSnap.docs[0].data().name} (${finalChatId})`;
+      }
+    } catch (e) {}
+
     const metaData = {
+      name: resolvedName,
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: finalChatId,
@@ -444,7 +464,17 @@ router.post('/send-document', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
+    // Resolve Name for the UI
+    let resolvedName = chatId;
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+      if (!studentSnap.empty) {
+        resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
+      }
+    } catch (e) {}
+
     const metaData = {
+      name: resolvedName,
       lastMessage: caption || "📎 ملف",
       timestamp: Date.now(),
       phone: chatId,
@@ -518,7 +548,17 @@ router.post('/send-video', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
+    // Resolve Name for the UI
+    let resolvedName = chatId;
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+      if (!studentSnap.empty) {
+        resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
+      }
+    } catch (e) {}
+
     const metaData = {
+      name: resolvedName,
       lastMessage: caption || "🎥 فيديو",
       timestamp: Date.now(),
       phone: chatId,
@@ -592,7 +632,17 @@ router.post('/send-sticker', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
+    // Resolve Name for the UI
+    let resolvedName = finalChatId;
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', finalChatId).limit(1).get();
+      if (!studentSnap.empty) {
+        resolvedName = `${studentSnap.docs[0].data().name} (${finalChatId})`;
+      }
+    } catch (e) {}
+
     const metaData = {
+      name: resolvedName,
       lastMessage: "🏷️ ملصق",
       timestamp: Date.now(),
       phone: finalChatId,

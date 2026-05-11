@@ -885,10 +885,11 @@ export default function WhatsAppChat() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
+                        <div style={{ fontSize: '0.7rem', color: '#3b82f6', fontWeight: 600 }}>{getDisplayPhone(item)}</div>
                       </div>
                       <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
                     </div>
-                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.university || 'بانتظار التسجيل'}</p>
                   </div>
                 </div>
               </div>
@@ -939,6 +940,7 @@ export default function WhatsAppChat() {
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {selectedChat.name}
+                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 400 }}>({getDisplayPhone(selectedChat)})</span>
                     </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>

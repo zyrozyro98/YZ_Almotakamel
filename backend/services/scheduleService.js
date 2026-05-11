@@ -175,8 +175,18 @@ class ScheduleService {
         await simulateRead(sock, targetJid).catch(() => {});
       }
 
-      // Record in RTDB
+      // 5. Record in RTDB
       const chatId = getPureNumber(phoneNumber || targetJid);
+      
+      // Resolve Name from Firestore to ensure the chat list looks good
+      let resolvedName = null;
+      try {
+        const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+        if (!studentSnap.empty) {
+          resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
+        }
+      } catch (e) { }
+
       const msgData = {
         id: result.key.id,
         text: message || (type === 'image' ? '📷 صورة' : ''),
@@ -192,6 +202,7 @@ class ScheduleService {
         lastMessage: msgData.text,
         timestamp: Date.now(),
         phone: chatId,
+        name: resolvedName || chatId,
         fullJid: targetJid,
         lastSender: "me"
       }).catch(() => {});

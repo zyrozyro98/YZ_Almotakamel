@@ -66,13 +66,12 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   if (type !== 'notify') return;
 
   for (const msg of messages) {
-    if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
+    const remoteJid = msg.key.remoteJid;
+    if (!msg.message || remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@newsletter')) continue;
 
     const msgId = msg.key.id;
     if (processedMessageIds.has(msgId)) continue;
     processedMessageIds.add(msgId);
-
-    const remoteJid = msg.key.remoteJid;
     const jidUser = remoteJid.split('@')[0].split(':')[0];
     const jidDomain = remoteJid.split('@')[1];
     const normalizedJid = `${jidUser}@${jidDomain}`;
@@ -162,59 +161,66 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     if (!textMsg && !mediaData) continue;
 
     // --- UNIFIED JID SYSTEM ---
-    // We use the JID identifier (Phone number for standard chats) as the master key
     let chatId = getPureNumber(jidUser);
+    const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+    let studentData = null;
 
     try {
-      // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
-      const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-      
-      if (isTechnicalId) {
-        // Cache for current session to avoid Firestore/RTDB spam
-        if (!sock.lidCache) sock.lidCache = new Set();
-        
-        // First check if we already mapped this LID before
-        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
-        if (jidMappingSnap.exists()) {
-          chatId = getPureNumber(jidMappingSnap.val());
-        } else {
-          // Attempt reverse lookup tricks...
-          const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
-          let mappedPhone = null;
+      // 0. Aggressive Participant Check (The "Original Phone Number" from the message)
+      let participantPn = null;
+      if (msg.key.participant && msg.key.participant.includes('@s.whatsapp.net')) {
+        participantPn = getPureNumber(msg.key.participant);
+      } else if (msg.participant && msg.participant.includes('@s.whatsapp.net')) {
+        participantPn = getPureNumber(msg.participant);
+      }
 
-          if (contextInfo && contextInfo.stanzaId) {
-            const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
-            if (allChatsSnap.exists()) {
-              const chatsData = allChatsSnap.val();
-              for (const [phoneKey, chatObj] of Object.entries(chatsData || {})) {
-                if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
-                  mappedPhone = phoneKey;
-                  break;
-                }
-              }
-            }
-          }
-
-          if (!mappedPhone && (msg.key.participant || msg.participant)?.includes('@s.whatsapp.net')) {
-            mappedPhone = getPureNumber(msg.key.participant || msg.participant);
-          }
-
-          if (mappedPhone) {
-            chatId = mappedPhone;
-            await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
-          }
-        }
-
-        // Optimization: Only update Firestore if we haven't done it this session to save quota
-        if (chatId !== getPureNumber(jidUser) && !sock.lidCache.has(jidUser)) {
-          const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-          if (!studentPhoneMatch.empty) {
-            await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
-            sock.lidCache.add(jidUser); // Prevent re-updating in the same session
-          }
+      if (participantPn && isTechnicalId) {
+        chatId = participantPn;
+        // Save to global mapping for future messages
+        await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
+      } else {
+        // 1. Try Global RTDB Mapping
+        const globalMappingSnap = await rtdb.ref(`jid_mappings/global/${jidUser}`).once('value');
+        if (globalMappingSnap.exists()) {
+          chatId = getPureNumber(globalMappingSnap.val());
         }
       }
-    } catch (err) { console.error("[WA] Identity System Error:", err.message); }
+
+      // 2. Resolve Student Data (for both ID and Name resolution)
+      // Check by Phone first, then by LID if technical
+      let studentQuery = db.collection('students').where('phone', '==', chatId).limit(1);
+      let studentMatch = await studentQuery.get();
+
+      if (studentMatch.empty && isTechnicalId) {
+        studentQuery = db.collection('students').where('fullJid', '==', normalizedJid).limit(1);
+        studentMatch = await studentQuery.get();
+      }
+
+      if (!studentMatch.empty) {
+        const doc = studentMatch.docs[0];
+        studentData = doc.data();
+        studentData.id = doc.id;
+        chatId = studentData.phone; // Always favor the registered phone
+
+        // Update mappings if needed
+        if (isTechnicalId) {
+          await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
+          if (studentData.fullJid !== normalizedJid) {
+            await doc.ref.update({ fullJid: normalizedJid }).catch(() => { });
+          }
+        }
+      } else if (isTechnicalId) {
+        // Last resort: check participant
+        let mappedPhone = null;
+        if ((msg.key.participant || msg.participant)?.includes('@s.whatsapp.net')) {
+          mappedPhone = getPureNumber(msg.key.participant || msg.participant);
+        }
+        if (mappedPhone) {
+          chatId = mappedPhone;
+          await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
+        }
+      }
+    } catch (err) { console.error("[WA] Identity/Name System Error:", err.message); }
 
     // Handle Quoted Messages
     let quotedInfo = null;
@@ -242,23 +248,17 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     // --- AUTO-MIGRATION & REASSIGNMENT START ---
     try {
       const chatSnap = await chatRef.once('value');
-      if (!chatSnap.exists() || !chatSnap.val().messages) {
-        const studentDoc = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-        if (!studentDoc.empty) {
-          const studentData = studentDoc.docs[0].data();
-          const studentId = studentDoc.docs[0].id;
+      if ((!chatSnap.exists() || !chatSnap.val().messages) && studentData) {
           const oldEmployeeId = studentData.assignedTo;
-          
           if (oldEmployeeId && oldEmployeeId !== employeeId) {
             const oldChatSnap = await rtdb.ref(`chats/${oldEmployeeId}/${chatId}`).once('value');
             if (oldChatSnap.exists()) {
               await chatRef.set(oldChatSnap.val());
             }
-            await db.collection('students').doc(studentId).update({ assignedTo: employeeId });
-            await rtdb.ref(`active_students/${studentId}`).update({ assignedTo: employeeId });
+            await db.collection('students').doc(studentData.id).update({ assignedTo: employeeId });
+            await rtdb.ref(`active_students/${studentData.id}`).update({ assignedTo: employeeId });
             console.log(`[Auto-Migration] Transferred student ${studentData.name || chatId} from ${oldEmployeeId} to ${employeeId}`);
           }
-        }
       }
     } catch (migErr) {
       console.error('[Auto-Migration Error]', migErr.message);
@@ -275,27 +275,14 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       quoted: quotedInfo
     };
 
-    // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
-    let finalName = pushName;
-    if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
-      try {
-        // Check cache first
-        const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
-        if (cacheSnap.exists()) {
-          finalName = cacheSnap.val();
-        } else {
-          // Live fetch from WhatsApp
-          if (jidDomain === 'g.us') {
-            const meta = await sock.groupMetadata(remoteJid);
-            finalName = meta.subject || finalName;
-          } else if (jidDomain === 'newsletter') {
-            const meta = await sock.newsletterMetadata("jid", remoteJid);
-            finalName = meta.name || finalName;
-          }
-          // Save to cache
-          await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(() => { });
-        }
-      } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
+    // --- UNIFIED NAME RESOLUTION ---
+    // Priority: 1. Student Name (DB) | 2. Phone Number | 3. WhatsApp Profile Name
+    // We always include the phone number to ensure it's never hidden from the user.
+    let finalName = studentData ? `${studentData.name} (${chatId})` : (chatId || pushName);
+    
+    // Ensure we don't have technical JIDs in the display name if possible
+    if (finalName.includes('@')) {
+       finalName = getPureNumber(finalName);
     }
 
     await chatRef.child('messages').child(msgId).update(msgData);
@@ -518,30 +505,49 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   };
 
-  sock.ev.on('contacts.upsert', async (contacts) => {
+  const processContacts = async (contacts) => {
     for (const contact of contacts) {
-      if (contact.lid && contact.id) {
-        const jidKey = contact.lid.split('@')[0].split(':')[0];
-        const phoneJid = contact.id.split('@')[0].split(':')[0];
-        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
-          await autoMergeBackground(employeeId, jidKey, phoneJid);
+      const lid = contact.lid || (contact.id?.includes('@lid') ? contact.id : null);
+      const pn = contact.id?.includes('@s.whatsapp.net') ? contact.id : contact.pnJid;
+      
+      if (lid && pn) {
+        const lidKey = lid.split('@')[0].split(':')[0];
+        const phoneKey = pn.split('@')[0].split(':')[0];
+        
+        if (lidKey !== phoneKey && phoneKey.match(/^\d+$/)) {
+          await rtdb.ref(`jid_mappings/global/${lidKey}`).set(phoneKey).catch(() => { });
+          await autoMergeBackground(employeeId, lidKey, phoneKey);
+        }
+      }
+
+      // Also cache names to improve name resolution
+      if (contact.name || contact.notify || contact.verifiedName) {
+        const idKey = (contact.id || contact.lid || '').split('@')[0].split(':')[0];
+        if (idKey) {
+          await rtdb.ref(`name_cache/${employeeId}/${idKey}`).set(contact.name || contact.notify || contact.verifiedName).catch(() => { });
+        }
+      }
+    }
+  };
+
+  sock.ev.on('messaging-history.set', async (history) => {
+    if (history.contacts) await processContacts(history.contacts);
+    if (history.chats) {
+      for (const chat of history.chats) {
+        // Some chats have the PN in the ID even if they are LID-linked in messages
+        if (chat.id.includes('@s.whatsapp.net')) {
+           // This helps populate the chat list correctly
         }
       }
     }
   });
 
+  sock.ev.on('contacts.upsert', async (contacts) => {
+    await processContacts(contacts);
+  });
+
   sock.ev.on('contacts.update', async (updates) => {
-    for (const update of updates) {
-      if (update.lid && update.id) {
-        const jidKey = update.lid.split('@')[0].split(':')[0];
-        const phoneJid = update.id.split('@')[0].split(':')[0];
-        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
-          await autoMergeBackground(employeeId, jidKey, phoneJid);
-        }
-      }
-    }
+    await processContacts(updates);
   });
 
   sock.ev.on('messages.upsert', messageUpsertHandler(employeeId, sock));
