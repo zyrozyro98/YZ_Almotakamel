@@ -803,8 +803,14 @@ router.post('/cleanup-database', async (req, res) => {
 
     for (const [rawOldKey, chatData] of Object.entries(allChats)) {
       // 0. Aggressive Cleanup of Groups/Channels/Broadcasts
-      if (rawOldKey.endsWith('@g.us') || rawOldKey.endsWith('@newsletter') || rawOldKey.includes('@broadcast') || rawOldKey === 'status') {
-        console.log(`[CLEANUP] Removing non-individual chat: ${rawOldKey}`);
+      const fullJid = chatData.fullJid || '';
+      const isNonIndividual = rawOldKey.endsWith('@g.us') || fullJid.endsWith('@g.us') || 
+                             rawOldKey.endsWith('@newsletter') || fullJid.endsWith('@newsletter') ||
+                             rawOldKey.includes('@broadcast') || fullJid.includes('@broadcast') ||
+                             rawOldKey === 'status';
+
+      if (isNonIndividual) {
+        console.log(`[CLEANUP] Removing non-individual chat: ${rawOldKey} (${fullJid})`);
         await chatsRef.child(rawOldKey).remove();
         await rtdb.ref(`chats_meta/${employeeId}/${rawOldKey}`).remove();
         continue;
