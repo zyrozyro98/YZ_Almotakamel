@@ -91,7 +91,7 @@ export default function WhatsAppChat() {
       if (user) {
         const id = user.uid;
         setEmployeeId(id);
-        setViewingEmployeeId(id);
+        // Initialization of viewingEmployeeId is now handled by a dedicated useEffect
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         try {
           const userDoc = await getDoc(doc(db, 'employees', id));
@@ -100,7 +100,6 @@ export default function WhatsAppChat() {
           }
         } catch (e) {}
         setIsAdmin(adminStatus);
-        if (!viewingEmployeeId) setViewingEmployeeId(id);
       } else {
         setEmployeeId('emp1');
         setIsAdmin(false);
@@ -136,17 +135,21 @@ export default function WhatsAppChat() {
   useEffect(() => {
     if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, 'employees'), (snap) => {
-      const emps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEmployees(emps);
-
-      // If we are an admin and viewing ourselves, auto-pick the first real employee if available
-      if (viewingEmployeeId === employeeId && emps.length > 0) {
-        const firstOther = emps.find(e => e.id !== employeeId);
-        if (firstOther) setViewingEmployeeId(firstOther.id);
-      }
-    });
+      setEmployees(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Employee listener failed:", err));
     return () => unsub();
-  }, [isAdmin, employeeId, viewingEmployeeId]);
+  }, [isAdmin]);
+
+  // Sync viewingEmployeeId with URL param 'viewing'
+  useEffect(() => {
+    const urlViewing = searchParams.get('viewing');
+    if (urlViewing) {
+      setViewingEmployeeId(urlViewing);
+    } else if (isAdmin && employeeId && !viewingEmployeeId) {
+      // Default to self if admin and nothing in URL
+      setViewingEmployeeId(employeeId);
+    }
+  }, [searchParams, isAdmin, employeeId]);
 
   // Listen to the status of the viewing employee to get their linked WhatsApp number
   useEffect(() => {
@@ -175,16 +178,17 @@ export default function WhatsAppChat() {
     if (!employeeId || employeeId === 'emp1') return;
 
     // Listen to Students (Optimized Query)
+    // Listen to Students (Optimized Query)
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
-    if (!targetId) return;
+    if (!targetId || targetId === 'emp1') return;
 
     const studentsBaseQuery = isAdmin 
-      ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(300))
+      ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(200))
       : query(collection(db, 'students'), where('assignedTo', '==', employeeId));
 
     const unsubStudents = onSnapshot(studentsBaseQuery, (snap) => {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.error("Students listener failed:", err));
 
     // Reset UI state ONLY if the data source (path) has changed
     const activeTarget = linkedNumber || targetId;
@@ -989,6 +993,16 @@ export default function WhatsAppChat() {
                     <option key={emp.id} value={emp.id}>{emp.name} (موظف)</option>
                   ))}
                 </select>
+                <button 
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    params.set('viewing', viewingEmployeeId);
+                    setSearchParams(params);
+                  }}
+                  style={{ marginTop: '5px', background: '#3b82f6', border: 'none', color: '#fff', padding: '5px', borderRadius: '8px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 800 }}
+                >
+                  تأكيد اختيار الموظف ✔️
+                </button>
                 <p style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', margin: 0, textAlign: 'center' }}>
                   أنت تشاهد الآن محادثات: {employees.find(e => e.id === viewingEmployeeId)?.name || 'نفسك'}
                 </p>
