@@ -774,21 +774,25 @@ router.post('/cleanup-database', async (req, res) => {
   if (!employeeId) return res.status(400).json({ error: 'Missing employeeId' });
 
   try {
-    // 1. Build an Identity Map from Firestore Students
-    const studentSnap = await db.collection('students').get();
-    const jidToCanonical = {}; // fullJid -> phone
-    const phoneToCanonical = {}; // phone -> phone
+    // 1. Build an Identity Map (Resilient to Firestore Quota)
+    const jidToCanonical = {}; 
+    const phoneToCanonical = {}; 
 
-    studentSnap.forEach(doc => {
-      const s = doc.data();
-      const purePhone = getPureNumber(s.phone);
-      if (purePhone) {
-        if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
-        phoneToCanonical[purePhone] = purePhone;
-      }
-    });
+    try {
+      const studentSnap = await db.collection('students').get();
+      studentSnap.forEach(doc => {
+        const s = doc.data();
+        const purePhone = getPureNumber(s.phone);
+        if (purePhone) {
+          if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
+          phoneToCanonical[purePhone] = purePhone;
+        }
+      });
+    } catch (firestoreErr) {
+      console.warn("[CLEANUP] Firestore quota hit. Skipping student-aware merge, but group cleanup will proceed.", firestoreErr.message);
+    }
 
-    // 2. Process RTDB Chats
+    // 2. Process RTDB Chats (Primary Goal: Remove Groups and Noise)
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
     const allChats = snapshot.val();
