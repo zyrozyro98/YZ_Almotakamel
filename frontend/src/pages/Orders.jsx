@@ -87,7 +87,10 @@ export default function Orders() {
           batch: student.batch || 'غير محدد',
           idNumber: student.idNumber || 'غير مسجل',
           username: student.username || 'غير مسجل',
-          password: student.password || '••••••••'
+          password: student.password || '••••••••',
+          createdBy: student.createdByName || student.createdBy || 'غير معروف',
+          oldMainStatus: student.oldMainStatus || 'جديد',
+          oldSubStatus: student.oldSubStatus || 'لم يتم التواصل'
         };
       });
       setOrdersData(liveData);
@@ -123,17 +126,28 @@ export default function Orders() {
     }
   };
 
-  const handleDirectStatusSave = async (quickMain, quickSub) => {
+  const handleDirectStatusSave = async (quickMain, quickSub, restore = false) => {
     if (!selectedOrder) return;
     try {
+      let finalMain = quickMain;
+      let finalSub = quickSub;
+
+      if (restore) {
+        finalMain = selectedOrder.oldMainStatus;
+        finalSub = selectedOrder.oldSubStatus;
+      }
+
       await updateDoc(doc(db, 'students', selectedOrder.id), {
-        mainStatus: quickMain,
-        subStatus: quickSub
+        mainStatus: finalMain,
+        subStatus: finalSub,
+        // If we are approving/rejecting a withdrawal, clear the backup
+        oldMainStatus: null,
+        oldSubStatus: null
       });
-      alert(`تم تأكيد الإجراء بنجاح!`);
-      setSelectedOrder({...selectedOrder, mainStatus: quickMain, subStatus: quickSub});
-      setEditMainStatus(quickMain);
-      setEditSubStatus(quickSub);
+      alert(restore ? 'تم رفض الطلب واستعادة الحالة السابقة' : 'تمت الموافقة على الطلب بنجاح');
+      setSelectedOrder({...selectedOrder, mainStatus: finalMain, subStatus: finalSub});
+      setEditMainStatus(finalMain);
+      setEditSubStatus(finalSub);
     } catch (err) {
       console.error(err);
       alert('حدث خطأ بالاتصال بقاعدة البيانات.');
@@ -237,6 +251,10 @@ export default function Orders() {
                       <p className="input-label" style={{ margin: 0 }}>باسورد المنصة</p>
                       <p style={{ fontSize: '1.1rem', marginTop: '0.2rem', color: '#3b82f6' }}>{selectedOrder.password}</p>
                     </div>
+                    <div>
+                      <p className="input-label" style={{ margin: 0 }}>الموظف المسؤول</p>
+                      <p style={{ fontSize: '1.1rem', marginTop: '0.2rem', color: 'var(--brand-secondary)', fontWeight: 800 }}>{selectedOrder.createdBy}</p>
+                    </div>
                   </div>
                   {selectedOrder.details && (
                     <div style={{ marginBottom: '1.5rem' }}>
@@ -251,8 +269,19 @@ export default function Orders() {
                       
                       {selectedOrder.subStatus === 'قيد المراجعة' && (
                         <div style={{ display: 'flex', gap: '1rem', marginTop: '1.2rem', flexWrap: 'wrap' }}>
-                           <button className="btn-primary" style={{ background: 'var(--danger)', padding: '0.5rem 1rem', fontSize: '0.85rem' }} onClick={() => handleDirectStatusSave('إنسحاب', 'تم قبول الإنسحاب')}>تأكيد الانسحاب وإنهاء الطلب</button>
-                           <button style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', padding: '0.5rem 1rem', borderRadius: '8px', color: '#fff', fontSize: '0.85rem' }} onClick={() => handleDirectStatusSave('إنسحاب', 'تم رفض الإنسحاب')}>رفض الانسحاب ومتابعة العميل</button>
+                           <button 
+                             className="btn-primary" 
+                             style={{ background: 'var(--success)', padding: '0.8rem 1.5rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }} 
+                             onClick={() => handleDirectStatusSave('إنسحاب', 'تم قبول الإنسحاب')}
+                           >
+                             <CheckCircle size={18} /> موافقة (تأكيد الانسحاب)
+                           </button>
+                           <button 
+                             style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.8rem 1.5rem', borderRadius: '8px', color: 'var(--danger)', fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} 
+                             onClick={() => handleDirectStatusSave('', '', true)}
+                           >
+                             <XCircle size={18} /> رفض (استعادة الحالة: {selectedOrder.oldMainStatus})
+                           </button>
                         </div>
                       )}
                     </div>
@@ -338,6 +367,7 @@ export default function Orders() {
                   <tr style={{ background: 'rgba(255,255,255,0.02)', color: 'var(--text-secondary)' }}>
                     <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>رقم الطلب</th>
                     <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>الطالب</th>
+                    <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>الموظف</th>
                     <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>التاريخ</th>
                     <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>الحالة</th>
                     <th style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--glass-border)', fontWeight: 600 }}>تفاصيل</th>
@@ -353,6 +383,7 @@ export default function Orders() {
                          {order.id.substring(0, 6).toUpperCase()}
                       </td>
                       <td style={{ padding: '1rem 1.5rem' }}>{order.studentName}</td>
+                      <td style={{ padding: '1rem 1.5rem', color: 'var(--brand-primary)', fontWeight: 600 }}>{order.createdBy}</td>
                       <td style={{ padding: '1rem 1.5rem', color: 'var(--text-secondary)' }}>{order.date}</td>
                       <td style={{ padding: '1rem 1.5rem' }}>
                         <span style={{ 

@@ -62,8 +62,16 @@ setInterval(() => {
   if (processedMessageIds.size > 5000) processedMessageIds.clear();
 }, 300000);
 
+const getLinkedNumber = (sock) => {
+  const user = sock.user || sock.authState?.creds?.me;
+  return user ? user.id.split(':')[0].split('@')[0] : null;
+};
+
 const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
   if (type !== 'notify') return;
+
+  const linkedNumber = getLinkedNumber(sock);
+  if (!linkedNumber) return;
 
   for (const msg of messages) {
     if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
@@ -174,7 +182,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         if (!sock.lidCache) sock.lidCache = new Set();
         
         // First check if we already mapped this LID before
-        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+        const jidMappingSnap = await rtdb.ref(`jid_mappings/${linkedNumber}/${jidUser}`).once('value');
         if (jidMappingSnap.exists()) {
           chatId = getPureNumber(jidMappingSnap.val());
         } else {
@@ -183,7 +191,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
           let mappedPhone = null;
 
           if (contextInfo && contextInfo.stanzaId) {
-            const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+            const allChatsSnap = await rtdb.ref(`chats/${linkedNumber}`).once('value');
             if (allChatsSnap.exists()) {
               const chatsData = allChatsSnap.val();
               for (const [phoneKey, chatObj] of Object.entries(chatsData || {})) {
@@ -201,7 +209,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
           if (mappedPhone) {
             chatId = mappedPhone;
-            await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
+            await rtdb.ref(`jid_mappings/${linkedNumber}/${jidUser}`).set(chatId).catch(() => { });
           }
         }
 
@@ -237,7 +245,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       };
     }
 
-    const chatRef = rtdb.ref(`chats/${employeeId}/${chatId}`);
+    const chatRef = rtdb.ref(`chats/${linkedNumber}/${chatId}`);
     
     // --- AUTO-MIGRATION & REASSIGNMENT START ---
     try {
@@ -250,9 +258,13 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
           const oldEmployeeId = studentData.assignedTo;
           
           if (oldEmployeeId && oldEmployeeId !== employeeId) {
-            const oldChatSnap = await rtdb.ref(`chats/${oldEmployeeId}/${chatId}`).once('value');
-            if (oldChatSnap.exists()) {
-              await chatRef.set(oldChatSnap.val());
+            const statusSnap = await rtdb.ref(`wa_status/${oldEmployeeId}`).once('value');
+            const oldLinkedNumber = statusSnap.val()?.linkedNumber;
+            if (oldLinkedNumber && oldLinkedNumber !== linkedNumber) {
+              const oldChatSnap = await rtdb.ref(`chats/${oldLinkedNumber}/${chatId}`).once('value');
+              if (oldChatSnap.exists()) {
+                await chatRef.set(oldChatSnap.val());
+              }
             }
             await db.collection('students').doc(studentId).update({ assignedTo: employeeId });
             await rtdb.ref(`active_students/${studentId}`).update({ assignedTo: employeeId });
@@ -280,7 +292,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
       try {
         // Check cache first
-        const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
+        const cacheSnap = await rtdb.ref(`name_cache/${linkedNumber}/${jidUser}`).once('value');
         if (cacheSnap.exists()) {
           finalName = cacheSnap.val();
         } else {
@@ -293,7 +305,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
             finalName = meta.name || finalName;
           }
           // Save to cache
-          await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(() => { });
+          await rtdb.ref(`name_cache/${linkedNumber}/${jidUser}`).set(finalName).catch(() => { });
         }
       } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
     }
@@ -308,7 +320,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       lastSender: isMe ? 'me' : 'them'
     };
     await chatRef.update(metaPayload);
-    await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaPayload);
+    await rtdb.ref(`chats_meta/${linkedNumber}/${chatId}`).update(metaPayload);
 
     if (!isMe) {
       const notifRef = rtdb.ref(`notifications/${employeeId}`).push();
@@ -463,7 +475,8 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       }
     } else if (connection === 'open') {
       const waUser = sock.user || sock.authState?.creds?.me;
-      console.log(`[WA-${employeeId}] Connected Successfully as ${waUser?.id || 'unknown'}`);
+      const linkedNumber = waUser?.id.split(':')[0].split('@')[0];
+      console.log(`[WA-${employeeId}] Connected Successfully as ${linkedNumber || 'unknown'}`);
       
       qrCache.delete(employeeId);
       rtdb.ref(`wa_status/${employeeId}`).update({
@@ -471,19 +484,80 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         qr: null,
         lastUpdate: Date.now(),
         status: 'online',
-        phoneNumber: waUser?.id || null
+        phoneNumber: waUser?.id || null,
+        linkedNumber: linkedNumber || null
       }).catch(() => {});
+
+      // --- AUTO-MIGRATION FROM EMPLOYEE_ID TO LINKED_NUMBER ---
+      if (linkedNumber && linkedNumber !== employeeId) {
+        (async () => {
+          try {
+            const oldPath = `chats/${employeeId}`;
+            const newPath = `chats/${linkedNumber}`;
+            const oldSnap = await rtdb.ref(oldPath).once('value');
+            
+            if (oldSnap.exists()) {
+              console.log(`[MIGRATION] Moving chats from ${employeeId} to unified ${linkedNumber}...`);
+              const oldData = oldSnap.val();
+              const newSnap = await rtdb.ref(newPath).once('value');
+              const newData = newSnap.exists() ? newSnap.val() : {};
+
+              // Simple deep merge for chats
+              for (const [chatId, chat] of Object.entries(oldData)) {
+                if (!newData[chatId]) {
+                  newData[chatId] = chat;
+                } else {
+                  // Merge messages
+                  if (chat.messages) {
+                    if (!newData[chatId].messages) newData[chatId].messages = {};
+                    Object.assign(newData[chatId].messages, chat.messages);
+                  }
+                  // Update metadata if old is newer
+                  if ((chat.timestamp || 0) > (newData[chatId].timestamp || 0)) {
+                    newData[chatId].timestamp = chat.timestamp;
+                    newData[chatId].lastMessage = chat.lastMessage;
+                    newData[chatId].lastSender = chat.lastSender;
+                  }
+                }
+              }
+              
+              await rtdb.ref(newPath).update(newData);
+              await rtdb.ref(oldPath).remove();
+              console.log(`[MIGRATION] Successfully unified data for ${linkedNumber}.`);
+            }
+
+            // Also migrate JID mappings and Name Cache
+            const oldMappings = await rtdb.ref(`jid_mappings/${employeeId}`).once('value');
+            if (oldMappings.exists()) {
+               await rtdb.ref(`jid_mappings/${linkedNumber}`).update(oldMappings.val());
+               await rtdb.ref(`jid_mappings/${employeeId}`).remove();
+            }
+
+            const oldNames = await rtdb.ref(`name_cache/${employeeId}`).once('value');
+            if (oldNames.exists()) {
+               await rtdb.ref(`name_cache/${linkedNumber}`).update(oldNames.val());
+               await rtdb.ref(`name_cache/${employeeId}`).remove();
+            }
+
+          } catch (migErr) {
+            console.error(`[MIGRATION ERROR]`, migErr.message);
+          }
+        })();
+      }
     }
   });
 
   const autoMergeBackground = async (employeeId, lidKey, phoneJid) => {
     try {
-      const lidChatRef = rtdb.ref(`chats/${employeeId}/${lidKey}`);
+      const linkedNumber = getLinkedNumber(sock);
+      if (!linkedNumber) return;
+
+      const lidChatRef = rtdb.ref(`chats/${linkedNumber}/${lidKey}`);
       const lidSnap = await lidChatRef.once('value');
       if (lidSnap.exists()) {
         const lidData = lidSnap.val();
         if (lidData.messages) {
-          const phoneChatRef = rtdb.ref(`chats/${employeeId}/${phoneJid}`);
+          const phoneChatRef = rtdb.ref(`chats/${linkedNumber}/${phoneJid}`);
           const phoneSnap = await phoneChatRef.once('value');
           let phoneData = phoneSnap.exists() ? phoneSnap.val() : { messages: {} };
           if (!phoneData.messages) phoneData.messages = {};
@@ -508,7 +582,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
             fullJid: phoneData.fullJid,
             lastSender: phoneData.lastSender
           };
-          await rtdb.ref(`chats_meta/${employeeId}/${phoneJid}`).update(metaData);
+          await rtdb.ref(`chats_meta/${linkedNumber}/${phoneJid}`).update(metaData);
           await lidChatRef.remove();
           console.log(`[AUTO-MERGE] Merged ${lidKey} into ${phoneJid} automatically in background.`);
         }
@@ -519,12 +593,15 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   };
 
   sock.ev.on('contacts.upsert', async (contacts) => {
+    const linkedNumber = getLinkedNumber(sock);
+    if (!linkedNumber) return;
+
     for (const contact of contacts) {
       if (contact.lid && contact.id) {
         const jidKey = contact.lid.split('@')[0].split(':')[0];
         const phoneJid = contact.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await rtdb.ref(`jid_mappings/${linkedNumber}/${jidKey}`).set(phoneJid).catch(() => { });
           await autoMergeBackground(employeeId, jidKey, phoneJid);
         }
       }
@@ -532,15 +609,45 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
   });
 
   sock.ev.on('contacts.update', async (updates) => {
+    const linkedNumber = getLinkedNumber(sock);
+    if (!linkedNumber) return;
+
     for (const update of updates) {
       if (update.lid && update.id) {
         const jidKey = update.lid.split('@')[0].split(':')[0];
         const phoneJid = update.id.split('@')[0].split(':')[0];
         if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
-          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await rtdb.ref(`jid_mappings/${linkedNumber}/${jidKey}`).set(phoneJid).catch(() => { });
           await autoMergeBackground(employeeId, jidKey, phoneJid);
         }
       }
+    }
+  });
+
+  sock.ev.on('messaging-history.set', async ({ chats, contacts, messages, isLatest }) => {
+    const linkedNumber = getLinkedNumber(sock);
+    if (!linkedNumber) return;
+
+    console.log(`[WA-${employeeId}] History Set received. Processing ${chats.length} chats.`);
+    
+    for (const chat of chats) {
+      const remoteJid = chat.id;
+      const jidUser = remoteJid.split('@')[0].split(':')[0];
+      const chatId = getPureNumber(jidUser);
+      
+      const chatRef = rtdb.ref(`chats/${linkedNumber}/${chatId}`);
+      const chatMetaRef = rtdb.ref(`chats_meta/${linkedNumber}/${chatId}`);
+      
+      const metaPayload = {
+        name: chat.name || chatId,
+        phone: chatId,
+        fullJid: remoteJid,
+        timestamp: chat.conversationTimestamp?.low * 1000 || Date.now(),
+        lastMessage: "سجل تاريخي"
+      };
+      
+      await chatMetaRef.update(metaPayload).catch(() => {});
+      await chatRef.update(metaPayload).catch(() => {});
     }
   });
 

@@ -55,6 +55,18 @@ export default function WhatsAppChat() {
   const [activeQuickTab, setActiveQuickTab] = useState('text'); // 'text' or 'stickers'
   const [previewMedia, setPreviewMedia] = useState(null); // { type, url }
   const fileInputRef = useRef(null);
+  const [jidMappings, setJidMappings] = useState({});
+  const [linkedNumber, setLinkedNumber] = useState(null);
+  const lastPathRef = useRef(null);
+  const [readTimestamps, setReadTimestamps] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wa_read_ts') || '{}');
+    } catch { return {}; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('wa_read_ts', JSON.stringify(readTimestamps));
+  }, [readTimestamps]);
 
   const BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5000' 
@@ -79,6 +91,7 @@ export default function WhatsAppChat() {
       if (user) {
         const id = user.uid;
         setEmployeeId(id);
+        setViewingEmployeeId(id);
         let adminStatus = user.email === 'yazans95@gmail.com' || user.email === 'zyrozyro98@gmail.com';
         try {
           const userDoc = await getDoc(doc(db, 'employees', id));
@@ -135,11 +148,36 @@ export default function WhatsAppChat() {
     return () => unsub();
   }, [isAdmin, employeeId, viewingEmployeeId]);
 
+  // Listen to the status of the viewing employee to get their linked WhatsApp number
+  useEffect(() => {
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId || targetId === 'emp1') {
+      setLinkedNumber(null);
+      return;
+    }
+
+    // Reset before listening to new status to avoid stale data
+    setLinkedNumber(null);
+
+    const statusRef = ref(rtdb, `wa_status/${targetId}`);
+    const unsub = onValue(statusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data?.linkedNumber) {
+        setLinkedNumber(data.linkedNumber);
+      } else {
+        setLinkedNumber(null);
+      }
+    });
+    return () => unsub();
+  }, [employeeId, viewingEmployeeId, isAdmin]);
+
   useEffect(() => {
     if (!employeeId || employeeId === 'emp1') return;
 
     // Listen to Students (Optimized Query)
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId) return;
+
     const studentsBaseQuery = isAdmin 
       ? query(collection(db, 'students'), orderBy('createdAt', 'desc'), firestoreLimitToLast(300))
       : query(collection(db, 'students'), where('assignedTo', '==', employeeId));
@@ -148,15 +186,17 @@ export default function WhatsAppChat() {
       setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // Clear previous chats to show loading state
-    setActiveChats([]);
-    setSelectedChat(null);
-    setMessages([]);
+    // Reset UI state ONLY if the data source (path) has changed
+    const activeTarget = linkedNumber || targetId;
+    if (lastPathRef.current !== activeTarget) {
+      setActiveChats([]);
+      setMessages([]);
+      setSelectedChat(null);
+      lastPathRef.current = activeTarget;
+    }
 
     // Listen to Active Chats from RTDB for the CURRENT VIEWING EMPLOYEE
-    if (!targetId) return;
-
-    const activeRef = rtdbQuery(ref(rtdb, `chats/${targetId}`), rtdbLimitToLast(100));
+    const activeRef = rtdbQuery(ref(rtdb, `chats/${activeTarget}`), rtdbLimitToLast(100));
     const unsubActive = onValue(activeRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -171,24 +211,53 @@ export default function WhatsAppChat() {
       }
     });
 
-    return () => { unsubStudents(); unsubActive(); };
-  }, [employeeId, viewingEmployeeId, isAdmin]);
+    return () => {
+      unsubStudents();
+      unsubActive();
+    };
+  }, [employeeId, viewingEmployeeId, isAdmin, linkedNumber]);
+
+  useEffect(() => {
+    if (!employeeId || employeeId === 'emp1') return;
+    const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    if (!targetId) return;
+
+    const activeTarget = linkedNumber || targetId;
+    const mappingsRef = ref(rtdb, `jid_mappings/${activeTarget}`);
+    const unsub = onValue(mappingsRef, (snapshot) => {
+      setJidMappings(snapshot.val() || {});
+    });
+    return () => unsub();
+  }, [employeeId, viewingEmployeeId, isAdmin, linkedNumber]);
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
     const targetId = isAdmin ? viewingEmployeeId : employeeId;
+    const activeTarget = linkedNumber || targetId;
     const cleanId = getMatchKey(selectedChat.phone);
-    const actualChatId = selectedChat.chatId || cleanId;
-    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${targetId}/${actualChatId}/messages`), rtdbLimitToLast(100));
+    const actualChatId = selectedChat.rtdbId || cleanId;
+    const messagesQuery = rtdbQuery(ref(rtdb, `chats/${activeTarget}/${actualChatId}/messages`), rtdbLimitToLast(100));
     const unsubMsg = onValue(messagesQuery, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]) => ({ id, ...val }));
-        setMessages(list.sort((a, b) => (a.time || 0) - (b.time || 0)));
-      } else setMessages([]);
+        const sortedList = list.sort((a, b) => (a.time || 0) - (b.time || 0));
+        
+        setMessages(prev => {
+          // Keep optimistic messages for THIS chat only
+          const pending = prev.filter(m => 
+            m.isOptimistic && 
+            m.chatId === actualChatId && 
+            !sortedList.some(real => real.text === m.text && Math.abs(real.time - m.time) < 15000)
+          );
+          return [...sortedList, ...pending];
+        });
+      } else {
+        setMessages(prev => prev.filter(m => m.isOptimistic && m.chatId === actualChatId));
+      }
     });
     return () => unsubMsg();
-  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin, linkedNumber]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -240,8 +309,21 @@ export default function WhatsAppChat() {
 
     // 2. Merge active chats into the map or create new entries
     activeChats.forEach(chat => {
-      let key = getMatchKey(chat.phone);
+      const originalKey = chat.phone; // This is the RTDB key
+      let key = getMatchKey(originalKey);
       
+      // SMART RESOLUTION: If the key is not a phone number, try resolving it!
+      if (!/^\d+$/.test(key)) {
+        // A. Try JID Mappings from RTDB
+        if (jidMappings[key]) {
+          key = getMatchKey(jidMappings[key]);
+        } 
+        // B. Try extracting from fullJid if it's a standard WhatsApp JID
+        else if (chat.fullJid && chat.fullJid.includes('@s.whatsapp.net')) {
+          key = getMatchKey(chat.fullJid);
+        }
+      }
+
       // If the chat uses an opaque JID (like @lid) but we have it linked in Firestore, resolve it!
       if (!studentMap.has(key) && chat.fullJid && studentJidMap.has(chat.fullJid)) {
         key = studentJidMap.get(chat.fullJid);
@@ -253,17 +335,19 @@ export default function WhatsAppChat() {
         // Update existing student with chat info
         studentMap.set(key, {
           ...existing,
-          chatId: chat.id, // Store the actual RTDB chat ID for sending
+          rtdbId: originalKey, // Store the actual RTDB chat key
           fullJid: chat.fullJid || existing.fullJid,
           lastMessage: chat.lastMessage || existing.lastMessage || 'لا توجد رسائل',
           timestamp: chat.timestamp || existing.timestamp || 0
         });
       } else {
         // Add unknown student from active chat
+        const resolvedPhone = jidMappings[getMatchKey(originalKey)] || originalKey;
         studentMap.set(key, {
-          id: chat.phone,
-          name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
-          phone: chat.phone,
+          id: originalKey,
+          rtdbId: originalKey,
+          name: chat.name || (isAdmin ? `مجهول: ${resolvedPhone}` : 'مجهول (طالب غير مسجل)'),
+          phone: resolvedPhone,
           fullJid: chat.fullJid,
           isUnknown: true,
           lastMessage: chat.lastMessage || 'لا توجد رسائل',
@@ -275,7 +359,7 @@ export default function WhatsAppChat() {
     // 3. Convert map back to array and sort
     return Array.from(studentMap.values())
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  }, [students, activeChats, isAdmin]);
+  }, [students, activeChats, isAdmin, jidMappings]);
 
   // Handle URL Selection (from Notification or Orders)
   const location = useLocation();
@@ -297,6 +381,16 @@ export default function WhatsAppChat() {
       }
     }
   }, [location.search, memoizedCombinedList, isMobile]);
+
+  // Update read timestamp when chat is selected OR when new messages arrive while viewing
+  useEffect(() => {
+    if (selectedChat) {
+      setReadTimestamps(prev => ({
+        ...prev,
+        [selectedChat.phone]: Date.now()
+      }));
+    }
+  }, [selectedChat, activeChats]);
 
   const filteredSidebar = React.useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -330,6 +424,26 @@ export default function WhatsAppChat() {
     const textToSend = message; 
     setMessage(''); 
     setShowEmojiPicker(false); 
+    
+    // OPTIMISTIC UPDATE: Add message instantly to the UI
+    const actualChatId = selectedChat.rtdbId || getMatchKey(selectedChat.phone);
+    const tempId = 'temp-' + Date.now();
+    const tempMsg = {
+      id: tempId,
+      chatId: actualChatId,
+      text: textToSend,
+      sender: 'me',
+      time: Date.now(),
+      type: 'text',
+      senderName: auth.currentUser?.displayName || (isAdmin ? 'مدير' : 'موظف'),
+      isOptimistic: true,
+      quoted: replyingTo ? {
+        id: replyingTo.id,
+        text: replyingTo.text,
+        sender: replyingTo.sender
+      } : null
+    };
+    setMessages(prev => [...prev, tempMsg]);
     setIsSending(true);
     
     try {
@@ -384,7 +498,7 @@ export default function WhatsAppChat() {
     try {
       await axios.post(`${BASE_URL}/api/whatsapp/delete-message`, {
         employeeId: targetId,
-        phoneNumber: selectedChat.phone,
+        phoneNumber: selectedChat.rtdbId || selectedChat.phone,
         messageId: msg.id,
         fullJid: selectedChat.fullJid,
         isMe: msg.sender === 'me'
@@ -403,7 +517,7 @@ export default function WhatsAppChat() {
       const targetId = isAdmin ? viewingEmployeeId : employeeId;
       await axios.post(`${BASE_URL}/api/whatsapp/delete-chat`, {
         employeeId: targetId,
-        phoneNumber: selectedChat.phone
+        phoneNumber: selectedChat.rtdbId || selectedChat.phone
       });
       alert('تم حذف المحادثة بنجاح');
       setSelectedChat(null);
@@ -430,7 +544,7 @@ export default function WhatsAppChat() {
 
   // --- Modal Logic ---
   const openAddModal = async () => {
-    const rawValue = selectedChat?.phone || ''; // This is the ID from the sidebar
+    const rawValue = selectedChat?.rtdbId || selectedChat?.phone || ''; // Use original RTDB key if possible
     let resolvedPhone = '';
     let suggestedPhone = '';
     
@@ -530,7 +644,7 @@ export default function WhatsAppChat() {
           const targetId = isAdmin ? viewingEmployeeId : employeeId;
           await axios.post(`${BASE_URL}/api/whatsapp/merge-chat`, {
             employeeId: targetId,
-            lidIdentifier: selectedChat.phone,
+            lidIdentifier: selectedChat.rtdbId || selectedChat.id,
             phoneNumber: cleanedPhone,
             fullJid: selectedChat?.fullJid || ''
           });
@@ -549,16 +663,17 @@ export default function WhatsAppChat() {
         fullJid: selectedChat?.fullJid || '',
         createdAt: Timestamp.now(),
         createdBy: employeeId,
+        createdByName: auth.currentUser?.displayName || 'موظف',
         mainStatus: 'جديد',
         subStatus: 'تم التواصل'
       });
 
       // If they were adding a LID chat as a new student, merge it immediately!
-      if (selectedChat?.phone !== cleanedPhone) {
+      if ((selectedChat?.rtdbId || selectedChat?.id) !== cleanedPhone) {
           const targetId = isAdmin ? viewingEmployeeId : employeeId;
           await axios.post(`${BASE_URL}/api/whatsapp/merge-chat`, {
             employeeId: targetId,
-            lidIdentifier: selectedChat.phone,
+            lidIdentifier: selectedChat.rtdbId || selectedChat.id,
             phoneNumber: cleanedPhone,
             fullJid: selectedChat?.fullJid || ''
           }).catch(e => console.error(e));
@@ -582,6 +697,7 @@ export default function WhatsAppChat() {
 
   const handleWithdrawalRequest = async (reason, details = '') => {
     try {
+      const creatorName = auth.currentUser?.displayName || 'موظف';
       await addDoc(collection(db, 'orders'), {
         studentId: selectedChat.id,
         studentName: selectedChat.name,
@@ -589,8 +705,23 @@ export default function WhatsAppChat() {
         reason,
         details,
         status: 'pending',
-        createdAt: Timestamp.now()
+        createdAt: Timestamp.now(),
+        createdBy: employeeId,
+        createdByName: creatorName
       });
+      
+      // Update student record to show in Orders management and SAVE OLD STATUS
+      await updateDoc(doc(db, 'students', selectedChat.id), {
+        mainStatus: 'إنسحاب',
+        subStatus: 'قيد المراجعة',
+        withdrawReason: reason,
+        withdrawDetails: details,
+        oldMainStatus: selectedChat.mainStatus || 'جديد',
+        oldSubStatus: selectedChat.subStatus || 'لم يتم التواصل',
+        updatedBy: employeeId,
+        updatedByName: creatorName
+      });
+
       alert('تم إرسال طلب الانسحاب للإدارة');
       setActiveModal(null);
     } catch (err) { alert('فشل إرسال الطلب'); }
@@ -883,12 +1014,20 @@ export default function WhatsAppChat() {
                   }}>{item.name?.substring(0, 1)}</div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ overflow: 'hidden' }}>
+                      <div style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
+                        {item.lastSender === 'them' && (item.timestamp > (readTimestamps[item.phone] || 0)) && selectedChat?.id !== item.id && (
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 10px #3b82f6' }}></span>
+                        )}
                       </div>
-                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                      <span style={{ fontSize: '0.65rem', color: (item.lastSender === 'them' && item.timestamp > (readTimestamps[item.phone] || 0) && selectedChat?.id !== item.id) ? '#3b82f6' : '#64748b', fontWeight: (item.lastSender === 'them' && item.timestamp > (readTimestamps[item.phone] || 0) && selectedChat?.id !== item.id) ? 800 : 400 }}>
+                        {item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}
+                      </span>
                     </div>
-                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
+                      {item.isUnknown && <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', opacity: 0.5 }}>{item.phone}</p>}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -939,6 +1078,7 @@ export default function WhatsAppChat() {
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {selectedChat.name}
+                      {selectedChat.isUnknown && <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 400 }}>({selectedChat.phone})</span>}
                     </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
@@ -982,7 +1122,7 @@ export default function WhatsAppChat() {
                   if (isDeleted && !isAdmin) return null;
 
                   return (
-                    <React.Fragment key={i}>
+                    <React.Fragment key={m.id}>
                       {showDateSeparator && (
                         <div style={{ display: 'flex', justifyContent: 'center', margin: '20px 0 10px' }}>
                           <span style={{ background: 'rgba(30,41,59,0.8)', color: 'rgba(255,255,255,0.6)', padding: '4px 12px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 600 }}>{messageDate}</span>
@@ -1131,7 +1271,13 @@ export default function WhatsAppChat() {
                             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
                               {m.time ? new Date(m.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                             </span>
-                            {isMe && <CheckCheck size={14} style={{ color: '#34d399' }} />}
+                            {isMe && (
+                              m.isOptimistic ? (
+                                <Clock size={12} style={{ color: 'rgba(255,255,255,0.3)', animation: 'pulse 1.5s infinite' }} />
+                              ) : (
+                                <CheckCheck size={14} style={{ color: '#34d399' }} />
+                              )
+                            )}
                           </div>
                         </div>
                       </div>
