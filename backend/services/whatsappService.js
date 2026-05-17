@@ -720,71 +720,17 @@ function getSession(employeeId) {
 
 async function getTargetJid(employeeId, phoneNumber, providedJid = null) {
     const cleanPhone = getPureNumber(phoneNumber); 
-    const sock = this.getSession(employeeId);
-    if (!sock) return providedJid || `${cleanPhone}@s.whatsapp.net`;
 
-    // Helper to strip device ID (e.g. :9) from standard JID
-    const cleanJid = (jid) => {
-      if (jid && jid.includes(':') && !jid.includes('@g.us')) {
-        return jid.split(':')[0] + '@' + jid.split('@')[1];
-      }
-      return jid;
-    };
-
-    // 1. Check if we already have a mapping for this phone (Reverse lookup: phone -> lid)
-    // We store mappings as lid -> phone, so we need to check students list or a reverse map
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).limit(1).get();
-      if (!studentSnap.empty && studentSnap.docs[0].data().fullJid) {
-        return cleanJid(studentSnap.docs[0].data().fullJid);
-      }
-      
-      // Also check RTDB mappings (we might want a phone_to_jid map for speed)
-      const rtdbMap = await rtdb.ref(`phone_to_jid/${employeeId}/${cleanPhone}`).once('value');
-      if (rtdbMap.exists()) return cleanJid(rtdbMap.val());
-    } catch(e) {}
-
-    // 2. If providedJid is technical (LID/Group), use it
-    if (providedJid && (providedJid.includes('@lid') || providedJid.includes('@g.us') || providedJid.includes('@newsletter'))) {
-       return cleanJid(providedJid); 
+    // 1. If it's a group, newsletter or technical channel, we MUST use the provided JID
+    if (providedJid && (providedJid.includes('@g.us') || providedJid.includes('@newsletter'))) {
+       return providedJid; 
     }
 
-    // 3. PROACTIVE DISCOVERY (The WhatsApp Web Secret)
-    // Query WhatsApp to find the LID before we send anything
-    try {
-      const results = await sock.onWhatsApp(cleanPhone);
-      if (results && results.length > 0) {
-        const match = results.find(r => r.exists);
-        if (match) {
-          let actualJid = match.jid;
-          
-          // DEEP FIX: Strip device ID (e.g. :9) from JID. Sending to a specific device ID 
-          // causes messages to appear as sent but never arrive on the person's main phone!
-          if (actualJid.includes(':') && !actualJid.includes('@g.us')) {
-              actualJid = actualJid.split(':')[0] + '@' + actualJid.split('@')[1];
-          }
-
-          if (actualJid.includes('@lid')) {
-            const lid = actualJid.split('@')[0].split(':')[0];
-            // Save Bidirectional Mapping
-            await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => {});
-            await rtdb.ref(`phone_to_jid/${employeeId}/${cleanPhone}`).set(actualJid).catch(() => {});
-            
-            // Update Firestore Student so incoming messages resolve correctly
-            const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
-            if (!studentSnap.empty) {
-              await studentSnap.docs[0].ref.update({ fullJid: actualJid }).catch(() => {});
-            }
-          }
-          return actualJid;
-        }
-      }
-    } catch (e) {
-      console.warn(`[WA] Proactive JID discovery failed for ${cleanPhone}:`, e.message);
-    }
-
+    // 2. DEEP FIX: Always force standard individual peer-to-peer chats to use the standard Phone JID
+    // [phone]@s.whatsapp.net. Sending to @lid JIDs makes the messages completely INVISIBLE 
+    // on both the sender's and recipient's official WhatsApp phone applications!
     return `${cleanPhone}@s.whatsapp.net`;
-  }
+}
 
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
