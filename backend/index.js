@@ -88,10 +88,9 @@ async function maintenance() {
       const credsHex = Buffer.from('creds').toString('hex'); // 6372656473
 
       for (const empId in sessionsMap) {
-        // LIMITATION: Do not restore more than 4 active sessions automatically on Render Free (512MB limit)
-        // Additional sessions can be manually started from the dashboard as needed.
-        if (initializedCount >= 4) {
-          console.log(`[SYSTEM] Restored maximum allowed sessions (4) for 512MB RAM constraint. Skipping remaining sessions.`);
+        // LIMITATION: Prevent excessive auto-restores that could crash a 512MB RAM instance.
+        if (initializedCount >= 15) {
+          console.log(`[SYSTEM] Restored maximum allowed sessions (15) for RAM constraint. Skipping remaining sessions.`);
           break;
         }
 
@@ -105,7 +104,7 @@ async function maintenance() {
             if (credsObj && credsObj.me) {
               // DYNAMIC RAM SAFEGUARD: Check actual RSS memory usage of Node process
               const rssMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
-              if (rssMB > 320) {
+              if (rssMB > 450) {
                 console.warn(`[SYSTEM] RAM Alert: Current process memory is ${rssMB}MB RSS. Halting auto-restore to avoid OOM crash.`);
                 break;
               }
