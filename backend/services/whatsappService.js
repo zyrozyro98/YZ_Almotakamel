@@ -167,17 +167,48 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
               const pollCreatorJid = pendingAction.pollCreatorJid;
               const pollEncKey = Buffer.from(pendingAction.pollEncKey, 'base64');
               
-              const decryptedVote = decryptPollVote(
-                pollUpdate.vote,
-                {
-                  pollCreatorJid,
-                  pollMsgId,
-                  pollEncKey,
-                  voterJid
-                }
-              );
+              // Try-catch loop over JID permutations to be absolutely bulletproof against WhatsApp JID formats (PN vs LID)
+              let decryptedVote = null;
+              let decryptionError = null;
               
-              console.log(`[POLL VOTE DECRYPTED] Voter [${voterJid}] decrypted vote successfully.`);
+              const creatorPNDomain = pollCreatorJid; // e.g. 966546838696@s.whatsapp.net
+              const creatorPNNoDomain = pollCreatorJid.split('@')[0]; // e.g. 966546838696
+              const creatorLID = sock.user?.lid || sock.authState?.creds?.me?.lid || ''; // e.g. 12345@lid
+              
+              const voterPNDomain = voterJid; // e.g. 966541926435@s.whatsapp.net
+              const voterPNNoDomain = voterJid.split('@')[0];
+              const voterLID = msg.key.participant?.includes('@lid') ? jidNormalizedUser(msg.key.participant) : '';
+              
+              const creatorPermutations = [creatorPNDomain, creatorPNNoDomain, creatorLID].filter(Boolean);
+              const voterPermutations = [voterPNDomain, voterPNNoDomain, voterLID].filter(Boolean);
+              
+              // We try all combinations of Creator JID and Voter JID
+              for (const cJid of creatorPermutations) {
+                for (const vJid of voterPermutations) {
+                  try {
+                    decryptedVote = decryptPollVote(
+                      pollUpdate.vote,
+                      {
+                        pollCreatorJid: cJid,
+                        pollMsgId,
+                        pollEncKey,
+                        voterJid: vJid
+                      }
+                    );
+                    if (decryptedVote) {
+                      console.log(`[POLL VOTE DECRYPTED SUCCESS] Decrypted using Creator: ${cJid}, Voter: ${vJid}`);
+                      break;
+                    }
+                  } catch (err) {
+                    decryptionError = err;
+                  }
+                }
+                if (decryptedVote) break;
+              }
+
+              if (!decryptedVote) {
+                throw decryptionError || new Error('All decryption JID permutations failed.');
+              }
               
               const selectedHashes = (decryptedVote.selectedOptions || []).map(opt => Buffer.from(opt).toString('hex'));
               const crypto = require('crypto');
