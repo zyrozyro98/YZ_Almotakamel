@@ -415,17 +415,22 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   }
 };
 
+// Queue mechanism to prevent memory spikes if user spams the 'Connect' button
+let initQueue = Promise.resolve();
+
 async function initializeSession(employeeId, onQrGenerated, forceReinit = false) {
-  const existingSock = sessions.get(employeeId);
-  if (existingSock) {
-    if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
-      console.log(`[WA] Closing existing session for ${employeeId} before re-init.`);
-      try { existingSock.ev.removeAllListeners(); existingSock.ws.close(); } catch (e) { }
-      sessions.delete(employeeId);
-    } else {
-      return existingSock;
+  // Add this initialization to the queue
+  const currentTask = async () => {
+    const existingSock = sessions.get(employeeId);
+    if (existingSock) {
+      if (forceReinit || !existingSock.ws || existingSock.ws.readyState === 3) {
+        console.log(`[WA] Closing existing session for ${employeeId} before re-init.`);
+        try { existingSock.ev.removeAllListeners(); existingSock.ws.close(); } catch (e) { }
+        sessions.delete(employeeId);
+      } else {
+        return existingSock;
+      }
     }
-  }
 
   // Memory Safety Check
   const usage = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -645,6 +650,11 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
 
   sock.ev.on('messages.upsert', messageUpsertHandler(employeeId, sock));
   return sock;
+  };
+
+  // Enqueue the task and wait for it to finish, with a 3-second delay after each to let GC run
+  initQueue = initQueue.then(() => currentTask()).then(() => new Promise(r => setTimeout(r, 3000))).catch(e => console.error(e));
+  return initQueue;
 }
 
 function getSession(employeeId) {
