@@ -3,7 +3,7 @@ import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, A
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set, update } from 'firebase/database';
 import { collection, onSnapshot, query, orderBy, getDoc, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { Globe, Shield, Save } from 'lucide-react';
 
@@ -152,6 +152,94 @@ export default function WhatsAppConfig() {
     });
     return () => unsub();
   }, [isAdmin]);
+
+  const [antiBanLimits, setAntiBanLimits] = useState({ day1: 15, day3: 40, day7: 80 });
+  const [antiBanStats, setAntiBanStats] = useState({});
+
+  // Fetch general anti-ban limits from RTDB settings
+  useEffect(() => {
+    if (!isAdmin) return;
+    const limitsRef = ref(rtdb, 'settings/anti_ban_limits');
+    const unsub = onValue(limitsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setAntiBanLimits({
+          day1: data.day1 !== undefined ? Number(data.day1) : 15,
+          day3: data.day3 !== undefined ? Number(data.day3) : 40,
+          day7: data.day7 !== undefined ? Number(data.day7) : 80,
+        });
+      }
+    });
+    return () => unsub();
+  }, [isAdmin]);
+
+  // Fetch real-time anti-ban stats for all employees
+  useEffect(() => {
+    if (!isAdmin || employees.length === 0) return;
+    const unsubs = employees.map(emp => {
+      const statsRef = ref(rtdb, `anti_ban_stats/${emp.id}`);
+      return onValue(statsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setAntiBanStats(prev => ({ ...prev, [emp.id]: data }));
+        } else {
+          setAntiBanStats(prev => ({ ...prev, [emp.id]: { count: 0, startTime: Date.now() } }));
+        }
+      });
+    });
+    return () => {
+      unsubs.forEach(u => u());
+    };
+  }, [employees, isAdmin]);
+
+  const saveGlobalAntiBanLimits = async () => {
+    setLoading(true);
+    try {
+      await set(ref(rtdb, 'settings/anti_ban_limits'), {
+        day1: Number(antiBanLimits.day1),
+        day3: Number(antiBanLimits.day3),
+        day7: Number(antiBanLimits.day7),
+      });
+      alert('تم حفظ محددات الحظر العامة بنجاح!');
+    } catch (err) {
+      alert('فشل حفظ الإعدادات: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveEmployeeCustomLimit = async (empId, val) => {
+    setLoading(true);
+    try {
+      if (val === '' || val === null || val === undefined) {
+        // If empty/null, remove the customLimit override from RTDB so it falls back to age checks
+        await update(ref(rtdb, `wa_status/${empId}`), { customLimit: null });
+      } else {
+        await update(ref(rtdb, `wa_status/${empId}`), { customLimit: Number(val) });
+      }
+      alert('تم تحديث الحد المخصص للموظف بنجاح!');
+    } catch (err) {
+      alert('فشل التحديث: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetEmployeeAntiBanCount = async (empId) => {
+    if (!window.confirm('هل أنت متأكد من تصفير عداد الإرسال الآمن لهذا الحساب؟')) return;
+    setLoading(true);
+    try {
+      await set(ref(rtdb, `anti_ban_stats/${empId}`), {
+        count: 0,
+        startTime: Date.now()
+      });
+      alert('تم تصفير عداد الإرسال بنجاح!');
+    } catch (err) {
+      alert('فشل تصفير العداد: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchAllStatuses = async () => {
     if (!isAdmin) return;
@@ -370,6 +458,12 @@ export default function WhatsAppConfig() {
                 style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'sticker_library' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
               >
                 المكتبة (ملصقات)
+              </button>
+              <button 
+                onClick={() => setActiveTab('anti_ban')} 
+                style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'anti_ban' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                الحد اليومي (Anti-Ban)
               </button>
             </div>
           )}
@@ -712,6 +806,168 @@ export default function WhatsAppConfig() {
                     المكتبة فارغة.. ابدأ برفع صور ملصقاتك الأولى
                 </div>
             )}
+        </div>
+      ) : activeTab === 'anti_ban' ? (
+        /* Anti-Ban Settings Tab */
+        <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '30px' }}>
+          {/* Global Limits Panel */}
+          <div style={{ gridColumn: 'span 4' }}>
+            <div className="glass-panel" style={{ padding: '30px', textAlign: 'right' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', justifyContent: 'flex-start', flexDirection: 'row-reverse' }}>
+                <ShieldCheck size={24} color="var(--brand-primary)" />
+                <h3 style={{ color: '#fff', fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>محددات الحظر العامة</h3>
+              </div>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', marginBottom: '25px', lineHeight: '1.6' }}>
+                التحكم بالعدد الأقصى اليومي الافتراضي للرسائل لكل حساب بناءً على عمر الرقم (تاريخ أول ربط).
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div>
+                  <label className="input-label" style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'rgba(255,255,255,0.7)', display: 'block' }}>
+                    الحد لليوم الأول (عمر الحساب أقل من يوم)
+                  </label>
+                  <input 
+                    type="number" 
+                    className="input-base" 
+                    value={antiBanLimits.day1} 
+                    onChange={e => setAntiBanLimits({ ...antiBanLimits, day1: e.target.value })} 
+                    placeholder="مثال: 15"
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'rgba(255,255,255,0.7)', display: 'block' }}>
+                    الحد للأيام 1-3 (عمر الحساب بين يوم و3 أيام)
+                  </label>
+                  <input 
+                    type="number" 
+                    className="input-base" 
+                    value={antiBanLimits.day3} 
+                    onChange={e => setAntiBanLimits({ ...antiBanLimits, day3: e.target.value })} 
+                    placeholder="مثال: 40"
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'rgba(255,255,255,0.7)', display: 'block' }}>
+                    الحد للأيام 3-7 (عمر الحساب بين 3 و7 أيام)
+                  </label>
+                  <input 
+                    type="number" 
+                    className="input-base" 
+                    value={antiBanLimits.day7} 
+                    onChange={e => setAntiBanLimits({ ...antiBanLimits, day7: e.target.value })} 
+                    placeholder="مثال: 80"
+                  />
+                </div>
+
+                <button 
+                  onClick={saveGlobalAntiBanLimits} 
+                  disabled={loading} 
+                  className="btn-primary" 
+                  style={{ width: '100%', padding: '12px', marginTop: '10px' }}
+                >
+                  <Save size={18} /> حفظ المحددات العامة
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Employee Limits Table */}
+          <div style={{ gridColumn: 'span 8' }}>
+            <div className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
+              <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexDirection: 'row-reverse' }}>
+                 <h3 style={{ color: '#fff', margin: 0 }}>متابعة وتخصيص حدود حسابات الموظفين</h3>
+                 <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>إجمالي: {employees.length}</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem' }}>
+                      <th style={{ padding: '15px' }}>الموظف</th>
+                      <th style={{ padding: '15px' }}>الرقم / عمر الحساب</th>
+                      <th style={{ padding: '15px' }}>معدل الإرسال (اليوم)</th>
+                      <th style={{ padding: '15px' }}>الحد المخصص (تجاوز)</th>
+                      <th style={{ padding: '15px', textAlign: 'center' }}>الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map(emp => {
+                      const status = allStatuses[emp.id] || {};
+                      const stats = antiBanStats[emp.id] || { count: 0, startTime: Date.now() };
+                      const firstConn = status.firstConnectionTime || Date.now();
+                      const ageInDays = Math.round((Date.now() - firstConn) / (1000 * 60 * 60 * 24));
+                      
+                      // Calculate dynamic limit for display
+                      let currentLimit = 250; // default base limit
+                      if (status.customLimit !== undefined && status.customLimit !== null) {
+                        currentLimit = Number(status.customLimit);
+                      } else {
+                        if (ageInDays < 1) currentLimit = Number(antiBanLimits.day1);
+                        else if (ageInDays < 3) currentLimit = Number(antiBanLimits.day3);
+                        else if (ageInDays < 7) currentLimit = Number(antiBanLimits.day7);
+                      }
+
+                      const progressPercentage = Math.min(100, (stats.count / currentLimit) * 100);
+                      const isNearLimit = stats.count >= currentLimit;
+
+                      return (
+                        <tr key={emp.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ padding: '15px' }}>
+                            <div style={{ fontWeight: 800, color: '#fff' }}>{emp.name}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.2)' }}>{emp.id.substring(0, 8)}...</div>
+                          </td>
+                          <td style={{ padding: '15px' }}>
+                            <div style={{ color: '#fff', fontSize: '0.85rem' }}>{status.phoneNumber ? status.phoneNumber.split(':')[0] : '---'}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--brand-primary)' }}>عمر الحساب: {ageInDays} أيام</div>
+                          </td>
+                          <td style={{ padding: '15px', minWidth: '150px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px', fontSize: '0.8rem', flexDirection: 'row-reverse' }}>
+                              <span style={{ color: isNearLimit ? '#ef4444' : '#4ade80', fontWeight: 700 }}>
+                                {stats.count} / {currentLimit}
+                              </span>
+                              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem' }}>
+                                {Math.round(progressPercentage)}%
+                              </span>
+                            </div>
+                            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ width: `${progressPercentage}%`, height: '100%', borderRadius: '3px', background: isNearLimit ? 'linear-gradient(90deg, #ef4444, #f87171)' : 'linear-gradient(90deg, #3b82f6, #60a5fa)', transition: 'width 0.3s' }}></div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '15px' }}>
+                            <input 
+                              type="number" 
+                              className="input-base" 
+                              style={{ padding: '6px 10px', fontSize: '0.8rem', width: '80px', margin: 0, textAlign: 'center' }}
+                              defaultValue={status.customLimit !== undefined && status.customLimit !== null ? status.customLimit : ''}
+                              placeholder="تلقائي"
+                              onBlur={e => {
+                                saveEmployeeCustomLimit(emp.id, e.target.value === '' ? null : e.target.value);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  saveEmployeeCustomLimit(emp.id, e.target.value === '' ? null : e.target.value);
+                                }
+                              }}
+                            />
+                          </td>
+                          <td style={{ padding: '15px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                              <button 
+                                onClick={() => resetEmployeeAntiBanCount(emp.id)} 
+                                className="btn-secondary" 
+                                style={{ padding: '6px 12px', fontSize: '0.75rem', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontWeight: 700 }}
+                              >
+                                تصفير العداد
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         /* Admin Dashboard Tab */

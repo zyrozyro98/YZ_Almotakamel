@@ -204,22 +204,34 @@ async function checkFrequency(rtdb, empId, baseLimit = 100, timeframe = 3600000)
     try {
         const now = Date.now();
         
-        // 1. Fetch Account Age
+        // 1. Fetch Account Age & Custom Overrides
         const statusSnap = await rtdb.ref(`wa_status/${empId}`).once('value');
         const statusData = statusSnap.val() || {};
-        const firstConnectionTime = statusData.firstConnectionTime || now;
         
-        // Calculate age in days
+        const firstConnectionTime = statusData.firstConnectionTime || now;
         const ageInDays = (now - firstConnectionTime) / (1000 * 60 * 60 * 24);
         
-        // Dynamic Quota Scaling (Radical Solution)
         let dynamicLimit = baseLimit;
-        if (ageInDays < 1) {
-            dynamicLimit = Math.min(baseLimit, 15); // Day 1: Max 15 per hour
-        } else if (ageInDays < 3) {
-            dynamicLimit = Math.min(baseLimit, 40); // Day 1-3: Max 40 per hour
-        } else if (ageInDays < 7) {
-            dynamicLimit = Math.min(baseLimit, 80); // Day 3-7: Max 80 per hour
+        
+        // Dynamic Quota Scaling & Manual Custom Override
+        if (statusData.customLimit !== undefined && statusData.customLimit !== null) {
+            // Allows manual override per number from Firebase RTDB (e.g. set customLimit to 250 to bypass age check)
+            dynamicLimit = Number(statusData.customLimit);
+        } else {
+            // Read general dynamic settings from database if available (or use defaults)
+            const limitsSnap = await rtdb.ref('settings/anti_ban_limits').once('value');
+            const customLimits = limitsSnap.val() || {};
+            const d1 = customLimits.day1 !== undefined ? Number(customLimits.day1) : 15;
+            const d3 = customLimits.day3 !== undefined ? Number(customLimits.day3) : 40;
+            const d7 = customLimits.day7 !== undefined ? Number(customLimits.day7) : 80;
+
+            if (ageInDays < 1) {
+                dynamicLimit = Math.min(baseLimit, d1); // Day 1
+            } else if (ageInDays < 3) {
+                dynamicLimit = Math.min(baseLimit, d3); // Day 1-3
+            } else if (ageInDays < 7) {
+                dynamicLimit = Math.min(baseLimit, d7); // Day 3-7
+            }
         }
         
         const ref = rtdb.ref(`anti_ban_stats/${empId}`);
