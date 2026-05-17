@@ -99,61 +99,16 @@ router.post('/send', async (req, res) => {
     }
 
     let result;
-    const isPoll = !!req.body.isInteractivePoll;
-
-    if (isPoll) {
-      const pollName = "مرحباً، هل تفضل استلام التفاصيل الآن؟";
-      const pollOptions = ["نعم ✅", "لاحقاً ⏳"];
-      result = await sock.sendMessage(targetJid, {
-        poll: {
-          name: pollName,
-          values: pollOptions,
-          selectableCount: 1
-        }
-      });
-      const { jidNormalizedUser } = require('@whiskeysockets/baileys');
-      const crypto = require('crypto');
-      const yesHash = crypto.createHash('sha256').update("نعم ✅").digest('hex');
-      const secret = result.message?.messageContextInfo?.messageSecret || 
-                     result.originalMessage?.messageContextInfo?.messageSecret;
-      const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
-      
-      const meId = sock.user?.id || sock.authState?.creds?.me?.id;
-      const botPhoneJid = meId ? jidNormalizedUser(meId) : null;
-      const botLidJid = sock.user?.lid || sock.authState?.creds?.me?.lid || null;
-      const voterPhoneJid = jidNormalizedUser(targetJid);
-      
-      console.log(`[POLL SEND] Created text poll with encKey hex: ${pollEncKeyHex}`, {
-        botPhoneJid,
-        botLidJid,
-        voterPhoneJid
-      });
-
-      const pollRecord = {
-        studentPhone: getPureNumber(phoneNumber),
-        message: finalMessage,
-        yesHash: yesHash,
-        pollEncKey: pollEncKeyHex,
-        botPhoneJid,
-        botLidJid,
-        voterPhoneJid,
-        type: 'text',
-        employeeId: employeeId,
-        time: Date.now()
-      };
-      await rtdb.ref(`pending_polls/${employeeId}/${result.key.id}`).set(pollRecord);
-    } else {
-      try {
+    try {
+      result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
+    } catch (sendErr) {
+      if (sendErr.message.includes('Connection Closed')) {
+        console.warn(`[WA] Connection Closed during send, attempting one retry...`);
+        // Small delay to allow potential reconnection
+        await new Promise(r => setTimeout(r, 2000));
         result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
-      } catch (sendErr) {
-        if (sendErr.message.includes('Connection Closed')) {
-          console.warn(`[WA] Connection Closed during send, attempting one retry...`);
-          // Small delay to allow potential reconnection
-          await new Promise(r => setTimeout(r, 2000));
-          result = await sock.sendMessage(targetJid, { text: finalMessage }, sendOptions);
-        } else {
-          throw sendErr;
-        }
+      } else {
+        throw sendErr;
       }
     }
     await simulateRead(sock, targetJid).catch(() => { });
@@ -162,7 +117,7 @@ router.post('/send', async (req, res) => {
     if (senderId || senderName) {
       const chatId = getPureNumber(targetJid); // MUST match the WA JID to prevent fragmentation
       const updateData = {
-        text: isPoll ? "📊 استطلاع: مرحباً، هل تفضل استلام التفاصيل الآن؟" : finalMessage,
+        text: finalMessage,
         type: 'text',
         time: Date.now(),
         sender: 'me',
@@ -397,15 +352,7 @@ router.post('/send-image', async (req, res) => {
     }
 
     let result;
-    const isPoll = !!req.body.isInteractivePoll;
-    let isPdf = false;
-    let mimeType = 'image/jpeg';
-    let ext = 'jpg';
-
     if (req.body.asDynamicPdf) {
-      isPdf = true;
-      mimeType = 'application/pdf';
-      ext = 'pdf';
       // SOLUTION 4: Dynamic PDF Generation (Bypass Image Hashes)
       try {
         const pdfDoc = await PDFDocument.create();
@@ -429,81 +376,27 @@ router.post('/send-image', async (req, res) => {
         
         const pdfBytes = await pdfDoc.save();
         buffer = Buffer.from(pdfBytes);
-      } catch (pdfErr) {
-        console.error('[PDF ERROR]', pdfErr);
-        // Fallback to normal image if PDF generation fails
-        isPdf = false;
-        mimeType = 'image/jpeg';
-        ext = 'jpg';
-        buffer = await randomizeImage(originalBuffer);
-      }
-    } else {
-      // Apply Binary Jitter (Anti-Ban) for normal image
-      buffer = await randomizeImage(originalBuffer);
-    }
-
-    // Upload to disk storage proactively
-    const mediaUrl = await whatsappService.uploadToStorage(buffer, `sent_${Date.now()}.${ext}`, mimeType);
-
-    if (isPoll) {
-      const pollName = "مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟";
-      const pollOptions = ["نعم، أرسلها الآن ✅", "لاحقاً ⏳"];
-      result = await sock.sendMessage(targetJid, {
-        poll: {
-          name: pollName,
-          values: pollOptions,
-          selectableCount: 1
-        }
-      });
-      const { jidNormalizedUser } = require('@whiskeysockets/baileys');
-      const crypto = require('crypto');
-      const yesHash = crypto.createHash('sha256').update("نعم، أرسلها الآن ✅").digest('hex');
-      const secret = result.message?.messageContextInfo?.messageSecret || 
-                     result.originalMessage?.messageContextInfo?.messageSecret;
-      const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
-      
-      const meId = sock.user?.id || sock.authState?.creds?.me?.id;
-      const botPhoneJid = meId ? jidNormalizedUser(meId) : null;
-      const botLidJid = sock.user?.lid || sock.authState?.creds?.me?.lid || null;
-      const voterPhoneJid = jidNormalizedUser(targetJid);
-      
-      console.log(`[POLL SEND] Created media poll with encKey hex: ${pollEncKeyHex}`, {
-        botPhoneJid,
-        botLidJid,
-        voterPhoneJid
-      });
-
-      const pollRecord = {
-        studentPhone: getPureNumber(phoneNumber),
-        mediaUrl: mediaUrl,
-        caption: finalCaption,
-        yesHash: yesHash,
-        pollEncKey: pollEncKeyHex,
-        botPhoneJid,
-        botLidJid,
-        voterPhoneJid,
-        type: isPdf ? 'document' : 'image',
-        mimeType: mimeType,
-        fileName: isPdf ? `Certificate_${getPureNumber(phoneNumber)}.pdf` : null,
-        employeeId: employeeId,
-        time: Date.now()
-      };
-      await rtdb.ref(`pending_polls/${employeeId}/${result.key.id}`).set(pollRecord);
-    } else {
-      if (isPdf) {
+        
         result = await sock.sendMessage(targetJid, {
             document: buffer,
             mimetype: 'application/pdf',
             fileName: `Certificate_${getPureNumber(phoneNumber)}.pdf`,
             caption: finalCaption
         });
-      } else {
-        result = await sock.sendMessage(targetJid, { 
-          image: buffer, 
-          mimetype: 'image/jpeg', 
-          caption: finalCaption 
-        });
+      } catch (pdfErr) {
+        console.error('[PDF ERROR]', pdfErr);
+        // Fallback to normal image if PDF generation fails
+        buffer = await randomizeImage(originalBuffer);
+        result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
       }
+    } else {
+      // Apply Binary Jitter (Anti-Ban) for normal image
+      buffer = await randomizeImage(originalBuffer);
+      result = await sock.sendMessage(targetJid, { 
+        image: buffer, 
+        mimetype: 'image/jpeg', 
+        caption: finalCaption 
+      });
     }
 
     await simulateRead(sock, targetJid).catch(() => { });
@@ -511,10 +404,13 @@ router.post('/send-image', async (req, res) => {
     // Save to the actual JID used for delivery (embracing LID)
     const finalChatId = getPureNumber(targetJid);
 
+    // Optimize RTDB Storage: Upload media to disk and store URL instead of huge base64
+    const mediaUrl = await whatsappService.uploadToStorage(buffer, `sent_${Date.now()}.jpg`, 'image/jpeg');
+
     const msgData = {
-      text: isPoll ? "📊 استطلاع: مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟" : (caption || "📷 صورة"),
-      type: isPoll ? "text" : (isPdf ? "document" : "image"),
-      mediaData: isPoll ? null : (mediaUrl || "📷 (خطأ في رفع الصورة)"), 
+      text: caption || "📷 صورة",
+      type: "image",
+      mediaData: mediaUrl || "📷 (خطأ في رفع الصورة)", // Safe placeholder instead of broken base64
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -528,7 +424,7 @@ router.post('/send-image', async (req, res) => {
     whatsappService.enforceMessageLimit(employeeId, finalChatId).catch(() => { });
 
     const metaData = {
-      lastMessage: isPoll ? "📊 استطلاع: مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟" : (caption || "📷 صورة"),
+      lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: finalChatId,
       fullJid: targetJid,
