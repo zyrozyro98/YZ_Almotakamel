@@ -539,23 +539,32 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       const isQrTimeout = lastDisconnect.error?.message?.includes('QR refs');
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isQrTimeout;
+      
+      // CRITICAL FIX: Stop auto-reconnecting for bad credentials (403), replaced sessions (440), logged out (401), or mismatch (411)
+      // This prevents infinite reconnect loops that cause server crashes (OOM) and WhatsApp IP bans.
+      const nonReconnectCodes = [
+        DisconnectReason.loggedOut, // 401
+        403, // Bad Session / Forbidden
+        440, // Connection Replaced (prevents infinite fighting between duplicate server instances or phone/browser)
+        411  // Multidevice Mismatch
+      ];
+      
+      const shouldReconnect = !nonReconnectCodes.includes(statusCode) && !isQrTimeout;
       
       rtdb.ref(`wa_status/${employeeId}`).update({
         isConnected: false,
         lastUpdate: Date.now(),
-        status: shouldReconnect ? 'reconnecting' : 'disconnected'
+        status: shouldReconnect ? 'reconnecting' : 'disconnected',
+        errorDetails: statusCode ? `Code ${statusCode}` : null
       }).catch(() => {});
       
       if (shouldReconnect) {
         const delay = 5000 + (Math.random() * 10000); 
-        console.log(`[WA-${employeeId}] Reconnecting (Code: ${statusCode || 'NoCode'})...`);
+        console.log(`[WA-${employeeId}] Reconnecting (Code: ${statusCode || 'NoCode'}) in ${Math.round(delay/1000)}s...`);
         setTimeout(() => initializeSession(employeeId, onQrGenerated, true), delay);
       } else {
-        console.log(`[WA-${employeeId}] Permanent disconnect or QR Timeout. Clearing memory session.`);
+        console.log(`[WA-${employeeId}] Permanent disconnect or QR Timeout (Code: ${statusCode || 'NoCode'}). Clearing memory session.`);
         sessions.delete(employeeId);
-        // We do NOT wipe the cloud backup or local files on QR timeout or generic loggedOut.
-        // The user must explicitly press Logout to wipe data. This prevents accidental data loss!
       }
     } else if (connection === 'open') {
       const waUser = sock.user || sock.authState?.creds?.me;
