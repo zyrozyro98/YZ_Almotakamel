@@ -86,6 +86,8 @@ async function maintenance() {
       const employees = rtdbEmployeesSnap.val();
       for (const empId in employees) {
         whatsappService.initializeSession(empId).catch(() => {});
+        // تأخير 3 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
+        await new Promise(r => setTimeout(r, 3000));
       }
       console.log(`[SYSTEM] Auto-initialized ${Object.keys(employees).length} sessions from RTDB.`);
     } else {
@@ -94,6 +96,7 @@ async function maintenance() {
         const employeesSnap = await db.collection('employees').get();
         for (const doc of employeesSnap.docs) {
           whatsappService.initializeSession(doc.id).catch(() => {});
+          await new Promise(r => setTimeout(r, 3000)); // تأخير تدريجي
         }
       } catch (fe) {
         console.warn('[SYSTEM] Firestore quota exceeded during auto-init. Using RTDB only.');

@@ -326,7 +326,8 @@ router.post('/send-image', async (req, res) => {
     }
 
     let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
-    let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    let originalBuffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    let buffer = originalBuffer;
 
     // 1. Verify JID (Safety check)
     const exists = await verifyJid(sock, targetJid);
@@ -380,12 +381,12 @@ router.post('/send-image', async (req, res) => {
       } catch (pdfErr) {
         console.error('[PDF ERROR]', pdfErr);
         // Fallback to normal image if PDF generation fails
-        buffer = await randomizeImage(buffer);
+        buffer = await randomizeImage(originalBuffer);
         result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
       }
     } else {
       // Apply Binary Jitter (Anti-Ban) for normal image
-      buffer = await randomizeImage(buffer);
+      buffer = await randomizeImage(originalBuffer);
       result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
     }
 
