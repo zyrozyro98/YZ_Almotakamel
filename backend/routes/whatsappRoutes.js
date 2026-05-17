@@ -442,7 +442,7 @@ router.post('/send-image', async (req, res) => {
 
 // SOLUTION 1: Interactive Polls
 router.post('/send-poll', async (req, res) => {
-  let { employeeId, phoneNumber, pollName, pollOptions, fullJid } = req.body;
+  let { employeeId, phoneNumber, pollName, pollOptions, fullJid, base64Image, caption, asDynamicPdf, pendingTextMsg } = req.body;
   if (!employeeId || !phoneNumber || !pollName || !pollOptions) return res.status(400).json({ error: 'Missing parameters' });
   
   if (employeeId === 'auto') {
@@ -458,6 +458,13 @@ router.post('/send-poll', async (req, res) => {
     const exists = await verifyJid(sock, targetJid);
     if (!exists) return res.status(404).json({ error: 'Number not registered.' });
 
+    // Pre-upload image if present to avoid overhead during fast real-time vote hook
+    let imageUrl = null;
+    if (base64Image) {
+      let originalBuffer = Buffer.from(base64Image.split(',')[1], 'base64');
+      imageUrl = await whatsappService.uploadToStorage(originalBuffer, `poll_image_${Date.now()}.jpg`, 'image/jpeg');
+    }
+
     await simulateHumanTyping(sock, targetJid, pollName);
     if (!await checkFrequency(rtdb, employeeId, 250)) return res.status(429).json({ error: 'Rate limit exceeded.' });
 
@@ -468,6 +475,36 @@ router.post('/send-poll', async (req, res) => {
             selectableCount: 1
         }
     });
+
+    const messageSecret = result.messageContextInfo?.messageSecret || result.message?.messageContextInfo?.messageSecret;
+    
+    if (messageSecret) {
+      const { jidNormalizedUser } = require('@whiskeysockets/baileys');
+      const normalizedCreatorJid = jidNormalizedUser(sock.user.id || sock.authState?.creds?.me?.id);
+      
+      const actionData = {
+        employeeId,
+        phoneNumber,
+        pollCreatorJid: normalizedCreatorJid,
+        pollEncKey: Buffer.from(messageSecret).toString('base64'),
+        pollOptions,
+        status: 'pending',
+        timestamp: Date.now()
+      };
+      
+      if (imageUrl) {
+        actionData.imageUrl = imageUrl;
+        actionData.caption = caption || '';
+        actionData.asDynamicPdf = !!asDynamicPdf;
+      }
+      
+      if (pendingTextMsg) {
+        actionData.pendingTextMsg = pendingTextMsg;
+      }
+
+      await rtdb.ref(`pending_poll_actions/${result.key.id}`).set(actionData)
+        .catch(e => console.error('[POLL ACTION RTDB ERROR]', e.message));
+    }
     
     // Save minimal data for the UI
     const chatId = getPureNumber(targetJid);

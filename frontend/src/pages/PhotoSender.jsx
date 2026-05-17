@@ -531,29 +531,31 @@ export default function PhotoSender() {
                   const pollData = {
                       ...sendData,
                       pollName: "مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟",
-                      pollOptions: ["نعم، أرسلها الآن ✅", "لاحقاً ⏳"]
+                      pollOptions: ["نعم، أرسلها الآن ✅", "لاحقاً ⏳"],
+                      base64Image: b64,
+                      caption: finalMessage,
+                      asDynamicPdf: isDynamicPdf
                   };
                   await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
-                  // Wait 2-3 seconds before sending the actual image
-                  await new Promise(r => setTimeout(r, 2500));
+              } else {
+                  sendData.base64Image = b64;
+                  sendData.caption = finalMessage;
+                  sendData.asDynamicPdf = isDynamicPdf;
+                  await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
               }
-
-              sendData.base64Image = b64;
-              sendData.caption = finalMessage;
-              sendData.asDynamicPdf = isDynamicPdf;
-              await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
             } else {
               if (isInteractivePoll) {
                   const pollData = {
                       ...sendData,
                       pollName: "مرحباً، هل تفضل استلام التفاصيل الآن؟",
-                      pollOptions: ["نعم ✅", "لاحقاً ⏳"]
+                      pollOptions: ["نعم ✅", "لاحقاً ⏳"],
+                      pendingTextMsg: finalMessage
                   };
                   await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
-                  await new Promise(r => setTimeout(r, 2500));
+              } else {
+                  sendData.message = finalMessage;
+                  await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
               }
-              sendData.message = finalMessage;
-              await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
             }
             
             if (senderId === 'auto') {

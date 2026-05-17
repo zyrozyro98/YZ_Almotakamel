@@ -148,6 +148,104 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
   for (const msg of messages) {
     if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
 
+    // --- INTERCEPT POLL VOTE AND TRIGGER IMAGE SENDING ---
+    if (msg.message.pollUpdateMessage) {
+      const pollUpdate = msg.message.pollUpdateMessage;
+      const pollCreationKey = pollUpdate.pollCreationMessageKey;
+      const pollMsgId = pollCreationKey?.id;
+      
+      if (pollMsgId) {
+        try {
+          const snap = await rtdb.ref(`pending_poll_actions/${pollMsgId}`).once('value');
+          if (snap.exists()) {
+            const pendingAction = snap.val();
+            if (pendingAction.status === 'pending') {
+              const { decryptPollVote } = require('@whiskeysockets/baileys/lib/Utils/process-message');
+              const { jidNormalizedUser } = require('@whiskeysockets/baileys');
+              
+              const voterJid = jidNormalizedUser(msg.key.participant || msg.key.remoteJid);
+              const pollCreatorJid = pendingAction.pollCreatorJid;
+              const pollEncKey = Buffer.from(pendingAction.pollEncKey, 'base64');
+              
+              const decryptedVote = decryptPollVote(
+                pollUpdate.vote,
+                {
+                  pollCreatorJid,
+                  pollMsgId,
+                  pollEncKey,
+                  voterJid
+                }
+              );
+              
+              console.log(`[POLL VOTE DECRYPTED] Voter [${voterJid}] decrypted vote successfully.`);
+              
+              const selectedHashes = (decryptedVote.selectedOptions || []).map(opt => Buffer.from(opt).toString('hex'));
+              const crypto = require('crypto');
+              const optionsWithHashes = (pendingAction.pollOptions || []).map((optText, index) => {
+                const hash = crypto.createHash('sha256').update(optText).digest('hex');
+                return { optText, index, hash };
+              });
+              
+              let votedYes = false;
+              for (const opt of optionsWithHashes) {
+                if (selectedHashes.includes(opt.hash)) {
+                  console.log(`[POLL VOTE] User voted for option: "${opt.optText}" (Index: ${opt.index})`);
+                  if (opt.index === 0 || opt.optText.startsWith('نعم') || opt.optText.includes('نعم')) {
+                    votedYes = true;
+                  }
+                }
+              }
+              
+              if (votedYes) {
+                console.log(`[POLL ACTION] User voted YES! Triggering delivery from Employee: ${pendingAction.employeeId} to Student: ${pendingAction.phoneNumber}`);
+                
+                // Mark as sent immediately to prevent race conditions
+                await rtdb.ref(`pending_poll_actions/${pollMsgId}`).update({ status: 'sent', votedAt: Date.now() });
+                
+                const targetJid = await getTargetJid(pendingAction.employeeId, pendingAction.phoneNumber);
+                
+                if (pendingAction.imageUrl) {
+                  let imgBuffer = null;
+                  if (pendingAction.imageUrl.includes('/uploads/')) {
+                    const fileName = pendingAction.imageUrl.split('/uploads/')[1];
+                    const filePath = path.join(__dirname, '..', 'uploads', fileName);
+                    if (fs.existsSync(filePath)) {
+                      imgBuffer = fs.readFileSync(filePath);
+                      console.log(`[POLL ACTION] Loaded image from local disk: ${filePath}`);
+                    }
+                  }
+                  
+                  if (!imgBuffer) {
+                    const response = await fetch(pendingAction.imageUrl);
+                    imgBuffer = Buffer.from(await response.arrayBuffer());
+                    console.log(`[POLL ACTION] Fetched image from network: ${pendingAction.imageUrl}`);
+                  }
+                  
+                  const { randomizeImage } = require('../utils/antiBan');
+                  const randomized = await randomizeImage(imgBuffer);
+                  
+                  await sock.sendMessage(targetJid, {
+                    image: randomized,
+                    mimetype: 'image/jpeg',
+                    caption: pendingAction.caption || ''
+                  });
+                  console.log(`[POLL ACTION SUCCESS] Image sent to ${targetJid} from ${sock.user.id}`);
+                } else if (pendingAction.pendingTextMsg) {
+                  await sock.sendMessage(targetJid, {
+                    text: pendingAction.pendingTextMsg
+                  });
+                  console.log(`[POLL ACTION SUCCESS] Text message sent to ${targetJid} from ${sock.user.id}`);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[POLL VOTE PROCESS ERROR]', err.message);
+        }
+      }
+      continue; // Skip standard processing for poll updates
+    }
+
     const msgId = msg.key.id;
     if (processedMessageIds.has(msgId)) continue;
     processedMessageIds.add(msgId);
