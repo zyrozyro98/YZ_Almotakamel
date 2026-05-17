@@ -66,8 +66,7 @@ router.post('/send', async (req, res) => {
     // 1. Resolve Target JID using unified PROACTIVE logic
     let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
 
-
-    console.log(`[WA] Sending message to JID: ${targetJid}`);
+    console.log(`[API SEND] Routing text message from employee: ${employeeId} to JID: ${targetJid}`);
 
     let sendOptions = {};
     if (req.body.quotedMsg) {
@@ -289,12 +288,17 @@ async function getAutoEmployeeId(chatId, msgType = 'text') {
         }
     }
     
-    if (bestEmp) return bestEmp;
+    if (bestEmp) {
+      console.log(`[AUTO-ROUTING] Sticky routing matched. Selected employee: ${bestEmp} for student: ${chatId}`);
+      return bestEmp;
+    }
 
     // 4. Load Balancing: Pick the employee with the lowest sent count relative to their limit
     // We sort by percentage of quota used: (count / limit)
     availableEmps.sort((a, b) => (a.count / a.limit) - (b.count / b.limit));
-    return availableEmps[0].id;
+    const selectedEmp = availableEmps[0].id;
+    console.log(`[AUTO-ROUTING] Load balancer selected employee: ${selectedEmp} (Count/Limit score) for student: ${chatId}`);
+    return selectedEmp;
   } catch (e) {
     console.error('[AUTO-ROUTING ERROR]', e.message);
   }
@@ -326,6 +330,7 @@ router.post('/send-image', async (req, res) => {
     }
 
     let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
+    console.log(`[API SEND-IMAGE] Routing image message from employee: ${employeeId} to JID: ${targetJid}`);
     let originalBuffer = Buffer.from(base64Image.split(',')[1], 'base64');
     let buffer = originalBuffer;
 

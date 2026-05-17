@@ -235,7 +235,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
         }
         
         mediaData = await uploadToStorage(buffer, fileName, mime);
-        console.log(`[WA] Media uploaded: ${mediaData}`);
+        console.log(`[WA-${employeeId}] Media uploaded: ${mediaData}`);
       } catch (err) { console.error("[WA] Media error:", err.message); }
     }
 
