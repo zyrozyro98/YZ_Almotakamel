@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const scheduleService = require('../services/scheduleService');
+const whatsappService = require('../services/whatsappService');
 const { db } = require('../firebaseAdmin');
 
 // Get all scheduled messages
@@ -68,7 +69,6 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 // Bulk schedule (for group sender)
 router.post('/bulk', async (req, res) => {
     try {
@@ -79,12 +79,20 @@ router.post('/bulk', async (req, res) => {
         const CHUNK_SIZE = 450;
         let totalCreated = 0;
 
+        // DEEP ERROR FIX: Upload shared media ONCE to avoid Firestore 'Base64 Bloat'
+        let finalSharedMedia = sharedMedia;
+        if (sharedMedia && sharedMedia.length > 500 && sharedMedia.includes('base64')) {
+            console.log('[SCHEDULE] Optimizing shared media for bulk send...');
+            const buffer = Buffer.from(sharedMedia.split(',')[1], 'base64');
+            finalSharedMedia = await whatsappService.uploadToStorage(buffer, `bulk_${Date.now()}.jpg`, 'image/jpeg');
+        }
+
         for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
             const chunk = messages.slice(i, i + CHUNK_SIZE);
             const batch = db.batch();
             
-            chunk.forEach(msg => {
-                const docRef = db.collection('scheduled_messages').doc();
+            // Process chunk with support for unique images (e.g. Attendance Folder)
+            const processedChunk = await Promise.all(chunk.map(async (msg) => {
                 const finalMsg = {
                     ...msg,
                     status: 'pending',
@@ -92,12 +100,31 @@ router.post('/bulk', async (req, res) => {
                     retryCount: 0
                 };
 
-                // If shared media is provided and this message doesn't have its own, use shared
-                if (sharedMedia && !finalMsg.base64Image) {
-                    finalMsg.base64Image = sharedMedia;
+                // Case A: Shared Media (One for all)
+                if (finalSharedMedia && !finalMsg.base64Image) {
+                    finalMsg.base64Image = finalSharedMedia; 
                     finalMsg.type = sharedType || 'image';
+                    finalMsg.isOptimized = true;
+                } 
+                // Case B: Unique Media (Attendance Folder - Each image is different)
+                else if (finalMsg.base64Image && finalMsg.base64Image.length > 500 && finalMsg.base64Image.includes('base64')) {
+                    try {
+                        const buffer = Buffer.from(finalMsg.base64Image.split(',')[1], 'base64');
+                        const fileName = `unique_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+                        const url = await whatsappService.uploadToStorage(buffer, fileName, 'image/jpeg');
+                        finalMsg.base64Image = url;
+                        finalMsg.isOptimized = true;
+                    } catch (uploadErr) {
+                        console.error('[SCHEDULE] Individual upload failed:', uploadErr.message);
+                        // Fallback: keep base64 if upload fails, though risky
+                    }
                 }
 
+                return finalMsg;
+            }));
+
+            processedChunk.forEach(finalMsg => {
+                const docRef = db.collection('scheduled_messages').doc();
                 batch.set(docRef, finalMsg);
             });
 

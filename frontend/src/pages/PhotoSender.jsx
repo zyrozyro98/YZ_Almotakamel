@@ -132,6 +132,8 @@ export default function PhotoSender() {
   const [autoMessagesPerSwitch, setAutoMessagesPerSwitch] = useState(5);
   
   const [isSafeMode, setIsSafeMode] = useState(true);
+  const [isDynamicPdf, setIsDynamicPdf] = useState(false);
+  const [isInteractivePoll, setIsInteractivePoll] = useState(false);
   const [dailyLimit, setDailyLimit] = useState(150);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
 
@@ -401,6 +403,49 @@ export default function PhotoSender() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadVCard = () => {
+    const activeQueue = mode === 'folder' ? filesQueue : manualQueue;
+    if (activeQueue.length === 0) {
+      alert('يجب إضافة أرقام أو تحديد مجلد صور أولاً.');
+      return;
+    }
+    
+    let vCardContent = '';
+    
+    activeQueue.forEach((item, index) => {
+      let targetNumber = mode === 'folder' ? getPureNumber(item.name) : item;
+      if (!targetNumber || targetNumber.length < 9) return;
+      
+      const cleanTarget = getPureNumber(targetNumber);
+      const student = students.find(s => getPureNumber(s.phone) === cleanTarget);
+      let name = student ? student.name : '';
+      
+      if (!name && mode === 'manual' && manualNamesQueue[index]) {
+          name = manualNamesQueue[index];
+      }
+      if (!name) name = `عميل ${targetNumber.slice(-4)}`;
+      
+      vCardContent += 'BEGIN:VCARD\n';
+      vCardContent += 'VERSION:3.0\n';
+      vCardContent += `FN:${name}\n`;
+      vCardContent += `TEL;TYPE=CELL:+${targetNumber}\n`;
+      vCardContent += 'END:VCARD\n';
+    });
+    
+    if (!vCardContent) {
+      alert('لم يتم العثور على أرقام صحيحة لإنشاء جهات الاتصال.');
+      return;
+    }
+
+    const blob = new Blob([vCardContent], { type: 'text/vcard;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Contacts_${new Date().toISOString().slice(0, 10)}.vcf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -458,40 +503,8 @@ export default function PhotoSender() {
 
           let finalSenderId = senderId;
           
-          // --- SMART AUTO-ROUTING LOGIC ---
-          const findActiveAutoSender = () => {
-            if (autoIncludedAccounts.length === 0) return null;
-            
-            // Try to find a connected account starting from currentAutoIndex
-            for (let i = 0; i < autoIncludedAccounts.length; i++) {
-              const idx = (currentAutoIndex + i) % autoIncludedAccounts.length;
-              const id = autoIncludedAccounts[idx];
-              if (allStatuses[id]?.isConnected && !triedAccountsForThisMessage.has(id)) {
-                if (idx !== currentAutoIndex) {
-                   // Account changed because original was offline
-                   currentAutoIndex = idx;
-                   messagesSentOnCurrentAuto = 0;
-                }
-                return id;
-              }
-            }
-            return null;
-          };
-
           if (senderId === 'auto') {
-            finalSenderId = findActiveAutoSender();
-            if (!finalSenderId) {
-              if (triedAccountsForThisMessage.size > 0) {
-                 // We tried some accounts and all failed for this message
-                 setLogs(prev => [{ type: 'error', num: targetNumber, msg: 'تم استنزاف كافة الحسابات المتاحة لهذا الرقم دون نجاح.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-              } else {
-                 setLogs(prev => [{ type: 'error', num: targetNumber, msg: 'لا توجد حسابات متصلة حالياً للإرسال التلقائي.', time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-              }
-              setStats(prev => ({ ...prev, failed: prev.failed + 1, pending: prev.pending - 1 }));
-              current++;
-              setCurrentIndex(current);
-              continue;
-            }
+            finalSenderId = 'auto'; // Let the backend Smart Router handle it!
           } else {
             // Manual selection: check if still connected
             if (!allStatuses[finalSenderId]?.isConnected) {
@@ -514,10 +527,31 @@ export default function PhotoSender() {
             };
 
             if (b64) {
+              if (isInteractivePoll) {
+                  const pollData = {
+                      ...sendData,
+                      pollName: "مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟",
+                      pollOptions: ["نعم، أرسلها الآن ✅", "لاحقاً ⏳"]
+                  };
+                  await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
+                  // Wait 2-3 seconds before sending the actual image
+                  await new Promise(r => setTimeout(r, 2500));
+              }
+
               sendData.base64Image = b64;
               sendData.caption = finalMessage;
+              sendData.asDynamicPdf = isDynamicPdf;
               await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
             } else {
+              if (isInteractivePoll) {
+                  const pollData = {
+                      ...sendData,
+                      pollName: "مرحباً، هل تفضل استلام التفاصيل الآن؟",
+                      pollOptions: ["نعم ✅", "لاحقاً ⏳"]
+                  };
+                  await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
+                  await new Promise(r => setTimeout(r, 2500));
+              }
               sendData.message = finalMessage;
               await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
             }
@@ -541,19 +575,12 @@ export default function PhotoSender() {
             const isConnectionError = errorMsg.includes('غير متصلة') || errorMsg.includes('not init') || errorMsg.includes('logged out') || errorMsg.includes('Connection Closed') || err.response?.status === 401;
             
             if (isConnectionError && senderId === 'auto') {
-              setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب ${finalSenderId} (قد يكون محظوراً أو مفصولاً). محاولة التبديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
-              
-              // Mark this account as failed for this specific message
-              triedAccountsForThisMessage.add(finalSenderId);
-              
-              // Increment index to skip this failed account for the next attempt
-              currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
-              messagesSentOnCurrentAuto = 0;
+              setLogs(prev => [{ type: 'warning', num: 'System', msg: `فشل الحساب (قد يكون محظوراً أو مفصولاً). سيبحث الموجه الذكي عن حساب بديل...`, time: new Date().toLocaleTimeString('ar-SA') }, ...prev]);
               
               // Add a small delay before retrying with next account to prevent tight loops
               await new Promise(r => setTimeout(r, 3000));
 
-              // We don't increment 'current' here, so the same message will be retried with the next account in the next iteration
+              // We don't increment 'current' here, so the same message will be retried
               continue; 
             }
 
@@ -735,15 +762,7 @@ export default function PhotoSender() {
 
         let finalSenderId = senderId;
         if (senderId === 'auto') {
-          if (autoIncludedAccounts.length === 0) {
-            throw new Error('لا توجد حسابات محددة للتوجيه التلقائي!');
-          }
-          finalSenderId = autoIncludedAccounts[currentAutoIndex];
-          messagesSentOnCurrentAuto++;
-          if (messagesSentOnCurrentAuto >= autoMessagesPerSwitch) {
-            messagesSentOnCurrentAuto = 0;
-            currentAutoIndex = (currentAutoIndex + 1) % autoIncludedAccounts.length;
-          }
+          finalSenderId = 'auto'; // The backend scheduler will handle the routing at execution time
         }
 
         messagesToSchedule.push({
@@ -858,7 +877,14 @@ export default function PhotoSender() {
             </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button 
+                onClick={handleDownloadVCard} 
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 15px', borderRadius: '12px', border: '1px solid var(--success)', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, transition: '0.3s' }}
+                title="تحميل الأرقام كجهات اتصال لحفظها في الهاتف وتجنب الحظر"
+            >
+                <User size={16} /> تحميل كجهات اتصال (VCard)
+            </button>
             <div style={{ position: 'relative' }}>
                 <input 
                     type="text" 
@@ -1248,6 +1274,25 @@ export default function PhotoSender() {
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>متوسط التأخير (ثانية)</div>
                   <div style={{ color: 'var(--brand-secondary)', fontSize: '1rem', fontWeight: 700 }}>{isSafeMode ? '25 - 45' : '8 - 15'}</div>
                </div>
+            </div>
+
+            {/* Advanced Anti-Ban Solutions */}
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={isDynamicPdf} onChange={e => setIsDynamicPdf(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+                  <div style={{ flex: 1 }}>
+                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>توليد الصورة كملف PDF ديناميكي (Solution #4)</div>
+                     <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>تشفير الصورة ببيانات وصفية فريدة لتخطي فلاتر تطابق Hash تماماً.</div>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={isInteractivePoll} onChange={e => setIsInteractivePoll(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+                  <div style={{ flex: 1 }}>
+                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>إرفاق استبيان تفاعلي مع الرسالة (Solution #1)</div>
+                     <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>إرسال تصويت "استلام / لاحقاً" لرفع تفاعل الحساب وتصنيفه كآمن.</div>
+                  </div>
+                </label>
             </div>
 
             <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>

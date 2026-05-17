@@ -5,6 +5,7 @@ const { db, rtdb } = require('../firebaseAdmin');
 const { getPureNumber } = require('../utils/numberUtils');
 const { simulateHumanTyping, verifyJid, parseSpintax, addInvisibleJitter, randomizeImage, checkFrequency, simulateRead } = require('../utils/antiBan');
 const sharp = require('sharp');
+const { PDFDocument } = require('pdf-lib');
 
 // Logout
 router.post('/logout', async (req, res) => {
@@ -26,8 +27,8 @@ router.post('/init', async (req, res) => {
     const statusSnap = await rtdb.ref(`wa_status/${employeeId}`).once('value');
     const statusData = statusSnap.val();
     if (!statusData?.isConnected && statusData?.status !== 'online') {
-       console.log(`[WA-${employeeId}] Manual init requested. Wiping old state to ensure fresh QR.`);
-       await whatsappService.logout(employeeId).catch(() => {});
+      console.log(`[WA-${employeeId}] Manual init requested. Wiping old state to ensure fresh QR.`);
+      await whatsappService.logout(employeeId).catch(() => { });
     }
 
     whatsappService.initializeSession(employeeId).catch(err => console.error(`[WA-${employeeId}] Init failed:`, err.message));
@@ -57,13 +58,13 @@ router.post('/send', async (req, res) => {
     const sock = whatsappService.getSession(employeeId);
     // Relaxed check: If sock exists in memory, Baileys will queue or throw a proper error
     const isConnected = sock && (sock.user || sock.authState?.creds?.me);
-    
+
     if (!isConnected) {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة أو في حالة إعادة اتصال.` });
     }
 
-    // 1. Resolve Target JID using unified logic
-    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    // 1. Resolve Target JID using unified PROACTIVE logic
+    let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
 
 
     console.log(`[WA] Sending message to JID: ${targetJid}`);
@@ -93,9 +94,9 @@ router.post('/send', async (req, res) => {
     // 3. Human Simulation (Typing delay)
     await simulateHumanTyping(sock, targetJid, finalMessage);
 
-    // 4. Frequency Guard Check
-    if (!checkFrequency(employeeId, 150)) {
-       return res.status(429).json({ error: 'تم تجاوز حد الإرسال الآمن لهذا الحساب حالياً. يرجى الانتظار قليلاً.' });
+    // 4. Frequency Guard Check (Persistent)
+    if (!await checkFrequency(rtdb, employeeId, 250)) {
+      return res.status(429).json({ error: 'تم تجاوز حد الإرسال الآمن لهذا الحساب. يرجى الانتظار.' });
     }
 
     let result;
@@ -111,7 +112,7 @@ router.post('/send', async (req, res) => {
         throw sendErr;
       }
     }
-    await simulateRead(sock, targetJid).catch(() => {});
+    await simulateRead(sock, targetJid).catch(() => { });
 
     // Record the sender info and FULL message in RTDB immediately for the UI
     if (senderId || senderName) {
@@ -135,19 +136,12 @@ router.post('/send', async (req, res) => {
       }
 
       await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(updateData).catch(e => console.error('Failed to update sender info:', e.message));
-      
-      // Resolve Name for the UI
-      let resolvedName = chatId;
-      try {
-        const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-        if (!studentSnap.empty) {
-          resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
-        }
-      } catch (e) {}
+
+      // Enforce 50-message limit
+      whatsappService.enforceMessageLimit(employeeId, chatId).catch(() => { });
 
       // Update chat metadata to instantly reflect in the UI sidebar
       const metaData = {
-        name: resolvedName,
         lastMessage: finalMessage.substring(0, 50),
         timestamp: Date.now(),
         phone: chatId,
@@ -201,7 +195,7 @@ router.get('/status-all', async (req, res) => {
       // Read current state directly from RTDB instead of computing it to prevent false negatives
       const rtdbSnap = await rtdb.ref(`wa_status/${doc.id}`).once('value');
       const rtdbData = rtdbSnap.val() || {};
-      
+
       statuses.push({
         id: doc.id,
         name: emp.name,
@@ -218,52 +212,9 @@ router.get('/status-all', async (req, res) => {
   }
 });
 
-// Helper function to resolve target JID (Shared with text send)
-async function getTargetJid(employeeId, phoneNumber, targetJid = null) {
-  const cleanPhone = getPureNumber(phoneNumber); // cleanPhone is now perfectly normalized to international format (e.g., 9665...)
-  const sock = whatsappService.getSession(employeeId);
-  
-  // 1. Check if we already have a mapping for this ID (if it's a LID)
-  try {
-    const snap = await rtdb.ref(`jid_mappings/${employeeId}/${cleanPhone}`).once('value');
-    if (snap.exists()) {
-      return `${snap.val()}@s.whatsapp.net`;
-    }
-  } catch(e) {}
 
-  // 2. If targetJid is provided and it's a LID, AND we don't have a mapped standard number,
-  // we must use the LID to reply, otherwise it will try to send to LID@s.whatsapp.net which doesn't exist.
-  if (targetJid && (targetJid.includes('@lid') || targetJid.includes('@g.us') || targetJid.includes('@newsletter'))) {
-     return targetJid; 
-  }
-
-  // Proactive Background Mapping: 
-  // We still query WA to discover if this number hides behind a LID.
-  try {
-    const results = await sock.onWhatsApp(cleanPhone);
-    if (results && results.length > 0) {
-      const lidJid = results.find(r => r.exists && r.jid.includes('@lid'));
-      if (lidJid) {
-        const lid = lidJid.jid.split('@')[0].split(':')[0];
-        // Cache the mapping permanently so normal text replies don't split the chat!
-        await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => { });
-        
-        // Also update the Firestore student profile
-        const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
-        if (!studentSnap.empty) {
-          await studentSnap.docs[0].ref.update({ fullJid: lidJid.jid }).catch(() => {});
-        }
-      }
-    }
-  } catch (e) { }
-
-  // FORCE STANDARD JID: We will completely ignore @lid for outgoing messages
-  // This guarantees that we ALWAYS communicate via the standard phone number and avoid Bad MAC!
-  return `${cleanPhone}@s.whatsapp.net`;
-}
-
-// Helper for Smart Auto-Routing (Excludes emp1)
-async function getAutoEmployeeId(chatId) {
+// Helper for Smart Auto-Routing (Excludes emp1) with Load Balancing
+async function getAutoEmployeeId(chatId, msgType = 'text') {
   try {
     // 1. Get all connected employees first
     let connectedEmps = [];
@@ -283,27 +234,67 @@ async function getAutoEmployeeId(chatId) {
       return null;
     }
 
-    // 2. Try to find who this student chatted with before
-    const chatsSnap = await rtdb.ref('chats').once('value');
-    if (chatsSnap.exists()) {
-      const allChats = chatsSnap.val();
-      let bestEmp = null;
-      let latestTime = 0;
+    // 2. Fetch Anti-Ban Stats for Load Balancing
+    const baseLimit = msgType === 'text' ? 250 : (msgType === 'media' ? 120 : 100);
+    const statsSnap = await rtdb.ref('anti_ban_stats').once('value');
+    const allStats = statsSnap.val() || {};
+    const now = Date.now();
 
-      for (const empKey in allChats) {
-        if (allChats[empKey][chatId]) {
-          const t = allChats[empKey][chatId].timestamp || 0;
-          if (t > latestTime && connectedEmps.includes(empKey)) {
-            latestTime = t;
-            bestEmp = empKey;
-          }
+    // Filter and score connected employees
+    let availableEmps = [];
+    for (const emp of connectedEmps) {
+        // Calculate Dynamic Limit based on Age
+        const empStatus = waStatusSnap.val()[emp] || {};
+        const firstConn = empStatus.firstConnectionTime || now;
+        const ageInDays = (now - firstConn) / (1000 * 60 * 60 * 24);
+        
+        let dynamicLimit = baseLimit;
+        if (ageInDays < 1) dynamicLimit = Math.min(baseLimit, 15);
+        else if (ageInDays < 3) dynamicLimit = Math.min(baseLimit, 40);
+        else if (ageInDays < 7) dynamicLimit = Math.min(baseLimit, 80);
+
+        const stat = allStats[emp] || { count: 0, startTime: now };
+        // Reset if older than 1 hour (3600000 ms)
+        if (now - stat.startTime > 3600000) {
+            stat.count = 0;
         }
-      }
-      if (bestEmp) return bestEmp;
+        if (stat.count < dynamicLimit) {
+            availableEmps.push({ id: emp, count: stat.count, limit: dynamicLimit });
+        }
     }
 
-    // 3. Fallback: Return the first connected employee
-    return connectedEmps[0];
+    if (availableEmps.length === 0) {
+        console.warn('[AUTO-ROUTING] All employees reached their safe limit! Need Cool-down.');
+        return null; 
+    }
+
+    // 3. Try to find who this student chatted with before (Stickiness) - QUOTA OPTIMIZED
+    let bestEmp = null;
+    let latestTime = 0;
+
+    // Only query the specific chatId from chats_meta instead of downloading the whole database!
+    for (const empObj of availableEmps) {
+        const empKey = empObj.id;
+        try {
+            const chatMetaSnap = await rtdb.ref(`chats_meta/${empKey}/${chatId}`).once('value');
+            if (chatMetaSnap.exists()) {
+                const t = chatMetaSnap.val().timestamp || 0;
+                if (t > latestTime) {
+                    latestTime = t;
+                    bestEmp = empKey;
+                }
+            }
+        } catch (e) {
+            console.warn(`[QUOTA] Failed to fetch stickiness for ${empKey}:`, e.message);
+        }
+    }
+    
+    if (bestEmp) return bestEmp;
+
+    // 4. Load Balancing: Pick the employee with the lowest sent count relative to their limit
+    // We sort by percentage of quota used: (count / limit)
+    availableEmps.sort((a, b) => (a.count / a.limit) - (b.count / b.limit));
+    return availableEmps[0].id;
   } catch (e) {
     console.error('[AUTO-ROUTING ERROR]', e.message);
   }
@@ -318,7 +309,7 @@ router.post('/send-image', async (req, res) => {
 
     // Auto-Routing: Find best employee session if requested
     if (employeeId === 'auto') {
-      employeeId = await getAutoEmployeeId(chatId);
+      employeeId = await getAutoEmployeeId(chatId, 'media');
     }
 
     // Enforce default fallback if somehow undefined
@@ -329,16 +320,13 @@ router.post('/send-image', async (req, res) => {
 
     const sock = whatsappService.getSession(employeeId);
     const isConnected = sock && (sock.user || sock.authState?.creds?.me);
-    
+
     if (!isConnected) {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
     }
 
-    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
     let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
-    
-    // Apply Binary Jitter (Anti-Ban)
-    buffer = await randomizeImage(buffer);
 
     // 1. Verify JID (Safety check)
     const exists = await verifyJid(sock, targetJid);
@@ -352,21 +340,67 @@ router.post('/send-image', async (req, res) => {
     // 3. Human Simulation
     await simulateHumanTyping(sock, targetJid, finalCaption);
 
-    // 4. Frequency Guard Check
-    if (!checkFrequency(employeeId, 120)) { // Lower limit for media
-       return res.status(429).json({ error: 'تم تجاوز حد إرسال الوسائط لهذا الحساب. يرجى الانتظار.' });
+    // 4. Frequency Guard Check (Persistent)
+    if (!await checkFrequency(rtdb, employeeId, 120)) { // Lower limit for media
+      return res.status(429).json({ error: 'تم تجاوز حد إرسال الوسائط لهذا الحساب. يرجى الانتظار.' });
     }
 
-    const result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
-    await simulateRead(sock, targetJid).catch(() => {});
+    let result;
+    if (req.body.asDynamicPdf) {
+      // SOLUTION 4: Dynamic PDF Generation (Bypass Image Hashes)
+      try {
+        const pdfDoc = await PDFDocument.create();
+        pdfDoc.setTitle(`Doc_${Date.now()}_${Math.random()}`); // Unique Hash
+        pdfDoc.setAuthor(`System_${Math.random()}`);
+
+        let imageObj;
+        try {
+            if (base64Image.includes('jpeg') || base64Image.includes('jpg') || base64Image.startsWith('/9j/')) {
+                imageObj = await pdfDoc.embedJpg(buffer);
+            } else {
+                imageObj = await pdfDoc.embedPng(buffer);
+            }
+        } catch(e) {
+            const jpgBuffer = await sharp(buffer).jpeg().toBuffer();
+            imageObj = await pdfDoc.embedJpg(jpgBuffer);
+        }
+        
+        const page = pdfDoc.addPage([imageObj.width, imageObj.height]);
+        page.drawImage(imageObj, { x: 0, y: 0, width: imageObj.width, height: imageObj.height });
+        
+        const pdfBytes = await pdfDoc.save();
+        buffer = Buffer.from(pdfBytes);
+        
+        result = await sock.sendMessage(targetJid, {
+            document: buffer,
+            mimetype: 'application/pdf',
+            fileName: `Certificate_${getPureNumber(phoneNumber)}.pdf`,
+            caption: finalCaption
+        });
+      } catch (pdfErr) {
+        console.error('[PDF ERROR]', pdfErr);
+        // Fallback to normal image if PDF generation fails
+        buffer = await randomizeImage(buffer);
+        result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
+      }
+    } else {
+      // Apply Binary Jitter (Anti-Ban) for normal image
+      buffer = await randomizeImage(buffer);
+      result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
+    }
+
+    await simulateRead(sock, targetJid).catch(() => { });
 
     // Save to the actual JID used for delivery (embracing LID)
     const finalChatId = getPureNumber(targetJid);
 
+    // Optimize RTDB Storage: Upload media to disk and store URL instead of huge base64
+    const mediaUrl = await whatsappService.uploadToStorage(buffer, `sent_${Date.now()}.jpg`, 'image/jpeg');
+
     const msgData = {
       text: caption || "📷 صورة",
       type: "image",
-      mediaData: base64Image,
+      mediaData: mediaUrl || "📷 (خطأ في رفع الصورة)", // Safe placeholder instead of broken base64
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -376,17 +410,10 @@ router.post('/send-image', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    // Resolve Name for the UI
-    let resolvedName = finalChatId;
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', finalChatId).limit(1).get();
-      if (!studentSnap.empty) {
-        resolvedName = `${studentSnap.docs[0].data().name} (${finalChatId})`;
-      }
-    } catch (e) {}
+    // Enforce 50-message limit
+    whatsappService.enforceMessageLimit(employeeId, finalChatId).catch(() => { });
 
     const metaData = {
-      name: resolvedName,
       lastMessage: caption || "📷 صورة",
       timestamp: Date.now(),
       phone: finalChatId,
@@ -400,11 +427,55 @@ router.post('/send-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// SOLUTION 1: Interactive Polls
+router.post('/send-poll', async (req, res) => {
+  let { employeeId, phoneNumber, pollName, pollOptions, fullJid } = req.body;
+  if (!employeeId || !phoneNumber || !pollName || !pollOptions) return res.status(400).json({ error: 'Missing parameters' });
+  
+  if (employeeId === 'auto') {
+    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber), 'text');
+  }
+  if (!employeeId) return res.status(400).json({ error: 'لم يتم العثور على موظف متصل.' });
+
+  try {
+    const sock = whatsappService.getSession(employeeId);
+    if (!sock) return res.status(401).json({ error: 'Session offline.' });
+
+    let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
+    const exists = await verifyJid(sock, targetJid);
+    if (!exists) return res.status(404).json({ error: 'Number not registered.' });
+
+    await simulateHumanTyping(sock, targetJid, pollName);
+    if (!await checkFrequency(rtdb, employeeId, 250)) return res.status(429).json({ error: 'Rate limit exceeded.' });
+
+    const result = await sock.sendMessage(targetJid, {
+        poll: {
+            name: pollName,
+            values: pollOptions,
+            selectableCount: 1
+        }
+    });
+    
+    // Save minimal data for the UI
+    const chatId = getPureNumber(targetJid);
+    const msgData = {
+      text: "📊 استبيان تفاعلي",
+      type: "text",
+      time: Date.now(),
+      sender: "me",
+      id: result.key.id
+    };
+    await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+
+    res.status(200).json({ status: 'sent', to: targetJid });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Send Document
 router.post('/send-document', async (req, res) => {
   let { employeeId, phoneNumber, base64File, fileName, caption, fullJid, senderName, senderId } = req.body;
   if (employeeId === 'auto') {
-    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber));
+    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber), 'media');
   }
 
   if (!employeeId) {
@@ -414,7 +485,7 @@ router.post('/send-document', async (req, res) => {
   try {
     const sock = whatsappService.getSession(employeeId);
     const isConnected = sock && (sock.user || sock.authState?.creds?.me) && sock.ws?.readyState === 1;
-    
+
     if (!isConnected) {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
     }
@@ -437,8 +508,8 @@ router.post('/send-document', async (req, res) => {
     const mime = base64File.split(';')[0].split(':')[1];
 
     // 4. Frequency Guard
-    if (!checkFrequency(employeeId, 100)) {
-       return res.status(429).json({ error: 'تم تجاوز حد إرسال الملفات.' });
+    if (!checkFrequency(rtdb, employeeId, 100)) {
+      return res.status(429).json({ error: 'تم تجاوز حد إرسال الملفات.' });
     }
 
     const result = await sock.sendMessage(targetJid, {
@@ -447,14 +518,17 @@ router.post('/send-document', async (req, res) => {
       fileName: fileName || "file",
       caption: finalCaption
     });
-    await simulateRead(sock, targetJid).catch(() => {});
+    await simulateRead(sock, targetJid).catch(() => { });
 
     const chatId = getPureNumber(targetJid);
 
+    // Optimize RTDB Storage: Store URL instead of huge base64
+    const mediaUrl = await whatsappService.uploadToStorage(buffer, fileName || `doc_${Date.now()}`, mime);
+
     const msgData = {
-      text: caption || "📎 ملف الدورة",
+      text: caption || fileName || "📎 ملف",
       type: "document",
-      mediaData: base64File,
+      mediaData: mediaUrl || "📎 (تم إرسال ملف)",
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -464,17 +538,10 @@ router.post('/send-document', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    // Resolve Name for the UI
-    let resolvedName = chatId;
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-      if (!studentSnap.empty) {
-        resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
-      }
-    } catch (e) {}
+    // Enforce 50-message limit
+    whatsappService.enforceMessageLimit(employeeId, chatId).catch(() => { });
 
     const metaData = {
-      name: resolvedName,
       lastMessage: caption || "📎 ملف",
       timestamp: Date.now(),
       phone: chatId,
@@ -494,7 +561,7 @@ router.post('/send-video', async (req, res) => {
   if (!employeeId || (!phoneNumber && !fullJid) || !base64Video) return res.status(400).json({ error: 'Missing data' });
 
   if (employeeId === 'auto') {
-    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber || fullJid));
+    employeeId = await getAutoEmployeeId(getPureNumber(phoneNumber || fullJid), 'media');
   }
 
   if (!employeeId) {
@@ -522,8 +589,8 @@ router.post('/send-video', async (req, res) => {
     const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
     // 4. Frequency Guard
-    if (!checkFrequency(employeeId, 80)) {
-       return res.status(429).json({ error: 'تم تجاوز حد إرسال الفيديو.' });
+    if (!checkFrequency(rtdb, employeeId, 80)) {
+      return res.status(429).json({ error: 'تم تجاوز حد إرسال الفيديو.' });
     }
 
     const result = await sock.sendMessage(targetJid, {
@@ -531,14 +598,17 @@ router.post('/send-video', async (req, res) => {
       caption: finalCaption,
       mimetype: 'video/mp4' // Standard for WhatsApp
     });
-    await simulateRead(sock, targetJid).catch(() => {});
+    await simulateRead(sock, targetJid).catch(() => { });
 
     const chatId = getPureNumber(targetJid);
+
+    // Optimize RTDB Storage: Store URL instead of huge base64
+    const mediaUrl = await whatsappService.uploadToStorage(buffer, `video_${Date.now()}.mp4`, 'video/mp4');
 
     const msgData = {
       text: caption || "🎥 مقطع فيديو",
       type: "video",
-      mediaData: base64Video,
+      mediaData: mediaUrl || "🎥 (خطأ في رفع الفيديو)",
       time: Date.now(),
       sender: "me",
       id: result.key.id,
@@ -548,17 +618,10 @@ router.post('/send-video', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    // Resolve Name for the UI
-    let resolvedName = chatId;
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-      if (!studentSnap.empty) {
-        resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
-      }
-    } catch (e) {}
+    // Enforce 50-message limit
+    whatsappService.enforceMessageLimit(employeeId, chatId).catch(() => { });
 
     const metaData = {
-      name: resolvedName,
       lastMessage: caption || "🎥 فيديو",
       timestamp: Date.now(),
       phone: chatId,
@@ -582,7 +645,7 @@ router.post('/send-sticker', async (req, res) => {
     const chatId = getPureNumber(phoneNumber);
 
     if (employeeId === 'auto') {
-      employeeId = await getAutoEmployeeId(chatId);
+      employeeId = await getAutoEmployeeId(chatId, 'media');
     }
 
     if (!employeeId) {
@@ -592,9 +655,9 @@ router.post('/send-sticker', async (req, res) => {
     const sock = whatsappService.getSession(employeeId);
     if (!sock || !sock.user) return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
 
-    let targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    let targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
     let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
-    
+
     // Convert to Sticker format (WebP, 512x512, transparent)
     const stickerBuffer = await sharp(buffer)
       .resize(512, 512, {
@@ -610,13 +673,13 @@ router.post('/send-sticker', async (req, res) => {
       return res.status(404).json({ error: 'الرقم غير مسجل في الواتساب.' });
     }
 
-    // 4. Frequency Guard
-    if (!checkFrequency(employeeId, 150)) {
-       return res.status(429).json({ error: 'تم تجاوز حد إرسال الملصقات.' });
+    // 4. Frequency Guard Check (Persistent)
+    if (!await checkFrequency(rtdb, employeeId, 80)) {
+      return res.status(429).json({ error: 'تم تجاوز حد إرسال الملصقات لهذا الحساب.' });
     }
 
     const result = await sock.sendMessage(targetJid, { sticker: stickerBuffer });
-    await simulateRead(sock, targetJid).catch(() => {});
+    await simulateRead(sock, targetJid).catch(() => { });
 
     const finalChatId = getPureNumber(targetJid);
     const msgData = {
@@ -632,17 +695,7 @@ router.post('/send-sticker', async (req, res) => {
 
     await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
-    // Resolve Name for the UI
-    let resolvedName = finalChatId;
-    try {
-      const studentSnap = await db.collection('students').where('phone', '==', finalChatId).limit(1).get();
-      if (!studentSnap.empty) {
-        resolvedName = `${studentSnap.docs[0].data().name} (${finalChatId})`;
-      }
-    } catch (e) {}
-
     const metaData = {
-      name: resolvedName,
       lastMessage: "🏷️ ملصق",
       timestamp: Date.now(),
       phone: finalChatId,
@@ -653,9 +706,9 @@ router.post('/send-sticker', async (req, res) => {
     await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
-  } catch (err) { 
+  } catch (err) {
     console.error("Send Sticker Error:", err);
-    res.status(500).json({ error: err.message }); 
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -724,7 +777,7 @@ router.post('/merge-chat', async (req, res) => {
   try {
     const cleanPhone = getPureNumber(phoneNumber);
     const rawLid = getPureNumber(lidIdentifier); // e.g. 123456@lid -> 123456
-    
+
     if (rawLid === cleanPhone) return res.json({ success: true, message: 'Same ID' });
 
     // 1. Save to global mappings
@@ -733,7 +786,7 @@ router.post('/merge-chat', async (req, res) => {
     // 2. Move chat in RTDB
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const oldSnap = await chatsRef.child(rawLid).once('value');
-    
+
     if (oldSnap.exists()) {
       const oldData = oldSnap.val();
       const newRef = chatsRef.child(cleanPhone);
@@ -756,11 +809,11 @@ router.post('/merge-chat', async (req, res) => {
       if (oldData.messages) {
         await newRef.child('messages').update(oldData.messages);
       }
-      
+
       // Delete old chat
       await chatsRef.child(rawLid).remove();
     }
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error("[WA] Merge Error:", error);
@@ -774,25 +827,21 @@ router.post('/cleanup-database', async (req, res) => {
   if (!employeeId) return res.status(400).json({ error: 'Missing employeeId' });
 
   try {
-    // 1. Build an Identity Map (Resilient to Firestore Quota)
-    const jidToCanonical = {}; 
-    const phoneToCanonical = {}; 
+    // 1. Build an Identity Map from Firestore Students
+    const studentSnap = await db.collection('students').get();
+    const jidToCanonical = {}; // fullJid -> phone
+    const phoneToCanonical = {}; // phone -> phone
 
-    try {
-      const studentSnap = await db.collection('students').get();
-      studentSnap.forEach(doc => {
-        const s = doc.data();
-        const purePhone = getPureNumber(s.phone);
-        if (purePhone) {
-          if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
-          phoneToCanonical[purePhone] = purePhone;
-        }
-      });
-    } catch (firestoreErr) {
-      console.warn("[CLEANUP] Firestore quota hit. Skipping student-aware merge, but group cleanup will proceed.", firestoreErr.message);
-    }
+    studentSnap.forEach(doc => {
+      const s = doc.data();
+      const purePhone = getPureNumber(s.phone);
+      if (purePhone) {
+        if (s.fullJid) jidToCanonical[s.fullJid] = purePhone;
+        phoneToCanonical[purePhone] = purePhone;
+      }
+    });
 
-    // 2. Process RTDB Chats (Primary Goal: Remove Groups and Noise)
+    // 2. Process RTDB Chats
     const chatsRef = rtdb.ref(`chats/${employeeId}`);
     const snapshot = await chatsRef.once('value');
     const allChats = snapshot.val();
@@ -802,20 +851,6 @@ router.post('/cleanup-database', async (req, res) => {
     const bulkMetaUpdates = {};
 
     for (const [rawOldKey, chatData] of Object.entries(allChats)) {
-      // 0. Aggressive Cleanup of Groups/Channels/Broadcasts
-      const fullJid = chatData.fullJid || '';
-      const isNonIndividual = rawOldKey.endsWith('@g.us') || fullJid.endsWith('@g.us') || 
-                             rawOldKey.endsWith('@newsletter') || fullJid.endsWith('@newsletter') ||
-                             rawOldKey.includes('@broadcast') || fullJid.includes('@broadcast') ||
-                             rawOldKey === 'status';
-
-      if (isNonIndividual) {
-        console.log(`[CLEANUP] Removing non-individual chat: ${rawOldKey} (${fullJid})`);
-        await chatsRef.child(rawOldKey).remove();
-        await rtdb.ref(`chats_meta/${employeeId}/${rawOldKey}`).remove();
-        continue;
-      }
-
       // Normalize oldKey to handle cases like "number@lid" or "number:1"
       const oldKey = rawOldKey.split(':')[0].split('@')[0];
       const newKey = jidToCanonical[chatData.fullJid] ||
@@ -824,12 +859,12 @@ router.post('/cleanup-database', async (req, res) => {
 
       // 1. Prepare ALL chats for chats_meta
       bulkMetaUpdates[`chats_meta/${employeeId}/${newKey}`] = {
-          name: chatData.name || "",
-          phone: newKey,
-          fullJid: chatData.fullJid || "",
-          lastMessage: chatData.lastMessage || "",
-          timestamp: chatData.timestamp || 0,
-          lastSender: chatData.lastSender || 'them'
+        name: chatData.name || "",
+        phone: newKey,
+        fullJid: chatData.fullJid || "",
+        lastMessage: chatData.lastMessage || "",
+        timestamp: chatData.timestamp || 0,
+        lastSender: chatData.lastSender || 'them'
       };
 
       // 2. If the actual folder name in DB is different from its pure version
@@ -859,11 +894,8 @@ router.post('/cleanup-database', async (req, res) => {
 
     // Perform bulk update for meta (Fast)
     if (Object.keys(bulkMetaUpdates).length > 0) {
-        await rtdb.ref().update(bulkMetaUpdates);
+      await rtdb.ref().update(bulkMetaUpdates);
     }
-
-    // Also clear notifications to get rid of group/channel noise
-    await rtdb.ref(`notifications/${employeeId}`).remove();
 
     res.json({ success: true, transformed: count });
   } catch (error) {

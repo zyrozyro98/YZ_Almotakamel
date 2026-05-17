@@ -62,24 +62,96 @@ setInterval(() => {
   if (processedMessageIds.size > 5000) processedMessageIds.clear();
 }, 300000);
 
+// Helper to keep only the latest 50 messages per chat to save RTDB quota
+async function enforceMessageLimit(employeeId, chatId) {
+  try {
+    const messagesRef = rtdb.ref(`chats/${employeeId}/${chatId}/messages`);
+    
+    // Get total count first to avoid unnecessary work
+    const countSnap = await messagesRef.once('value');
+    if (!countSnap.exists()) return;
+    
+    const messages = countSnap.val();
+    const keys = Object.keys(messages);
+    
+    if (keys.length > 50) {
+      // Sort keys by time (oldest first)
+      const sortedKeys = keys.sort((a, b) => (messages[a].time || 0) - (messages[b].time || 0));
+      const toDelete = sortedKeys.slice(0, keys.length - 50);
+      
+      const updates = {};
+      toDelete.forEach(k => { updates[k] = null; });
+      await messagesRef.update(updates);
+      console.log(`[QUOTA] Pruned ${toDelete.length} messages for chat ${chatId}`);
+    }
+  } catch (e) {
+    console.error("[WA] Pruning error:", e.message);
+  }
+}
+
+// Background task to delete messages older than 30 days (TTL)
+// Optimized to avoid loading entire DB into memory
+async function runTTLTask() {
+  console.log("[SYSTEM] Starting Optimized TTL Cleanup Task...");
+  try {
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    
+    // 1. Get Employee IDs only (Shallow)
+    const empsSnap = await rtdb.ref('chats').once('value');
+    if (!empsSnap.exists()) return;
+    
+    const employeeIds = Object.keys(empsSnap.val());
+    let totalDeleted = 0;
+
+    for (const employeeId of employeeIds) {
+      // 2. Process each employee's chats one by one
+      const chatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+      if (!chatsSnap.exists()) continue;
+      
+      const chats = chatsSnap.val();
+      for (const chatId in chats) {
+        const messages = chats[chatId].messages;
+        if (!messages) continue;
+        
+        const updates = {};
+        let count = 0;
+        for (const msgId in messages) {
+          if ((messages[msgId].time || 0) < thirtyDaysAgo) {
+            updates[msgId] = null;
+            count++;
+          }
+        }
+        
+        if (count > 0) {
+          await rtdb.ref(`chats/${employeeId}/${chatId}/messages`).update(updates);
+          totalDeleted += count;
+          // Small pause to prevent hitting RTDB write rate limits during massive cleanup
+          await new Promise(r => setTimeout(r, 50)); 
+        }
+      }
+    }
+    console.log(`[TTL] Cleanup finished. Deleted ${totalDeleted} expired messages.`);
+  } catch (e) {
+    console.error("[TTL ERROR]", e.message);
+  }
+}
+
+// Run TTL every 24 hours
+setInterval(runTTLTask, 24 * 60 * 60 * 1000);
+// Run once on startup after 1 minute
+setTimeout(runTTLTask, 60000);
+
 const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
   if (type !== 'notify') return;
 
   for (const msg of messages) {
-    const remoteJid = msg.key.remoteJid || '';
-    const cleanRemoteJid = remoteJid.split(':')[0]; // Remove multi-device suffixes like :1, :2
-    
-    // STRICT FILTER: Only allow individual messages (@s.whatsapp.net or @lid)
-    // This blocks groups (@g.us), channels (@newsletter), and broadcast lists (@broadcast)
-    const isUser = cleanRemoteJid.endsWith('@s.whatsapp.net') || cleanRemoteJid.endsWith('@lid');
-    
-    if (!msg.message || !isUser || cleanRemoteJid === 'status@broadcast') {
-      continue;
-    }
+    if (!msg.message || msg.key.remoteJid === 'status@broadcast') continue;
 
     const msgId = msg.key.id;
     if (processedMessageIds.has(msgId)) continue;
     processedMessageIds.add(msgId);
+
+    const remoteJid = msg.key.remoteJid;
     const jidUser = remoteJid.split('@')[0].split(':')[0];
     const jidDomain = remoteJid.split('@')[1];
     const normalizedJid = `${jidUser}@${jidDomain}`;
@@ -169,66 +241,59 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     if (!textMsg && !mediaData) continue;
 
     // --- UNIFIED JID SYSTEM ---
+    // We use the JID identifier (Phone number for standard chats) as the master key
     let chatId = getPureNumber(jidUser);
-    const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
-    let studentData = null;
 
     try {
-      // 0. Aggressive Participant Check (The "Original Phone Number" from the message)
-      let participantPn = null;
-      if (msg.key.participant && msg.key.participant.includes('@s.whatsapp.net')) {
-        participantPn = getPureNumber(msg.key.participant);
-      } else if (msg.participant && msg.participant.includes('@s.whatsapp.net')) {
-        participantPn = getPureNumber(msg.participant);
-      }
+      // ADVANCED: Reverse Lookup via Quoted Message (Stanza ID)
+      const isTechnicalId = jidDomain === 'lid' || /[a-zA-Z]/.test(jidUser);
+      
+      if (isTechnicalId) {
+        // Cache for current session to avoid Firestore/RTDB spam
+        if (!sock.lidCache) sock.lidCache = new Set();
+        
+        // First check if we already mapped this LID before
+        const jidMappingSnap = await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).once('value');
+        if (jidMappingSnap.exists()) {
+          chatId = getPureNumber(jidMappingSnap.val());
+        } else {
+          // Attempt reverse lookup tricks...
+          const contextInfo = msg.message?.extendedTextMessage?.contextInfo || msg.message?.imageMessage?.contextInfo;
+          let mappedPhone = null;
 
-      if (participantPn && isTechnicalId) {
-        chatId = participantPn;
-        // Save to global mapping for future messages
-        await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
-      } else {
-        // 1. Try Global RTDB Mapping
-        const globalMappingSnap = await rtdb.ref(`jid_mappings/global/${jidUser}`).once('value');
-        if (globalMappingSnap.exists()) {
-          chatId = getPureNumber(globalMappingSnap.val());
-        }
-      }
+          if (contextInfo && contextInfo.stanzaId) {
+            const allChatsSnap = await rtdb.ref(`chats/${employeeId}`).once('value');
+            if (allChatsSnap.exists()) {
+              const chatsData = allChatsSnap.val();
+              for (const [phoneKey, chatObj] of Object.entries(chatsData || {})) {
+                if (chatObj.messages && chatObj.messages[contextInfo.stanzaId]) {
+                  mappedPhone = phoneKey;
+                  break;
+                }
+              }
+            }
+          }
 
-      // 2. Resolve Student Data (for both ID and Name resolution)
-      // Check by Phone first, then by LID if technical
-      let studentQuery = db.collection('students').where('phone', '==', chatId).limit(1);
-      let studentMatch = await studentQuery.get();
+          if (!mappedPhone && (msg.key.participant || msg.participant)?.includes('@s.whatsapp.net')) {
+            mappedPhone = getPureNumber(msg.key.participant || msg.participant);
+          }
 
-      if (studentMatch.empty && isTechnicalId) {
-        studentQuery = db.collection('students').where('fullJid', '==', normalizedJid).limit(1);
-        studentMatch = await studentQuery.get();
-      }
-
-      if (!studentMatch.empty) {
-        const doc = studentMatch.docs[0];
-        studentData = doc.data();
-        studentData.id = doc.id;
-        chatId = studentData.phone; // Always favor the registered phone
-
-        // Update mappings if needed
-        if (isTechnicalId) {
-          await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
-          if (studentData.fullJid !== normalizedJid) {
-            await doc.ref.update({ fullJid: normalizedJid }).catch(() => { });
+          if (mappedPhone) {
+            chatId = mappedPhone;
+            await rtdb.ref(`jid_mappings/${employeeId}/${jidUser}`).set(chatId).catch(() => { });
           }
         }
-      } else if (isTechnicalId) {
-        // Last resort: check participant
-        let mappedPhone = null;
-        if ((msg.key.participant || msg.participant)?.includes('@s.whatsapp.net')) {
-          mappedPhone = getPureNumber(msg.key.participant || msg.participant);
-        }
-        if (mappedPhone) {
-          chatId = mappedPhone;
-          await rtdb.ref(`jid_mappings/global/${jidUser}`).set(chatId).catch(() => { });
+
+        // Optimization: Only update Firestore if we haven't done it this session to save quota
+        if (chatId !== getPureNumber(jidUser) && !sock.lidCache.has(jidUser)) {
+          const studentPhoneMatch = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+          if (!studentPhoneMatch.empty) {
+            await studentPhoneMatch.docs[0].ref.update({ fullJid: normalizedJid }).catch(() => { });
+            sock.lidCache.add(jidUser); // Prevent re-updating in the same session
+          }
         }
       }
-    } catch (err) { console.error("[WA] Identity/Name System Error:", err.message); }
+    } catch (err) { console.error("[WA] Identity System Error:", err.message); }
 
     // Handle Quoted Messages
     let quotedInfo = null;
@@ -256,17 +321,23 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     // --- AUTO-MIGRATION & REASSIGNMENT START ---
     try {
       const chatSnap = await chatRef.once('value');
-      if ((!chatSnap.exists() || !chatSnap.val().messages) && studentData) {
+      if (!chatSnap.exists() || !chatSnap.val().messages) {
+        const studentDoc = await db.collection('students').where('phone', '==', chatId).limit(1).get();
+        if (!studentDoc.empty) {
+          const studentData = studentDoc.docs[0].data();
+          const studentId = studentDoc.docs[0].id;
           const oldEmployeeId = studentData.assignedTo;
+          
           if (oldEmployeeId && oldEmployeeId !== employeeId) {
             const oldChatSnap = await rtdb.ref(`chats/${oldEmployeeId}/${chatId}`).once('value');
             if (oldChatSnap.exists()) {
               await chatRef.set(oldChatSnap.val());
             }
-            await db.collection('students').doc(studentData.id).update({ assignedTo: employeeId });
-            await rtdb.ref(`active_students/${studentData.id}`).update({ assignedTo: employeeId });
+            await db.collection('students').doc(studentId).update({ assignedTo: employeeId });
+            await rtdb.ref(`active_students/${studentId}`).update({ assignedTo: employeeId });
             console.log(`[Auto-Migration] Transferred student ${studentData.name || chatId} from ${oldEmployeeId} to ${employeeId}`);
           }
+        }
       }
     } catch (migErr) {
       console.error('[Auto-Migration Error]', migErr.message);
@@ -283,17 +354,34 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       quoted: quotedInfo
     };
 
-    // --- UNIFIED NAME RESOLUTION ---
-    // Priority: 1. Student Name (DB) | 2. Phone Number | 3. WhatsApp Profile Name
-    // We always include the phone number to ensure it's never hidden from the user.
-    let finalName = studentData ? `${studentData.name} (${chatId})` : (chatId || pushName);
-    
-    // Ensure we don't have technical JIDs in the display name if possible
-    if (finalName.includes('@')) {
-       finalName = getPureNumber(finalName);
+    // --- UNIFIED NAME RESOLUTION (Groups/Channels) ---
+    let finalName = pushName;
+    if (jidDomain === 'g.us' || jidDomain === 'newsletter') {
+      try {
+        // Check cache first
+        const cacheSnap = await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).once('value');
+        if (cacheSnap.exists()) {
+          finalName = cacheSnap.val();
+        } else {
+          // Live fetch from WhatsApp
+          if (jidDomain === 'g.us') {
+            const meta = await sock.groupMetadata(remoteJid);
+            finalName = meta.subject || finalName;
+          } else if (jidDomain === 'newsletter') {
+            const meta = await sock.newsletterMetadata("jid", remoteJid);
+            finalName = meta.name || finalName;
+          }
+          // Save to cache
+          await rtdb.ref(`name_cache/${employeeId}/${jidUser}`).set(finalName).catch(() => { });
+        }
+      } catch (e) { console.warn("[WA] Metadata fetch failed:", e.message); }
     }
 
     await chatRef.child('messages').child(msgId).update(msgData);
+    
+    // Enforce 50-message limit
+    enforceMessageLimit(employeeId, chatId).catch(() => {});
+
     const metaPayload = {
       lastMessage: textMsg,
       timestamp: Date.now(),
@@ -302,6 +390,13 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
       name: finalName,
       lastSender: isMe ? 'me' : 'them'
     };
+
+    // Increment unread count for incoming messages
+    if (!isMe) {
+      const currentSnap = await chatRef.child('unreadCount').once('value');
+      metaPayload.unreadCount = (currentSnap.val() || 0) + 1;
+    }
+
     await chatRef.update(metaPayload);
     await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaPayload);
 
@@ -461,12 +556,16 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       console.log(`[WA-${employeeId}] Connected Successfully as ${waUser?.id || 'unknown'}`);
       
       qrCache.delete(employeeId);
-      rtdb.ref(`wa_status/${employeeId}`).update({
-        isConnected: true,
-        qr: null,
-        lastUpdate: Date.now(),
-        status: 'online',
-        phoneNumber: waUser?.id || null
+      rtdb.ref(`wa_status/${employeeId}`).once('value').then(snap => {
+          const existingData = snap.val() || {};
+          rtdb.ref(`wa_status/${employeeId}`).update({
+            isConnected: true,
+            qr: null,
+            lastUpdate: Date.now(),
+            status: 'online',
+            phoneNumber: waUser?.id || null,
+            firstConnectionTime: existingData.firstConnectionTime || Date.now() // Track account age for Anti-Ban
+          }).catch(() => {});
       }).catch(() => {});
     }
   });
@@ -495,6 +594,10 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
           phoneData.phone = phoneJid;
           
           await phoneChatRef.update(phoneData);
+          
+          // CRITICAL FIX: Enforce limit AFTER merge to prevent quota explosion
+          await enforceMessageLimit(employeeId, phoneJid);
+
           const metaData = {
             lastMessage: phoneData.lastMessage,
             timestamp: phoneData.timestamp,
@@ -513,49 +616,30 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     }
   };
 
-  const processContacts = async (contacts) => {
-    for (const contact of contacts) {
-      const lid = contact.lid || (contact.id?.includes('@lid') ? contact.id : null);
-      const pn = contact.id?.includes('@s.whatsapp.net') ? contact.id : contact.pnJid;
-      
-      if (lid && pn) {
-        const lidKey = lid.split('@')[0].split(':')[0];
-        const phoneKey = pn.split('@')[0].split(':')[0];
-        
-        if (lidKey !== phoneKey && phoneKey.match(/^\d+$/)) {
-          await rtdb.ref(`jid_mappings/global/${lidKey}`).set(phoneKey).catch(() => { });
-          await autoMergeBackground(employeeId, lidKey, phoneKey);
-        }
-      }
-
-      // Also cache names to improve name resolution
-      if (contact.name || contact.notify || contact.verifiedName) {
-        const idKey = (contact.id || contact.lid || '').split('@')[0].split(':')[0];
-        if (idKey) {
-          await rtdb.ref(`name_cache/${employeeId}/${idKey}`).set(contact.name || contact.notify || contact.verifiedName).catch(() => { });
-        }
-      }
-    }
-  };
-
-  sock.ev.on('messaging-history.set', async (history) => {
-    if (history.contacts) await processContacts(history.contacts);
-    if (history.chats) {
-      for (const chat of history.chats) {
-        // Some chats have the PN in the ID even if they are LID-linked in messages
-        if (chat.id.includes('@s.whatsapp.net')) {
-           // This helps populate the chat list correctly
-        }
-      }
-    }
-  });
-
   sock.ev.on('contacts.upsert', async (contacts) => {
-    await processContacts(contacts);
+    for (const contact of contacts) {
+      if (contact.lid && contact.id) {
+        const jidKey = contact.lid.split('@')[0].split(':')[0];
+        const phoneJid = contact.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await autoMergeBackground(employeeId, jidKey, phoneJid);
+        }
+      }
+    }
   });
 
   sock.ev.on('contacts.update', async (updates) => {
-    await processContacts(updates);
+    for (const update of updates) {
+      if (update.lid && update.id) {
+        const jidKey = update.lid.split('@')[0].split(':')[0];
+        const phoneJid = update.id.split('@')[0].split(':')[0];
+        if (jidKey !== phoneJid && phoneJid.match(/^\d+$/)) {
+          await rtdb.ref(`jid_mappings/${employeeId}/${jidKey}`).set(phoneJid).catch(() => { });
+          await autoMergeBackground(employeeId, jidKey, phoneJid);
+        }
+      }
+    }
   });
 
   sock.ev.on('messages.upsert', messageUpsertHandler(employeeId, sock));
@@ -567,6 +651,60 @@ function getSession(employeeId) {
   if (!sock) throw new Error(`Session ${employeeId} not init.`);
   return sock;
 }
+
+async function getTargetJid(employeeId, phoneNumber, providedJid = null) {
+    const cleanPhone = getPureNumber(phoneNumber); 
+    const sock = this.getSession(employeeId);
+    if (!sock) return providedJid || `${cleanPhone}@s.whatsapp.net`;
+
+    // 1. Check if we already have a mapping for this phone (Reverse lookup: phone -> lid)
+    // We store mappings as lid -> phone, so we need to check students list or a reverse map
+    try {
+      const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).limit(1).get();
+      if (!studentSnap.empty && studentSnap.docs[0].data().fullJid) {
+        return studentSnap.docs[0].data().fullJid;
+      }
+      
+      // Also check RTDB mappings (we might want a phone_to_jid map for speed)
+      const rtdbMap = await rtdb.ref(`phone_to_jid/${employeeId}/${cleanPhone}`).once('value');
+      if (rtdbMap.exists()) return rtdbMap.val();
+    } catch(e) {}
+
+    // 2. If providedJid is technical (LID/Group), use it
+    if (providedJid && (providedJid.includes('@lid') || providedJid.includes('@g.us') || providedJid.includes('@newsletter'))) {
+       return providedJid; 
+    }
+
+    // 3. PROACTIVE DISCOVERY (The WhatsApp Web Secret)
+    // Query WhatsApp to find the LID before we send anything
+    try {
+      const results = await sock.onWhatsApp(cleanPhone);
+      if (results && results.length > 0) {
+        const match = results.find(r => r.exists);
+        if (match) {
+          const actualJid = match.jid;
+          if (actualJid.includes('@lid')) {
+            const lid = actualJid.split('@')[0].split(':')[0];
+            // Save Bidirectional Mapping
+            await rtdb.ref(`jid_mappings/${employeeId}/${lid}`).set(cleanPhone).catch(() => {});
+            await rtdb.ref(`phone_to_jid/${employeeId}/${cleanPhone}`).set(actualJid).catch(() => {});
+            
+            // Update Firestore Student so incoming messages resolve correctly
+            const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).get();
+            if (!studentSnap.empty) {
+              await studentSnap.docs[0].ref.update({ fullJid: actualJid }).catch(() => {});
+            }
+          }
+          return actualJid;
+        }
+      }
+    } catch (e) {
+      console.warn(`[WA] Proactive JID discovery failed for ${cleanPhone}:`, e.message);
+    }
+
+    return `${cleanPhone}@s.whatsapp.net`;
+  }
+
 async function logout(employeeId) {
   const sock = sessions.get(employeeId);
   if (sock) {
@@ -621,4 +759,81 @@ function isSessionActive(employeeId) {
 }
 
 
-module.exports = { initializeSession, getSession, getConnectionStatus, logout, isSessionActive };
+module.exports = { 
+  initializeSession, 
+  getSession, 
+  getTargetJid,
+  getConnectionStatus, 
+  logout, 
+  isSessionActive, 
+  uploadToStorage, 
+  enforceMessageLimit,
+  runTTLTask,
+  runHeartbeatTask
+};
+
+// Start Background Heartbeat (Simulates natural phone checking every 5-15 mins)
+async function runHeartbeatTask() {
+  const { simulateHeartbeat } = require('../utils/antiBan');
+  console.log('[WA] Starting Background Human Heartbeat Task...');
+  
+  setInterval(async () => {
+    for (const [employeeId, sock] of sessions.entries()) {
+      // 30% chance each cycle to check phone naturally
+      if (Math.random() > 0.7 && !!(sock.user || sock.authState?.creds?.me)) {
+        simulateHeartbeat(sock).catch(() => {});
+      }
+    }
+  }, 300000 + Math.random() * 300000); // Every 5-10 minutes
+}
+
+// Start Auto-Warmer (Bot-to-Bot conversations to build Trust Score for new numbers)
+async function runAutoWarmerTask() {
+  const { simulateHumanTyping, simulateRead } = require('../utils/antiBan');
+  console.log('[WA] Starting Auto-Warmer System (Trust Score Builder)...');
+  
+  const warmerTopics = [
+    "مرحباً، كيف حالك اليوم؟",
+    "هل يمكنك إرسال التقرير الأخير؟",
+    "شكراً لك، سأتحقق من ذلك.",
+    "متى سيكون الاجتماع القادم؟",
+    "تمام، فهمت.",
+    "هل تم تحديث النظام؟",
+    "سأتواصل معك لاحقاً.",
+    "يعطيك العافية."
+  ];
+
+  setInterval(async () => {
+    // We need at least 2 connected sessions
+    const activeSessions = Array.from(sessions.values()).filter(sock => !!(sock.user || sock.authState?.creds?.me));
+    if (activeSessions.length >= 2) {
+      // Pick 2 random distinct sessions
+      const shuffled = activeSessions.sort(() => 0.5 - Math.random());
+      const senderSock = shuffled[0];
+      const receiverSock = shuffled[1];
+      
+      try {
+        const senderJid = senderSock.user.id;
+        const receiverJid = receiverSock.user.id.split(':')[0] + '@s.whatsapp.net';
+        
+        const randomMsg = warmerTopics[Math.floor(Math.random() * warmerTopics.length)];
+        
+        console.log(`[AUTO-WARMER] Heating up numbers: ${senderJid.split('@')[0]} -> ${receiverJid.split('@')[0]}`);
+        
+        await simulateHumanTyping(senderSock, receiverJid, randomMsg);
+        const result = await senderSock.sendMessage(receiverJid, { text: randomMsg });
+        
+        // Let the receiver simulate reading it after a few seconds
+        setTimeout(() => {
+          simulateRead(receiverSock, receiverJid, result.key.id).catch(() => {});
+        }, 5000 + Math.random() * 5000);
+        
+      } catch (e) {
+        console.warn('[AUTO-WARMER] Error during simulated chat:', e.message);
+      }
+    }
+  }, 15 * 60 * 1000 + Math.random() * 15 * 60 * 1000); // Every 15-30 minutes
+}
+
+runHeartbeatTask().catch(e => console.error('[HEARTBEAT ERROR]', e));
+runAutoWarmerTask().catch(e => console.error('[WARMER ERROR]', e));

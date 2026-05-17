@@ -74,7 +74,7 @@ class ScheduleService {
           const isAuto = empId === 'auto';
           const targetEmpId = isAuto ? 'system' : empId; // Use system if auto
 
-          if (!checkFrequency(targetEmpId, 100)) {
+          if (!await checkFrequency(rtdb, targetEmpId, 100)) {
             console.log(`[SCHEDULE] Account ${targetEmpId} hit frequency limit, skipping this message.`);
             continue;
           }
@@ -140,15 +140,17 @@ class ScheduleService {
         throw new Error(`No connected WhatsApp sessions available for scheduling.`);
       }
 
-      // Resolve target JID
-      let targetJid = fullJid;
-      if (!targetJid) {
-        let finalPhone = getPureNumber(phoneNumber);
-        if (finalPhone.startsWith('5')) finalPhone = '966' + finalPhone;
-        else if (finalPhone.startsWith('7')) finalPhone = '967' + finalPhone;
-        targetJid = `${finalPhone}@s.whatsapp.net`;
-      }
+      // DEEP FIX: Use unified PROACTIVE logic to discover LID and map it before sending
+      let targetJid = await whatsappService.getTargetJid(activeEmpId, phoneNumber, fullJid);
+      
+      // 2. Prepare Content (Spintax & Jitter)
+      const finalMessage = addInvisibleJitter(parseSpintax(message || ''));
 
+      // 3. Human Simulation (Typing delay)
+      await simulateHumanTyping(sock, targetJid, finalMessage);
+
+      let result;
+      let mediaUrl = null;
       console.log(`[SCHEDULE] Sending message ${id} via ${activeEmpId} to ${targetJid}`);
       
       // 1. Verify JID (Safety check)
@@ -157,40 +159,30 @@ class ScheduleService {
         throw new Error(`Number ${targetJid} is not on WhatsApp.`);
       }
 
-      // 2. Prepare Content (Spintax & Jitter)
-      const finalMessage = addInvisibleJitter(parseSpintax(message || ''));
-
-      // 3. Human Simulation (Typing delay)
-      await simulateHumanTyping(sock, targetJid, finalMessage);
-
-      let result;
       if (type === 'image' && base64Image) {
-        let buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+        // FIX: Handle both data-url and raw base64
+        const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+        let buffer = Buffer.from(base64Data, 'base64');
         buffer = await randomizeImage(buffer);
+        
+        // Upload to storage so it can be viewed in the dashboard history
+        mediaUrl = await whatsappService.uploadToStorage(buffer, `attendance_${Date.now()}.jpg`, 'image/jpeg');
+
         result = await sock.sendMessage(targetJid, { image: buffer, caption: finalMessage || "" });
-        // Simulating that we "read" our own confirmation or previous context
         await simulateRead(sock, targetJid).catch(() => {});
       } else {
         result = await sock.sendMessage(targetJid, { text: finalMessage });
         await simulateRead(sock, targetJid).catch(() => {});
       }
 
-      // 5. Record in RTDB
+      // Record in RTDB
+      // IMPORTANT: Use normalized chatId to match unified chat system
       const chatId = getPureNumber(phoneNumber || targetJid);
-      
-      // Resolve Name from Firestore to ensure the chat list looks good
-      let resolvedName = null;
-      try {
-        const studentSnap = await db.collection('students').where('phone', '==', chatId).limit(1).get();
-        if (!studentSnap.empty) {
-          resolvedName = `${studentSnap.docs[0].data().name} (${chatId})`;
-        }
-      } catch (e) { }
-
       const msgData = {
         id: result.key.id,
         text: message || (type === 'image' ? '📷 صورة' : ''),
         type: type || 'text',
+        mediaData: mediaUrl, // Now agents can actually SEE the attendance photo!
         time: Date.now(),
         sender: "me",
         senderName: senderName || "جدولة تلقائية",
@@ -198,11 +190,14 @@ class ScheduleService {
       };
 
       await rtdb.ref(`chats/${activeEmpId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => {});
+      
+      // Enforce 50-message limit for the target chat
+      whatsappService.enforceMessageLimit(activeEmpId, chatId).catch(() => {});
+
       await rtdb.ref(`chats/${activeEmpId}/${chatId}`).update({
         lastMessage: msgData.text,
         timestamp: Date.now(),
         phone: chatId,
-        name: resolvedName || chatId,
         fullJid: targetJid,
         lastSender: "me"
       }).catch(() => {});

@@ -89,9 +89,10 @@ async function simulateHumanTyping(sock, jid, text = '') {
   try {
     if (!sock || !jid) return;
 
-    // 1. Initial "Thinking" delay
-    const initialDelay = 800 + Math.random() * 1500;
-    await new Promise(r => setTimeout(r, initialDelay));
+    // 1. Appear "Online" (Available) first - Real humans are online before they type
+    await sock.sendPresenceUpdate('available', jid);
+    const thinkingDelay = 1500 + Math.random() * 3000;
+    await new Promise(r => setTimeout(r, thinkingDelay));
     
     // 2. Composing state
     await sock.sendPresenceUpdate('composing', jid);
@@ -99,14 +100,12 @@ async function simulateHumanTyping(sock, jid, text = '') {
     // 3. Burst Typing simulation
     const totalDelay = getTypingDelay(text);
     const words = text.split(' ');
-    const numBursts = Math.max(1, Math.floor(words.length / 5)); // Burst every ~5 words
+    const numBursts = Math.max(1, Math.floor(words.length / 5)); 
     
     for (let i = 0; i < numBursts; i++) {
-        // Typing burst
         await new Promise(r => setTimeout(r, (totalDelay * 0.7) / numBursts));
         
-        // Proofreading / Thinking pause (Randomly)
-        if (Math.random() > 0.7) {
+        if (Math.random() > 0.8) {
             await sock.sendPresenceUpdate('paused', jid);
             await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
             await sock.sendPresenceUpdate('composing', jid);
@@ -174,10 +173,21 @@ async function randomizeImage(buffer) {
     pipeline = pipeline.modulate({ brightness });
 
     // 4. Randomize JPEG/PNG quality
-    const quality = 78 + Math.floor(Math.random() * 7);
+    const quality = 75 + Math.floor(Math.random() * 10);
 
+    // 5. SCRUB & RANDOMIZE METADATA (Deep Hash Change)
     return await pipeline
-      .jpeg({ quality, force: false, progressive: true })
+      .withMetadata({
+        orientation: 1,
+        exif: {
+          IFD0: {
+            Copyright: `WA-IMAGE-${Date.now()}`,
+            Software: `WhatsApp/2.24.5.76`,
+            DateTime: new Date().toISOString()
+          }
+        }
+      })
+      .jpeg({ quality, force: false, progressive: true, mozjpeg: true })
       .png({ quality: quality + 10, force: false })
       .toBuffer();
   } catch (e) {
@@ -187,23 +197,71 @@ async function randomizeImage(buffer) {
 }
 
 /**
- * Frequency Guard: Tracks sending frequency to prevent rapid-fire detection
+ * Persistent Frequency Guard with Dynamic Quota Scaling
+ * Automatically lowers limits for new numbers based on firstConnectionTime
  */
-const sentCounts = new Map(); // empId -> { count, startTime }
-function checkFrequency(empId, limit = 100, timeframe = 3600000) {
-    const now = Date.now();
-    const stats = sentCounts.get(empId) || { count: 0, startTime: now };
-    
-    if (now - stats.startTime > timeframe) {
-        sentCounts.set(empId, { count: 1, startTime: now });
+async function checkFrequency(rtdb, empId, baseLimit = 100, timeframe = 3600000) {
+    try {
+        const now = Date.now();
+        
+        // 1. Fetch Account Age
+        const statusSnap = await rtdb.ref(`wa_status/${empId}`).once('value');
+        const statusData = statusSnap.val() || {};
+        const firstConnectionTime = statusData.firstConnectionTime || now;
+        
+        // Calculate age in days
+        const ageInDays = (now - firstConnectionTime) / (1000 * 60 * 60 * 24);
+        
+        // Dynamic Quota Scaling (Radical Solution)
+        let dynamicLimit = baseLimit;
+        if (ageInDays < 1) {
+            dynamicLimit = Math.min(baseLimit, 15); // Day 1: Max 15 per hour
+        } else if (ageInDays < 3) {
+            dynamicLimit = Math.min(baseLimit, 40); // Day 1-3: Max 40 per hour
+        } else if (ageInDays < 7) {
+            dynamicLimit = Math.min(baseLimit, 80); // Day 3-7: Max 80 per hour
+        }
+        
+        const ref = rtdb.ref(`anti_ban_stats/${empId}`);
+        const snap = await ref.once('value');
+        const stats = snap.val() || { count: 0, startTime: now };
+        
+        if (now - stats.startTime > timeframe) {
+            await ref.set({ count: 1, startTime: now });
+            return true;
+        }
+        
+        if (stats.count >= dynamicLimit) {
+            console.log(`[ANTI-BAN] Account ${empId} hit dynamic limit (${dynamicLimit}) based on age (${Math.round(ageInDays)} days).`);
+            return false;
+        }
+        
+        await ref.update({ count: stats.count + 1 });
         return true;
+    } catch (e) {
+        return true; // Fail safe
     }
-    
-    if (stats.count >= limit) return false;
-    
-    stats.count++;
-    sentCounts.set(empId, stats);
-    return true;
+}
+
+/**
+ * Simulates a "Heartbeat" - Appearing online naturally without sending anything
+ */
+async function simulateHeartbeat(sock) {
+    try {
+        if (!sock || !sock.user) return;
+        
+        // 1. Go Online
+        await sock.sendPresenceUpdate('available');
+        
+        // 2. Stay online for 15-45 seconds (Human scroll time)
+        const duration = 15000 + Math.random() * 30000;
+        await new Promise(r => setTimeout(r, duration));
+        
+        // 3. Go Offline
+        await sock.sendPresenceUpdate('unavailable');
+        
+        console.log(`[ANTIBAN] Heartbeat simulated for ${sock.user.id.split(':')[0]}`);
+    } catch (e) {}
 }
 
 module.exports = {
@@ -216,5 +274,6 @@ module.exports = {
   simulateRead,
   verifyJid,
   randomizeImage,
-  checkFrequency
+  checkFrequency,
+  simulateHeartbeat
 };

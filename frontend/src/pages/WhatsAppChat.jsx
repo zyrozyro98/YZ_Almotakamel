@@ -173,6 +173,20 @@ export default function WhatsAppChat() {
 
     return () => { unsubStudents(); unsubActive(); };
   }, [employeeId, viewingEmployeeId, isAdmin]);
+  
+  // RESET UNREAD COUNT WHEN SELECTING CHAT
+  useEffect(() => {
+    if (selectedChat && selectedChat.unreadCount > 0) {
+      const targetId = isAdmin ? viewingEmployeeId : employeeId;
+      const cleanPhone = getMatchKey(selectedChat.phone);
+      
+      // Update RTDB in background
+      import('firebase/database').then(({ ref, update }) => {
+        update(ref(rtdb, `chats/${targetId}/${cleanPhone}`), { unreadCount: 0 }).catch(() => {});
+        update(ref(rtdb, `chats_meta/${targetId}/${cleanPhone}`), { unreadCount: 0 }).catch(() => {});
+      });
+    }
+  }, [selectedChat, employeeId, viewingEmployeeId, isAdmin]);
 
   useEffect(() => {
     if (!selectedChat || !employeeId) return;
@@ -201,24 +215,23 @@ export default function WhatsAppChat() {
   const getMatchKey = (p) => {
     if (!p) return '';
     
-    // 1. If it's a JID, take the identifier part
-    let d = String(p).split('@')[0].split(':')[0];
+    // 1. Extract identifier
+    let d = String(p).split('@')[0].split(':')[0].replace(/[^0-9a-zA-Z]/g, '');
     
-    // 2. Strip all non-digits (handles spaces, symbols, and artifacts)
-    d = d.replace(/\D/g, '');
-    
-    // 3. Smart Normalization
-    // Saudi 05 -> 9665
-    if (/^05\d{8}$/.test(d)) d = '966' + d.substring(1);
-    // Yemeni 07 -> 9677
-    else if (/^07\d{8}$/.test(d)) d = '967' + d.substring(1);
-    // Saudi 5... -> 9665
-    else if (/^5\d{8}$/.test(d)) d = '966' + d;
-    // Yemeni 7... -> 9677
-    else if (/^7\d{8}$/.test(d)) d = '967' + d;
-    
-    // Remove double zeros
-    if (d.startsWith('00')) d = d.substring(2);
+    // 2. Only apply phone-normalization if it's purely numeric (protect LIDs)
+    if (!/[a-zA-Z]/.test(d)) {
+      // Saudi 05 -> 9665
+      if (/^05\d{8}$/.test(d)) d = '966' + d.substring(1);
+      // Yemeni 07 -> 9677
+      else if (/^07\d{8}$/.test(d)) d = '967' + d.substring(1);
+      // Saudi 5... -> 9665
+      else if (/^5\d{8}$/.test(d)) d = '966' + d;
+      // Yemeni 7... -> 9677
+      else if (/^7\d{8}$/.test(d)) d = '967' + d;
+      
+      // Remove double zeros
+      if (d.startsWith('00')) d = d.substring(2);
+    }
 
     return d;
   };
@@ -262,7 +275,8 @@ export default function WhatsAppChat() {
         // Add unknown student from active chat
         studentMap.set(key, {
           id: chat.phone,
-          name: chat.name || (isAdmin ? `مجهول: ${chat.phone}` : 'مجهول (طالب غير مسجل)'),
+          // DEEP UI CHANGE: Mask name for employees if unknown
+          name: chat.name || (isAdmin ? chat.phone : 'طالب غير مسجل'),
           phone: chat.phone,
           fullJid: chat.fullJid,
           isUnknown: true,
@@ -536,6 +550,17 @@ export default function WhatsAppChat() {
           });
 
           alert('تم ربط الهوية بنجاح وتم دمج المحادثات...');
+          
+          // DEEP FIX: Auto-Pivot to the unified phone folder
+          setSelectedChat({
+            ...selectedChat,
+            id: cleanedPhone,
+            phone: cleanedPhone,
+            name: existing.data().name,
+            isUnknown: false,
+            university: existing.data().university
+          });
+
           setActiveModal(null);
           return;
         }
@@ -563,6 +588,17 @@ export default function WhatsAppChat() {
             fullJid: selectedChat?.fullJid || ''
           }).catch(e => console.error(e));
       }
+
+      // DEEP FIX: Update UI identity immediately (Auto-Pivot)
+      // This prevents the "empty chat ghost" by switching the subscription to the new phone folder
+      setSelectedChat({
+        ...selectedChat,
+        id: cleanedPhone,
+        phone: cleanedPhone,
+        name: formData.name,
+        isUnknown: false,
+        university: formData.university
+      });
 
       alert('تم إضافة الطالب بنجاح');
       setActiveModal(null);
@@ -885,11 +921,31 @@ export default function WhatsAppChat() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ overflow: 'hidden' }}>
                         <h4 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.name}</h4>
-                        <div style={{ fontSize: '0.7rem', color: '#3b82f6', fontWeight: 600 }}>{getDisplayPhone(item)}</div>
                       </div>
-                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
+                        <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('ar-EG') : ''}</span>
+                        {item.unreadCount > 0 && (
+                          <div style={{
+                            background: '#22c55e',
+                            color: '#fff',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            minWidth: '20px',
+                            height: '20px',
+                            borderRadius: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0 6px',
+                            boxShadow: '0 2px 8px rgba(34,197,94,0.4)',
+                            animation: 'pulse 2s infinite'
+                          }}>
+                            {item.unreadCount}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.university || 'بانتظار التسجيل'}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#3b82f6', opacity: 0.8 }}>{item.university || 'بانتظار التسجيل'}</p>
                   </div>
                 </div>
               </div>
@@ -939,8 +995,8 @@ export default function WhatsAppChat() {
                   {isMobile && <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#fff', padding: '5px' }}><ArrowRight size={24} /></button>}
                   <div>
                     <h3 style={{ margin: 0, color: '#fff', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {selectedChat.name}
-                      <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 400 }}>({getDisplayPhone(selectedChat)})</span>
+                      {isAdmin ? (selectedChat.name || selectedChat.phone) : (selectedChat.isUnknown ? 'طالب غير مسجل' : selectedChat.name)}
+                      {isAdmin && <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 400, marginRight: '10px' }}>({selectedChat.phone})</span>}
                     </h3>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.65rem', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 8px', borderRadius: '5px' }}>{selectedChat.university || 'بانتظار البيانات'}</span>
