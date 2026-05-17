@@ -77,31 +77,23 @@ async function maintenance() {
       }
     }
 
-    // AUTO-INIT: Try to restore all active sessions
+    // AUTO-INIT: Try to restore ONLY active sessions to save massive RAM (Prevent OOM)
     console.log('[SYSTEM] Attempting to auto-restore active WhatsApp sessions...');
     
-    // Try RTDB first (Fast Path)
-    const rtdbEmployeesSnap = await rtdb.ref('employee_roles').once('value');
-    if (rtdbEmployeesSnap.exists()) {
-      const employees = rtdbEmployeesSnap.val();
-      for (const empId in employees) {
-        whatsappService.initializeSession(empId).catch(() => {});
-        // تأخير 3 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
-        await new Promise(r => setTimeout(r, 3000));
-      }
-      console.log(`[SYSTEM] Auto-initialized ${Object.keys(employees).length} sessions from RTDB.`);
-    } else {
-      // Fallback to Firestore (Slow Path) - wrapped in try/catch for quota safety
-      try {
-        const employeesSnap = await db.collection('employees').get();
-        for (const doc of employeesSnap.docs) {
-          whatsappService.initializeSession(doc.id).catch(() => {});
-          await new Promise(r => setTimeout(r, 3000)); // تأخير تدريجي
+    let initializedCount = 0;
+    if (snap.exists()) {
+      const statuses = snap.val();
+      for (const empId in statuses) {
+        // Only initialize if the employee has successfully linked a WhatsApp number before
+        if (statuses[empId].phoneNumber || statuses[empId].status === 'online') {
+          whatsappService.initializeSession(empId).catch(() => {});
+          // تأخير 4 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
+          await new Promise(r => setTimeout(r, 4000));
+          initializedCount++;
         }
-      } catch (fe) {
-        console.warn('[SYSTEM] Firestore quota exceeded during auto-init. Using RTDB only.');
       }
     }
+    console.log(`[SYSTEM] Auto-initialized ${initializedCount} active sessions.`);
 
   } catch (e) {
     console.error('[MAINTENANCE ERROR]', e);
