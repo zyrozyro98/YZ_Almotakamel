@@ -491,7 +491,7 @@ router.post('/send-document', async (req, res) => {
       return res.status(401).json({ error: `جلسة الواتساب (${employeeId}) غير متصلة.` });
     }
 
-    const targetJid = await getTargetJid(employeeId, phoneNumber, fullJid);
+    const targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
 
     // 1. Verify JID (Safety check)
     const exists = await verifyJid(sock, targetJid);
@@ -573,7 +573,7 @@ router.post('/send-video', async (req, res) => {
     const sock = whatsappService.getSession(employeeId);
     if (!sock) return res.status(404).json({ error: `Session ${employeeId} not found` });
 
-    const targetJid = fullJid || `${phoneNumber}@s.whatsapp.net`;
+    const targetJid = await whatsappService.getTargetJid(employeeId, phoneNumber, fullJid);
 
     // 1. Verify JID (Safety check)
     const exists = await verifyJid(sock, targetJid);

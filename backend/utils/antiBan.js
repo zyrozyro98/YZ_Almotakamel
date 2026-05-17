@@ -73,35 +73,15 @@ function addInvisibleJitter(text) {
 async function simulateHumanTyping(sock, jid, text = '') {
   try {
     if (!sock || !jid) return;
-
-    // 1. Appear "Online" (Available) first - Real humans are online before they type
-    await sock.sendPresenceUpdate('available', jid);
-    const thinkingDelay = 1500 + Math.random() * 3000;
-    await new Promise(r => setTimeout(r, thinkingDelay));
     
-    // 2. Composing state
-    await sock.sendPresenceUpdate('composing', jid);
-    
-    // 3. Burst Typing simulation
-    const totalDelay = getTypingDelay(text);
-    const words = text.split(' ');
-    const numBursts = Math.max(1, Math.floor(words.length / 5)); 
-    
-    for (let i = 0; i < numBursts; i++) {
-        await new Promise(r => setTimeout(r, (totalDelay * 0.7) / numBursts));
-        
-        if (Math.random() > 0.8) {
-            await sock.sendPresenceUpdate('paused', jid);
-            await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
-            await sock.sendPresenceUpdate('composing', jid);
-        }
-    }
-    
-    // 4. Final hesitation before hit send
-    await sock.sendPresenceUpdate('paused', jid);
-    await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
+    // DEEP FIX: Completely disabled sock.sendPresenceUpdate ('composing', 'paused', 'available')
+    // Sending presence updates programmatically to non-contacts or strangers immediately 
+    // flags the Baileys session as a bot on the WhatsApp servers, causing a silent shadowban!
+    // We replace it with a safe, natural timing delay to simulate typing duration.
+    const typingDelay = 500 + Math.random() * 1000; // Small safe natural delay
+    await new Promise(r => setTimeout(r, typingDelay));
   } catch (e) {
-    console.warn('[ANTIBAN] Presence update failed:', e.message);
+    console.warn('[ANTIBAN] Presence simulation error:', e.message);
   }
 }
 
