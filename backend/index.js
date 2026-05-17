@@ -80,12 +80,16 @@ async function maintenance() {
     // AUTO-INIT: Try to restore ONLY active sessions to save massive RAM (Prevent OOM)
     console.log('[SYSTEM] Attempting to auto-restore active WhatsApp sessions...');
     
+    const waSessionsSnap = await rtdb.ref('wa_sessions').once('value');
     let initializedCount = 0;
-    if (snap.exists()) {
-      const statuses = snap.val();
-      for (const empId in statuses) {
-        // Only initialize if the employee has successfully linked a WhatsApp number before
-        if (statuses[empId].phoneNumber || statuses[empId].status === 'online') {
+    
+    if (waSessionsSnap.exists()) {
+      const sessionsMap = waSessionsSnap.val();
+      const credsHex = Buffer.from('creds').toString('hex'); // 6372656473
+
+      for (const empId in sessionsMap) {
+        // Only initialize if the employee has valid Crypto Credentials stored!
+        if (sessionsMap[empId] && sessionsMap[empId][credsHex]) {
           whatsappService.initializeSession(empId).catch(() => {});
           // تأخير 4 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
           await new Promise(r => setTimeout(r, 4000));
@@ -93,7 +97,7 @@ async function maintenance() {
         }
       }
     }
-    console.log(`[SYSTEM] Auto-initialized ${initializedCount} active sessions.`);
+    console.log(`[SYSTEM] Auto-initialized ${initializedCount} active sessions with valid credentials.`);
 
   } catch (e) {
     console.error('[MAINTENANCE ERROR]', e);
