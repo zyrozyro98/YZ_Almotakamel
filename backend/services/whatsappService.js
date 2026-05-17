@@ -171,10 +171,19 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
                         try {
                             const { decryptPollVote, jidNormalizedUser } = require('@whiskeysockets/baileys');
                             const pollEncKey = Buffer.from(pollData.pollEncKey, 'hex');
-                            const voterJid = `${pollData.studentPhone}@s.whatsapp.net`;
-                            const pollCreatorJid = jidNormalizedUser(sock.user.id);
                             
-                            console.log(`[POLL DECRYPT] Decrypting vote for student ${pollData.studentPhone} and poll ${pollMessageId}...`);
+                            const getKeyAuthor = (key, meId = 'me') => (key?.fromMe ? meId : key?.participant || key?.remoteJid) || '';
+                            const meId = sock.user?.id || sock.authState?.creds?.me?.id;
+                            const meIdNormalised = jidNormalizedUser(meId);
+                            
+                            const pollCreatorJid = jidNormalizedUser(getKeyAuthor(pollCreationKey, meIdNormalised));
+                            const voterJid = jidNormalizedUser(getKeyAuthor(msg.key, meIdNormalised));
+                            
+                            console.log(`[POLL DECRYPT] Decrypting vote for student ${pollData.studentPhone} and poll ${pollMessageId}...`, {
+                                pollCreatorJid,
+                                voterJid,
+                                pollMessageId
+                            });
                             
                             const voteMsg = decryptPollVote(
                                 pollUpdate.vote,
