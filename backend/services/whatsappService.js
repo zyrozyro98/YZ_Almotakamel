@@ -136,10 +136,11 @@ async function runTTLTask() {
   }
 }
 
-// Run TTL every 24 hours
-setInterval(runTTLTask, 24 * 60 * 60 * 1000);
-// Run once on startup after 1 minute
-setTimeout(runTTLTask, 60000);
+// DISABLED: runTTLTask is disabled because it reads the entire 'chats' tree of all employees into RAM,
+// causing a fatal Out of Memory (OOM) crash on limited containers like Render Free (512MB).
+// The pruneChatMessages task already keeps every chat strictly capped at 50 messages, making this task redundant.
+// setInterval(runTTLTask, 24 * 60 * 60 * 1000);
+// setTimeout(runTTLTask, 60000);
 
 const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
   if (type !== 'notify') return;
