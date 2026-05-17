@@ -208,10 +208,11 @@ async function checkFrequency(rtdb, empId, baseLimit = 100, timeframe = 3600000)
         const statusSnap = await rtdb.ref(`wa_status/${empId}`).once('value');
         const statusData = statusSnap.val() || {};
         
-        const firstConnectionTime = statusData.firstConnectionTime || now;
-        const ageInDays = (now - firstConnectionTime) / (1000 * 60 * 60 * 24);
-        
         let dynamicLimit = baseLimit;
+        let ageInDays = 0;
+        
+        const firstConnectionTime = statusData.firstConnectionTime || now;
+        ageInDays = (now - firstConnectionTime) / (1000 * 60 * 60 * 24);
         
         // Dynamic Quota Scaling & Manual Custom Override
         if (statusData.customLimit !== undefined && statusData.customLimit !== null) {
@@ -221,9 +222,11 @@ async function checkFrequency(rtdb, empId, baseLimit = 100, timeframe = 3600000)
             // Read general dynamic settings from database if available (or use defaults)
             const limitsSnap = await rtdb.ref('settings/anti_ban_limits').once('value');
             const customLimits = limitsSnap.val() || {};
-            const d1 = customLimits.day1 !== undefined ? Number(customLimits.day1) : 15;
-            const d3 = customLimits.day3 !== undefined ? Number(customLimits.day3) : 40;
-            const d7 = customLimits.day7 !== undefined ? Number(customLimits.day7) : 80;
+            
+            // You can increase these default values if you want a higher limit for new numbers
+            const d1 = customLimits.day1 !== undefined ? Number(customLimits.day1) : 100; // was 15
+            const d3 = customLimits.day3 !== undefined ? Number(customLimits.day3) : 200; // was 40
+            const d7 = customLimits.day7 !== undefined ? Number(customLimits.day7) : 300; // was 80
 
             if (ageInDays < 1) {
                 dynamicLimit = Math.min(baseLimit, d1); // Day 1
