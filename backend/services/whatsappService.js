@@ -497,6 +497,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     markOnlineOnConnect: false,
     connectTimeoutMs: 30000,
     generateHighQualityQR: true,
+    syncFullHistory: false, // CRITICAL FIX: Disable history sync to save massive RAM!
     agent
   });
 
