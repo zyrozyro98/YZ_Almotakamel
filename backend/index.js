@@ -88,6 +88,13 @@ async function maintenance() {
       const credsHex = Buffer.from('creds').toString('hex'); // 6372656473
 
       for (const empId in sessionsMap) {
+        // LIMITATION: Do not restore more than 4 active sessions automatically on Render Free (512MB limit)
+        // Additional sessions can be manually started from the dashboard as needed.
+        if (initializedCount >= 4) {
+          console.log(`[SYSTEM] Restored maximum allowed sessions (4) for 512MB RAM constraint. Skipping remaining sessions.`);
+          break;
+        }
+
         if (sessionsMap[empId] && sessionsMap[empId][credsHex]) {
           try {
             const credsStr = sessionsMap[empId][credsHex];
@@ -96,10 +103,18 @@ async function maintenance() {
             // CRITICAL FIX: Only auto-restore sessions that are ACTUALLY authenticated (have 'me' object).
             // This prevents starting empty, unscanned sessions which would leak memory and trigger timeouts.
             if (credsObj && credsObj.me) {
+              // DYNAMIC RAM SAFEGUARD: Check actual RSS memory usage of Node process
+              const rssMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+              if (rssMB > 320) {
+                console.warn(`[SYSTEM] RAM Alert: Current process memory is ${rssMB}MB RSS. Halting auto-restore to avoid OOM crash.`);
+                break;
+              }
+
               console.log(`[SYSTEM] Auto-restoring linked session for employee: ${empId} (${credsObj.me.id || credsObj.me.name || 'Active'})`);
               whatsappService.initializeSession(empId).catch(() => {});
-              // تأخير 4 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
-              await new Promise(r => setTimeout(r, 4000));
+              
+              // Stagger by 8 seconds on startup to allow GC to settle and sockets to initialize safely
+              await new Promise(r => setTimeout(r, 8000));
               initializedCount++;
             }
           } catch (e) {

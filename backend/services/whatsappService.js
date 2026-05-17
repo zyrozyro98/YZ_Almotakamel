@@ -565,6 +565,27 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
       } else {
         console.log(`[WA-${employeeId}] Permanent disconnect or QR Timeout (Code: ${statusCode || 'NoCode'}). Clearing memory session.`);
         sessions.delete(employeeId);
+        
+        // CRITICAL: If credentials were officially revoked (401) or banned/forbidden (403),
+        // wipe them from the database and disk so we never attempt to auto-restore this dead session again.
+        if (statusCode === DisconnectReason.loggedOut || statusCode === 403) {
+          console.log(`[WA-${employeeId}] Credentials officially revoked or banned (Code: ${statusCode}). Wiping from DB and disk.`);
+          
+          rtdb.ref(`wa_sessions/${employeeId}`).remove().catch(() => {});
+          rtdb.ref(`wa_status/${employeeId}`).set({ 
+            isConnected: false, 
+            qr: null, 
+            lastUpdate: Date.now(), 
+            status: 'logged_out',
+            errorDetails: `Session revoked or account banned (Code ${statusCode})`
+          }).catch(() => {});
+          
+          // Clear local folder
+          try {
+            const sessionPath = path.join(SESSIONS_PATH, `session-${employeeId}`);
+            if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+          } catch (e) {}
+        }
       }
     } else if (connection === 'open') {
       const waUser = sock.user || sock.authState?.creds?.me;
