@@ -511,10 +511,7 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
         const requiresPatch = !!(
             message.buttonsMessage ||
             message.templateMessage ||
-            message.listMessage ||
-            message.imageMessage || 
-            message.documentMessage ||
-            message.videoMessage
+            message.listMessage
         );
         if (requiresPatch) {
             message = {
@@ -726,22 +723,30 @@ async function getTargetJid(employeeId, phoneNumber, providedJid = null) {
     const sock = this.getSession(employeeId);
     if (!sock) return providedJid || `${cleanPhone}@s.whatsapp.net`;
 
+    // Helper to strip device ID (e.g. :9) from standard JID
+    const cleanJid = (jid) => {
+      if (jid && jid.includes(':') && !jid.includes('@g.us')) {
+        return jid.split(':')[0] + '@' + jid.split('@')[1];
+      }
+      return jid;
+    };
+
     // 1. Check if we already have a mapping for this phone (Reverse lookup: phone -> lid)
     // We store mappings as lid -> phone, so we need to check students list or a reverse map
     try {
       const studentSnap = await db.collection('students').where('phone', '==', cleanPhone).limit(1).get();
       if (!studentSnap.empty && studentSnap.docs[0].data().fullJid) {
-        return studentSnap.docs[0].data().fullJid;
+        return cleanJid(studentSnap.docs[0].data().fullJid);
       }
       
       // Also check RTDB mappings (we might want a phone_to_jid map for speed)
       const rtdbMap = await rtdb.ref(`phone_to_jid/${employeeId}/${cleanPhone}`).once('value');
-      if (rtdbMap.exists()) return rtdbMap.val();
+      if (rtdbMap.exists()) return cleanJid(rtdbMap.val());
     } catch(e) {}
 
     // 2. If providedJid is technical (LID/Group), use it
     if (providedJid && (providedJid.includes('@lid') || providedJid.includes('@g.us') || providedJid.includes('@newsletter'))) {
-       return providedJid; 
+       return cleanJid(providedJid); 
     }
 
     // 3. PROACTIVE DISCOVERY (The WhatsApp Web Secret)
