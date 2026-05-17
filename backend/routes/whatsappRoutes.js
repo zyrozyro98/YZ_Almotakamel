@@ -392,7 +392,11 @@ router.post('/send-image', async (req, res) => {
     } else {
       // Apply Binary Jitter (Anti-Ban) for normal image
       buffer = await randomizeImage(originalBuffer);
-      result = await sock.sendMessage(targetJid, { image: buffer, caption: finalCaption });
+      result = await sock.sendMessage(targetJid, { 
+        image: buffer, 
+        mimetype: 'image/jpeg', 
+        caption: finalCaption 
+      });
     }
 
     await simulateRead(sock, targetJid).catch(() => { });
