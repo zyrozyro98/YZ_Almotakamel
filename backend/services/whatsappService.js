@@ -165,7 +165,35 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
                 
                 if (pendingSnap.exists()) {
                     const pollData = pendingSnap.val();
-                    const selectedOptions = pollUpdate.vote?.selectedOptions || [];
+                    let selectedOptions = [];
+                    
+                    if (pollData.pollEncKey) {
+                        try {
+                            const { decryptPollVote, jidNormalizedUser } = require('@whiskeysockets/baileys');
+                            const pollEncKey = Buffer.from(pollData.pollEncKey, 'hex');
+                            const voterJid = `${pollData.studentPhone}@s.whatsapp.net`;
+                            const pollCreatorJid = jidNormalizedUser(sock.user.id);
+                            
+                            console.log(`[POLL DECRYPT] Decrypting vote for student ${pollData.studentPhone} and poll ${pollMessageId}...`);
+                            
+                            const voteMsg = decryptPollVote(
+                                pollUpdate.vote,
+                                {
+                                    pollEncKey,
+                                    pollCreatorJid,
+                                    pollMsgId: pollMessageId,
+                                    voterJid
+                                }
+                            );
+                            
+                            selectedOptions = voteMsg?.selectedOptions || [];
+                        } catch (decryptErr) {
+                            console.error(`[POLL DECRYPT ERROR] Failed to decrypt poll vote:`, decryptErr.message);
+                        }
+                    } else {
+                        // Fallback to unencrypted
+                        selectedOptions = pollUpdate.vote?.selectedOptions || [];
+                    }
                     
                     if (selectedOptions.length > 0) {
                         const voteHash = Buffer.from(selectedOptions[0]).toString('hex');

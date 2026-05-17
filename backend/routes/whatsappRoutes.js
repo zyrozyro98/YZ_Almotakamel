@@ -113,10 +113,16 @@ router.post('/send', async (req, res) => {
       });
       const crypto = require('crypto');
       const yesHash = crypto.createHash('sha256').update("نعم ✅").digest('hex');
+      const secret = result.message?.messageContextInfo?.messageSecret || 
+                     result.originalMessage?.messageContextInfo?.messageSecret;
+      const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
+      console.log(`[POLL SEND] Created text poll with encKey hex: ${pollEncKeyHex}`);
+
       const pollRecord = {
         studentPhone: getPureNumber(phoneNumber),
         message: finalMessage,
         yesHash: yesHash,
+        pollEncKey: pollEncKeyHex,
         type: 'text',
         employeeId: employeeId,
         time: Date.now()
@@ -437,11 +443,17 @@ router.post('/send-image', async (req, res) => {
       });
       const crypto = require('crypto');
       const yesHash = crypto.createHash('sha256').update("نعم، أرسلها الآن ✅").digest('hex');
+      const secret = result.message?.messageContextInfo?.messageSecret || 
+                     result.originalMessage?.messageContextInfo?.messageSecret;
+      const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
+      console.log(`[POLL SEND] Created media poll with encKey hex: ${pollEncKeyHex}`);
+
       const pollRecord = {
         studentPhone: getPureNumber(phoneNumber),
         mediaUrl: mediaUrl,
         caption: finalCaption,
         yesHash: yesHash,
+        pollEncKey: pollEncKeyHex,
         type: isPdf ? 'document' : 'image',
         mimeType: mimeType,
         fileName: isPdf ? `Certificate_${getPureNumber(phoneNumber)}.pdf` : null,
