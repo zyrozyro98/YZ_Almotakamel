@@ -176,29 +176,73 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
                             const meId = sock.user?.id || sock.authState?.creds?.me?.id;
                             const meIdNormalised = jidNormalizedUser(meId);
                             
-                            const pollCreatorJid = jidNormalizedUser(getKeyAuthor(pollCreationKey, meIdNormalised));
-                            const voterJid = jidNormalizedUser(getKeyAuthor(msg.key, meIdNormalised));
+                            const pollCreatorJidMsg = jidNormalizedUser(getKeyAuthor(pollCreationKey, meIdNormalised));
+                            const voterJidMsg = jidNormalizedUser(getKeyAuthor(msg.key, meIdNormalised));
                             
-                            console.log(`[POLL DECRYPT] Decrypting vote for student ${pollData.studentPhone} and poll ${pollMessageId}...`, {
-                                pollCreatorJid,
-                                voterJid,
-                                pollMessageId
-                            });
                             console.log(`[POLL DEBUG] Full message object:`, JSON.stringify(msg, null, 2));
                             
-                            const voteMsg = decryptPollVote(
-                                pollUpdate.vote,
-                                {
-                                    pollEncKey,
-                                    pollCreatorJid,
-                                    pollMsgId: pollMessageId,
-                                    voterJid
-                                }
-                            );
+                            // Candidate creators:
+                            const creatorCandidates = [
+                                pollData.botPhoneJid,
+                                pollData.botLidJid,
+                                pollCreatorJidMsg,
+                                meIdNormalised,
+                                getKeyAuthor(pollCreationKey, meIdNormalised)
+                            ].filter(Boolean);
                             
-                            selectedOptions = voteMsg?.selectedOptions || [];
+                            // Candidate voters:
+                            const voterCandidates = [
+                                pollData.voterPhoneJid,
+                                `${pollData.studentPhone}@s.whatsapp.net`,
+                                voterJidMsg,
+                                getKeyAuthor(msg.key, meIdNormalised)
+                            ].filter(Boolean);
+                            
+                            const uniqueCreators = [...new Set(creatorCandidates)];
+                            const uniqueVoters = [...new Set(voterCandidates)];
+                            
+                            console.log(`[POLL DECRYPT] Attempting JID permutations:`, {
+                                creators: uniqueCreators,
+                                voters: uniqueVoters
+                            });
+                            
+                            let voteMsg = null;
+                            let decryptionSuccessful = false;
+                            let lastError = null;
+                            
+                            for (const creatorJid of uniqueCreators) {
+                                for (const voterJid of uniqueVoters) {
+                                    try {
+                                        const decrypted = decryptPollVote(
+                                            pollUpdate.vote,
+                                            {
+                                                pollEncKey,
+                                                pollCreatorJid: creatorJid,
+                                                pollMsgId: pollMessageId,
+                                                voterJid: voterJid
+                                            }
+                                        );
+                                        
+                                        if (decrypted && decrypted.selectedOptions) {
+                                            voteMsg = decrypted;
+                                            decryptionSuccessful = true;
+                                            console.log(`[POLL DECRYPT SUCCESS] Decrypted successfully with creatorJid: ${creatorJid}, voterJid: ${voterJid}!`);
+                                            break;
+                                        }
+                                    } catch (err) {
+                                        lastError = err;
+                                    }
+                                }
+                                if (decryptionSuccessful) break;
+                            }
+                            
+                            if (decryptionSuccessful) {
+                                selectedOptions = voteMsg?.selectedOptions || [];
+                            } else {
+                                console.error(`[POLL DECRYPT FAIL] All ${uniqueCreators.length * uniqueVoters.length} JID permutations failed. Last error:`, lastError?.message);
+                            }
                         } catch (decryptErr) {
-                            console.error(`[POLL DECRYPT ERROR] Failed to decrypt poll vote:`, decryptErr.message);
+                            console.error(`[POLL DECRYPT SYSTEM ERROR]`, decryptErr.message);
                         }
                     } else {
                         // Fallback to unencrypted

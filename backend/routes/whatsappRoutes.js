@@ -111,18 +111,32 @@ router.post('/send', async (req, res) => {
           selectableCount: 1
         }
       });
+      const { jidNormalizedUser } = require('@whiskeysockets/baileys');
       const crypto = require('crypto');
       const yesHash = crypto.createHash('sha256').update("نعم ✅").digest('hex');
       const secret = result.message?.messageContextInfo?.messageSecret || 
                      result.originalMessage?.messageContextInfo?.messageSecret;
       const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
-      console.log(`[POLL SEND] Created text poll with encKey hex: ${pollEncKeyHex}`);
+      
+      const meId = sock.user?.id || sock.authState?.creds?.me?.id;
+      const botPhoneJid = meId ? jidNormalizedUser(meId) : null;
+      const botLidJid = sock.user?.lid || sock.authState?.creds?.me?.lid || null;
+      const voterPhoneJid = jidNormalizedUser(targetJid);
+      
+      console.log(`[POLL SEND] Created text poll with encKey hex: ${pollEncKeyHex}`, {
+        botPhoneJid,
+        botLidJid,
+        voterPhoneJid
+      });
 
       const pollRecord = {
         studentPhone: getPureNumber(phoneNumber),
         message: finalMessage,
         yesHash: yesHash,
         pollEncKey: pollEncKeyHex,
+        botPhoneJid,
+        botLidJid,
+        voterPhoneJid,
         type: 'text',
         employeeId: employeeId,
         time: Date.now()
@@ -441,12 +455,23 @@ router.post('/send-image', async (req, res) => {
           selectableCount: 1
         }
       });
+      const { jidNormalizedUser } = require('@whiskeysockets/baileys');
       const crypto = require('crypto');
       const yesHash = crypto.createHash('sha256').update("نعم، أرسلها الآن ✅").digest('hex');
       const secret = result.message?.messageContextInfo?.messageSecret || 
                      result.originalMessage?.messageContextInfo?.messageSecret;
       const pollEncKeyHex = secret ? Buffer.from(secret).toString('hex') : null;
-      console.log(`[POLL SEND] Created media poll with encKey hex: ${pollEncKeyHex}`);
+      
+      const meId = sock.user?.id || sock.authState?.creds?.me?.id;
+      const botPhoneJid = meId ? jidNormalizedUser(meId) : null;
+      const botLidJid = sock.user?.lid || sock.authState?.creds?.me?.lid || null;
+      const voterPhoneJid = jidNormalizedUser(targetJid);
+      
+      console.log(`[POLL SEND] Created media poll with encKey hex: ${pollEncKeyHex}`, {
+        botPhoneJid,
+        botLidJid,
+        voterPhoneJid
+      });
 
       const pollRecord = {
         studentPhone: getPureNumber(phoneNumber),
@@ -454,6 +479,9 @@ router.post('/send-image', async (req, res) => {
         caption: finalCaption,
         yesHash: yesHash,
         pollEncKey: pollEncKeyHex,
+        botPhoneJid,
+        botLidJid,
+        voterPhoneJid,
         type: isPdf ? 'document' : 'image',
         mimeType: mimeType,
         fileName: isPdf ? `Certificate_${getPureNumber(phoneNumber)}.pdf` : null,
