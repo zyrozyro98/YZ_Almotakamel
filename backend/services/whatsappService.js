@@ -504,6 +504,33 @@ async function initializeSession(employeeId, onQrGenerated, forceReinit = false)
     connectTimeoutMs: 30000,
     generateHighQualityQR: true,
     syncFullHistory: false, // CRITICAL FIX: Disable history sync to save massive RAM!
+    patchMessageBeforeSending: (message) => {
+        // DEEP FIX: Multi-Device WhatsApp Server drops messages (Ghost Messages) 
+        // if they don't contain the correct deviceListMetadata flags. 
+        // We inject it to ensure the message arrives at the recipient's phone.
+        const requiresPatch = !!(
+            message.buttonsMessage ||
+            message.templateMessage ||
+            message.listMessage ||
+            message.imageMessage || 
+            message.documentMessage ||
+            message.videoMessage
+        );
+        if (requiresPatch) {
+            message = {
+                viewOnceMessage: {
+                    message: {
+                        messageContextInfo: {
+                            deviceListMetadataVersion: 2,
+                            deviceListMetadata: {},
+                        },
+                        ...message,
+                    },
+                },
+            };
+        }
+        return message;
+    },
     agent
   });
 
