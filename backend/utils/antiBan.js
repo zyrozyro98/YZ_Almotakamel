@@ -120,22 +120,29 @@ async function randomizeImage(buffer) {
     // 1. Tiny unnoticeable crop (1 pixel off from a random side) to bypass basic hash checks
     const metadata = await sharp(buffer).metadata();
     const side = ['top', 'left', 'right', 'bottom'][Math.floor(Math.random() * 4)];
-    pipeline = pipeline.extract({
-        left: side === 'left' ? 1 : 0,
-        top: side === 'top' ? 1 : 0,
-        width: metadata.width - (side === 'left' || side === 'right' ? 1 : 0),
-        height: metadata.height - (side === 'top' || side === 'bottom' ? 1 : 0)
-    });
+    
+    // Safety check: ensure image is large enough to crop
+    if (metadata.width > 10 && metadata.height > 10) {
+      pipeline = pipeline.extract({
+          left: side === 'left' ? 1 : 0,
+          top: side === 'top' ? 1 : 0,
+          width: metadata.width - (side === 'left' || side === 'right' ? 1 : 0),
+          height: metadata.height - (side === 'top' || side === 'bottom' ? 1 : 0)
+      });
+    }
 
-    // 2. Randomize JPEG quality slightly
     const quality = 75 + Math.floor(Math.random() * 10);
 
-    // DEEP FIX: Removed EXIF and orientation injection because WhatsApp servers 
-    // strictly validate EXIF headers and silently drop messages if they look unnatural!
-    return await pipeline
-      .jpeg({ quality, force: false })
-      .png({ quality: quality + 10, force: false })
-      .toBuffer();
+    // Format-Specific Processing: 
+    // Only apply format options for the active format to avoid corrupted header structures.
+    if (metadata.format === 'png') {
+      return await pipeline.png({ quality: Math.min(quality + 10, 100) }).toBuffer();
+    } else if (metadata.format === 'webp') {
+      return await pipeline.webp({ quality }).toBuffer();
+    } else {
+      // Default to JPEG
+      return await pipeline.jpeg({ quality, force: true }).toBuffer();
+    }
   } catch (e) {
     console.warn('[ANTIBAN] Advanced image randomization failed:', e.message);
     return buffer;
