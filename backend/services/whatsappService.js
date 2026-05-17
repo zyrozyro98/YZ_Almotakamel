@@ -184,6 +184,7 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
                                 voterJid,
                                 pollMessageId
                             });
+                            console.log(`[POLL DEBUG] Full message object:`, JSON.stringify(msg, null, 2));
                             
                             const voteMsg = decryptPollVote(
                                 pollUpdate.vote,
