@@ -115,8 +115,8 @@ router.post('/send', async (req, res) => {
         senderName: senderName || "نظام",
         senderId: senderId || "system"
       };
-      await rtdb.ref(`pending_polls/${employeeId}/${pollMessageId}`).set(pendingData);
-      console.log(`[POLL-SETUP SUCCESS] Pending text poll successfully created: ${pollMessageId}`);
+      whatsappService.pendingPolls.set(`${employeeId}:${pollMessageId}`, pendingData);
+      console.log(`[POLL-SETUP SUCCESS] Pending text poll successfully created in RAM Map: ${pollMessageId}`);
       return res.status(200).json({ status: 'poll_sent_pending', pollId: pollMessageId });
     }
 
@@ -397,8 +397,8 @@ router.post('/send-image', async (req, res) => {
         senderName: senderName || "نظام",
         senderId: senderId || "system"
       };
-      await rtdb.ref(`pending_polls/${employeeId}/${pollMessageId}`).set(pendingData);
-      console.log(`[POLL-SETUP SUCCESS] Pending image poll successfully created: ${pollMessageId}`);
+      whatsappService.pendingPolls.set(`${employeeId}:${pollMessageId}`, pendingData);
+      console.log(`[POLL-SETUP SUCCESS] Pending image poll successfully created in RAM Map: ${pollMessageId}`);
       return res.status(200).json({ status: 'poll_sent_pending', pollId: pollMessageId });
     }
 

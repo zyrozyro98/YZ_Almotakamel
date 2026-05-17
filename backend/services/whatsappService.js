@@ -18,6 +18,10 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const { syncToCloud } = require('../utils/sessionSync');
 const { useFirestoreAuthState } = require('../utils/firebaseAuthState');
 
+// Global In-Memory Map for poll-triggered pending messages
+const pendingPolls = new Map(); // Key: `${employeeId}:${pollId}`, Value: pendingDataObject
+
+
 
 // Helper to save media to Local Disk (Render Persistent Disk) with COMPRESSION
 async function uploadToStorage(buffer, fileName, mimeType) {
@@ -138,13 +142,12 @@ async function runTTLTask() {
 
 async function triggerPendingPollMessage(employeeId, pollId, sock) {
   try {
-    const pollRef = rtdb.ref(`pending_polls/${employeeId}/${pollId}`);
-    const snap = await pollRef.once('value');
-    if (!snap.exists()) return;
+    const key = `${employeeId}:${pollId}`;
+    if (!pendingPolls.has(key)) return;
 
-    const pollData = snap.val();
+    const pollData = pendingPolls.get(key);
     // Delete immediately to prevent double-sending
-    await pollRef.remove();
+    pendingPolls.delete(key);
 
     console.log(`[POLL-DELIVERY] Student [${pollData.phoneNumber}] voted YES! Delivering pending media/message.`);
 
@@ -907,7 +910,8 @@ module.exports = {
   uploadToStorage, 
   enforceMessageLimit,
   runTTLTask,
-  runHeartbeatTask
+  runHeartbeatTask,
+  pendingPolls
 };
 
 // Start Background Heartbeat (Simulates natural phone checking every 5-15 mins)
