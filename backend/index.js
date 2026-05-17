@@ -88,12 +88,23 @@ async function maintenance() {
       const credsHex = Buffer.from('creds').toString('hex'); // 6372656473
 
       for (const empId in sessionsMap) {
-        // Only initialize if the employee has valid Crypto Credentials stored!
         if (sessionsMap[empId] && sessionsMap[empId][credsHex]) {
-          whatsappService.initializeSession(empId).catch(() => {});
-          // تأخير 4 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
-          await new Promise(r => setTimeout(r, 4000));
-          initializedCount++;
+          try {
+            const credsStr = sessionsMap[empId][credsHex];
+            const credsObj = JSON.parse(credsStr);
+            
+            // CRITICAL FIX: Only auto-restore sessions that are ACTUALLY authenticated (have 'me' object).
+            // This prevents starting empty, unscanned sessions which would leak memory and trigger timeouts.
+            if (credsObj && credsObj.me) {
+              console.log(`[SYSTEM] Auto-restoring linked session for employee: ${empId} (${credsObj.me.id || credsObj.me.name || 'Active'})`);
+              whatsappService.initializeSession(empId).catch(() => {});
+              // تأخير 4 ثواني بين تشغيل كل جلسة لتجنب استنزاف الذاكرة (OOM) وانطفاء السيرفر
+              await new Promise(r => setTimeout(r, 4000));
+              initializedCount++;
+            }
+          } catch (e) {
+            console.error(`[SYSTEM] Error parsing creds for ${empId}:`, e.message);
+          }
         }
       }
     }
