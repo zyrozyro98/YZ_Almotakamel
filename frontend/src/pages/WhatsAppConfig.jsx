@@ -3,7 +3,7 @@ import { QrCode, ShieldCheck, RefreshCw, LogOut, CheckCircle, Smartphone, Zap, A
 import axios from 'axios';
 import { auth, rtdb, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set, update, remove } from 'firebase/database';
 import { collection, onSnapshot, query, orderBy, getDoc, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { Globe, Shield, Save } from 'lucide-react';
 
@@ -26,6 +26,8 @@ export default function WhatsAppConfig() {
   const quickMsgTextareaRef = React.useRef(null);
   const [stickers, setStickers] = useState([]);
   const [stickerFile, setStickerFile] = useState(null);
+  const [globalLimits, setGlobalLimits] = useState({ day1: 100, day3: 200, day7: 300 });
+  const [customLimit, setCustomLimit] = useState('');
 
 
   const BASE_URL = window.location.hostname === 'localhost' 
@@ -96,6 +98,25 @@ export default function WhatsAppConfig() {
     };
     loadProxy();
   }, [targetEmployeeId, employeeId, isAdmin]);
+
+  // Load Global Limits & Sync Custom Limit
+  useEffect(() => {
+    if (!isAdmin) return;
+    const limitsRef = ref(rtdb, 'settings/anti_ban_limits');
+    const unsub = onValue(limitsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setGlobalLimits(data);
+    });
+    return () => unsub();
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (targetEmployeeId && allStatuses[targetEmployeeId]) {
+      setCustomLimit(allStatuses[targetEmployeeId].customLimit || '');
+    } else {
+      setCustomLimit('');
+    }
+  }, [targetEmployeeId, allStatuses]);
 
 
   // 3. Admin Data: Employees & Global Status
@@ -328,6 +349,51 @@ export default function WhatsAppConfig() {
     }, 0);
   };
 
+  const saveGlobalLimits = async () => {
+    setLoading(true);
+    try {
+        await set(ref(rtdb, 'settings/anti_ban_limits'), {
+            day1: parseInt(globalLimits.day1) || 100,
+            day3: parseInt(globalLimits.day3) || 200,
+            day7: parseInt(globalLimits.day7) || 300
+        });
+        alert('تم حفظ الإعدادات العامة بنجاح');
+    } catch (e) {
+        alert('فشل الحفظ: ' + e.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const saveCustomLimit = async () => {
+    if (!targetEmployeeId || !customLimit) return;
+    setLoading(true);
+    try {
+        await update(ref(rtdb, `wa_status/${targetEmployeeId}`), {
+            customLimit: parseInt(customLimit)
+        });
+        alert('تم حفظ الحد المخصص بنجاح');
+    } catch (e) {
+        alert('فشل الحفظ: ' + e.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const resetCustomLimit = async () => {
+    if (!targetEmployeeId) return;
+    setLoading(true);
+    try {
+        await remove(ref(rtdb, `wa_status/${targetEmployeeId}/customLimit`));
+        setCustomLimit('');
+        alert('تم إلغاء الحد المخصص، سيعود الحساب للإعدادات العامة');
+    } catch (e) {
+        alert('فشل الحذف: ' + e.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
 
 
   if (!employeeId) {
@@ -370,6 +436,12 @@ export default function WhatsAppConfig() {
                 style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'sticker_library' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
               >
                 المكتبة (ملصقات)
+              </button>
+              <button 
+                onClick={() => setActiveTab('anti_ban_settings')} 
+                style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', background: activeTab === 'anti_ban_settings' ? 'var(--brand-primary)' : 'transparent', color: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                إعدادات الإرسال
               </button>
             </div>
           )}
@@ -712,6 +784,74 @@ export default function WhatsAppConfig() {
                     المكتبة فارغة.. ابدأ برفع صور ملصقاتك الأولى
                 </div>
             )}
+        </div>
+      ) : activeTab === 'anti_ban_settings' ? (
+        <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+          {/* Global Settings */}
+          <div className="glass-panel" style={{ padding: '30px' }}>
+             <h3 style={{ color: '#fff', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <ShieldCheck size={20} color="var(--brand-primary)" />
+                الحدود العامة للإرسال
+             </h3>
+             <p style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '20px', fontSize: '0.9rem' }}>
+                حدد عدد الرسائل المسموح بها لكل ساعة حسب عمر الرقم لتجنب الحظر التلقائي.
+             </p>
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+               <div>
+                 <label className="input-label">اليوم الأول (أقل من 24 ساعة)</label>
+                 <input type="number" className="input-base" value={globalLimits.day1} onChange={e => setGlobalLimits({...globalLimits, day1: e.target.value})} />
+               </div>
+               <div>
+                 <label className="input-label">اليوم الثالث (من 1 إلى 3 أيام)</label>
+                 <input type="number" className="input-base" value={globalLimits.day3} onChange={e => setGlobalLimits({...globalLimits, day3: e.target.value})} />
+               </div>
+               <div>
+                 <label className="input-label">اليوم السابع (من 3 إلى 7 أيام)</label>
+                 <input type="number" className="input-base" value={globalLimits.day7} onChange={e => setGlobalLimits({...globalLimits, day7: e.target.value})} />
+               </div>
+               <button onClick={saveGlobalLimits} disabled={loading} className="btn-primary" style={{ marginTop: '10px', padding: '12px' }}>
+                  <Save size={18} /> حفظ الإعدادات العامة
+               </button>
+             </div>
+          </div>
+          
+          {/* Custom Limit Settings */}
+          <div className="glass-panel" style={{ padding: '30px' }}>
+             <h3 style={{ color: '#fff', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Users size={20} color="var(--brand-primary)" />
+                حد مخصص لرقم معين
+             </h3>
+             <p style={{ color: 'rgba(255,255,255,0.4)', marginBottom: '20px', fontSize: '0.9rem' }}>
+                تعيين حد مخصص يتجاوز الحدود العامة للحساب المحدد حالياً.
+             </p>
+             {targetEmployeeId ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                   <div style={{ padding: '15px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '15px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                      <div style={{ color: '#fff', fontWeight: 800 }}>الموظف المحدد:</div>
+                      <div style={{ color: '#3b82f6', fontSize: '0.9rem', marginTop: '5px' }}>
+                         {employees.find(e => e.id === targetEmployeeId)?.name || targetEmployeeId}
+                      </div>
+                   </div>
+                   <div>
+                      <label className="input-label">الحد المخصص (رسالة/ساعة)</label>
+                      <input type="number" className="input-base" value={customLimit} onChange={e => setCustomLimit(e.target.value)} placeholder="مثال: 500" />
+                   </div>
+                   <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                       <button onClick={saveCustomLimit} disabled={loading} className="btn-primary" style={{ flex: 1, padding: '12px' }}>
+                          <Save size={18} /> حفظ الحد المخصص
+                       </button>
+                       <button onClick={resetCustomLimit} disabled={loading} className="btn-secondary" style={{ flex: 1, padding: '12px' }}>
+                          إلغاء الحد
+                       </button>
+                   </div>
+                </div>
+             ) : (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'rgba(255,255,255,0.2)' }}>
+                   <AlertTriangle size={40} style={{ margin: '0 auto 15px' }} />
+                   <p>يرجى تحديد موظف من تبويب "تحكم فردي" أولاً للتمكن من تعديل الحد الخاص به.</p>
+                </div>
+             )}
+          </div>
         </div>
       ) : (
         /* Admin Dashboard Tab */

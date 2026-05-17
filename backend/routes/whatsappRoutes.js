@@ -509,7 +509,7 @@ router.post('/send-document', async (req, res) => {
     const mime = base64File.split(';')[0].split(':')[1];
 
     // 4. Frequency Guard
-    if (!await checkFrequency(rtdb, employeeId, 100)) {
+    if (!checkFrequency(rtdb, employeeId, 100)) {
       return res.status(429).json({ error: 'تم تجاوز حد إرسال الملفات.' });
     }
 
@@ -590,7 +590,7 @@ router.post('/send-video', async (req, res) => {
     const buffer = Buffer.from(base64Video.split(',')[1], 'base64');
 
     // 4. Frequency Guard
-    if (!await checkFrequency(rtdb, employeeId, 80)) {
+    if (!checkFrequency(rtdb, employeeId, 80)) {
       return res.status(429).json({ error: 'تم تجاوز حد إرسال الفيديو.' });
     }
 

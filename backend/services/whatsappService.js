@@ -724,7 +724,14 @@ async function getTargetJid(employeeId, phoneNumber, providedJid = null) {
       if (results && results.length > 0) {
         const match = results.find(r => r.exists);
         if (match) {
-          const actualJid = match.jid;
+          let actualJid = match.jid;
+          
+          // DEEP FIX: Strip device ID (e.g. :9) from JID. Sending to a specific device ID 
+          // causes messages to appear as sent but never arrive on the person's main phone!
+          if (actualJid.includes(':') && !actualJid.includes('@g.us')) {
+              actualJid = actualJid.split(':')[0] + '@' + actualJid.split('@')[1];
+          }
+
           if (actualJid.includes('@lid')) {
             const lid = actualJid.split('@')[0].split(':')[0];
             // Save Bidirectional Mapping

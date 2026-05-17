@@ -62,23 +62,8 @@ function parseSpintax(text) {
  * to ensure every message has a unique cryptographic hash without changing appearance.
  */
 function addInvisibleJitter(text) {
-  if (!text) return text;
-  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
-  
-  // Inject at least 2 random invisible characters at random positions
-  let result = text;
-  for (let i = 0; i < 2; i++) {
-    const char = invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
-    const pos = Math.floor(Math.random() * result.length);
-    result = result.slice(0, pos) + char + result.slice(pos);
-  }
-  
-  // Occasionally add a random number of spaces at the end
-  if (Math.random() > 0.3) {
-    result += " ".repeat(Math.floor(Math.random() * 3));
-  }
-  
-  return result;
+  // Disabled: WhatsApp servers are silently dropping messages containing Zero-Width characters.
+  return text;
 }
 
 /**

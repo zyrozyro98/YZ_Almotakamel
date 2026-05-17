@@ -75,7 +75,11 @@ class ScheduleService {
           const targetEmpId = isAuto ? 'system' : empId; // Use system if auto
 
           if (!await checkFrequency(rtdb, targetEmpId, 100)) {
-            console.log(`[SCHEDULE] Account ${targetEmpId} hit frequency limit, skipping this message.`);
+            console.log(`[SCHEDULE] Account ${targetEmpId} hit frequency limit, delaying message ${item.id} for 30 minutes.`);
+            // DEEP FIX: Postpone the message so we don't query it again every minute (which exhausts Firestore Quota!)
+            await db.collection('scheduled_messages').doc(item.id).update({
+              scheduledAt: Date.now() + (30 * 60 * 1000) // +30 minutes
+            }).catch(() => {});
             continue;
           }
 
