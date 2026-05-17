@@ -40,7 +40,7 @@ router.post('/init', async (req, res) => {
 
 // THE REPAIRED SEND ROUTE
 router.post('/send', async (req, res) => {
-  let { employeeId, phoneNumber, message, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, message, fullJid, senderName, senderId, isInteractivePoll } = req.body;
 
   if (!employeeId || !phoneNumber || !message) {
     return res.status(400).json({ error: 'Missing required parameters (employeeId, phoneNumber, message).' });
@@ -92,6 +92,33 @@ router.post('/send', async (req, res) => {
 
     // 3. Human Simulation (Typing delay)
     await simulateHumanTyping(sock, targetJid, finalMessage);
+
+    if (isInteractivePoll) {
+      console.log(`[POLL-SETUP] Sending interactive poll wrapper for text message. Employee: ${employeeId}, Student: ${phoneNumber}`);
+      const pollName = "مرحباً، هل تفضل استلام التفاصيل الآن؟";
+      const pollOptions = ["نعم ✅"];
+      const pollResult = await sock.sendMessage(targetJid, {
+          poll: {
+              name: pollName,
+              values: pollOptions,
+              selectableCount: 1
+          }
+      });
+      const pollMessageId = pollResult.key.id;
+      
+      const pendingData = {
+        type: 'text',
+        targetJid,
+        phoneNumber,
+        fullJid: fullJid || targetJid,
+        text: finalMessage,
+        senderName: senderName || "نظام",
+        senderId: senderId || "system"
+      };
+      await rtdb.ref(`pending_polls/${employeeId}/${pollMessageId}`).set(pendingData);
+      console.log(`[POLL-SETUP SUCCESS] Pending text poll successfully created: ${pollMessageId}`);
+      return res.status(200).json({ status: 'poll_sent_pending', pollId: pollMessageId });
+    }
 
     // 4. Frequency Guard Check (Persistent)
     if (!await checkFrequency(rtdb, employeeId, 250)) {
@@ -307,7 +334,7 @@ async function getAutoEmployeeId(chatId, msgType = 'text') {
 
 
 router.post('/send-image', async (req, res) => {
-  let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId } = req.body;
+  let { employeeId, phoneNumber, base64Image, caption, fullJid, senderName, senderId, isInteractivePoll } = req.body;
   try {
     const chatId = getPureNumber(phoneNumber);
 
@@ -345,6 +372,35 @@ router.post('/send-image', async (req, res) => {
 
     // 3. Human Simulation
     await simulateHumanTyping(sock, targetJid, finalCaption);
+
+    if (isInteractivePoll) {
+      console.log(`[POLL-SETUP] Sending interactive poll wrapper for image message. Employee: ${employeeId}, Student: ${chatId}`);
+      const pollName = "مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟";
+      const pollOptions = ["نعم، أرسلها الآن ✅"];
+      const pollResult = await sock.sendMessage(targetJid, {
+          poll: {
+              name: pollName,
+              values: pollOptions,
+              selectableCount: 1
+          }
+      });
+      const pollMessageId = pollResult.key.id;
+      
+      const pendingData = {
+        type: 'image',
+        targetJid,
+        phoneNumber,
+        fullJid: fullJid || targetJid,
+        caption: finalCaption,
+        asDynamicPdf: !!req.body.asDynamicPdf,
+        base64Image,
+        senderName: senderName || "نظام",
+        senderId: senderId || "system"
+      };
+      await rtdb.ref(`pending_polls/${employeeId}/${pollMessageId}`).set(pendingData);
+      console.log(`[POLL-SETUP SUCCESS] Pending image poll successfully created: ${pollMessageId}`);
+      return res.status(200).json({ status: 'poll_sent_pending', pollId: pollMessageId });
+    }
 
     // 4. Frequency Guard Check (Persistent)
     if (!await checkFrequency(rtdb, employeeId, 120)) { // Lower limit for media

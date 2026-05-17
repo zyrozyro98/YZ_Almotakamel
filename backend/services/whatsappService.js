@@ -136,11 +136,113 @@ async function runTTLTask() {
   }
 }
 
-// DISABLED: runTTLTask is disabled because it reads the entire 'chats' tree of all employees into RAM,
-// causing a fatal Out of Memory (OOM) crash on limited containers like Render Free (512MB).
-// The pruneChatMessages task already keeps every chat strictly capped at 50 messages, making this task redundant.
-// setInterval(runTTLTask, 24 * 60 * 60 * 1000);
-// setTimeout(runTTLTask, 60000);
+async function triggerPendingPollMessage(employeeId, pollId, sock) {
+  try {
+    const pollRef = rtdb.ref(`pending_polls/${employeeId}/${pollId}`);
+    const snap = await pollRef.once('value');
+    if (!snap.exists()) return;
+
+    const pollData = snap.val();
+    // Delete immediately to prevent double-sending
+    await pollRef.remove();
+
+    console.log(`[POLL-DELIVERY] Student [${pollData.phoneNumber}] voted YES! Delivering pending media/message.`);
+
+    const targetJid = pollData.targetJid;
+    const { simulateHumanTyping, simulateRead, randomizeImage } = require('../utils/antiBan');
+
+    let result;
+    let buffer;
+    if (pollData.type === 'image') {
+      buffer = Buffer.from(pollData.base64Image.split(',')[1], 'base64');
+      
+      if (pollData.asDynamicPdf) {
+        // Dynamic PDF Delivery
+        const { PDFDocument } = require('pdf-lib');
+        const pdfDoc = await PDFDocument.create();
+        pdfDoc.setTitle(`Doc_${Date.now()}_${Math.random()}`);
+        pdfDoc.setAuthor(`System_${Math.random()}`);
+
+        let imageObj;
+        try {
+            if (pollData.base64Image.includes('jpeg') || pollData.base64Image.includes('jpg') || pollData.base64Image.startsWith('/9j/')) {
+                imageObj = await pdfDoc.embedJpg(buffer);
+            } else {
+                imageObj = await pdfDoc.embedPng(buffer);
+            }
+        } catch(e) {
+            const jpgBuffer = await sharp(buffer).jpeg().toBuffer();
+            imageObj = await pdfDoc.embedJpg(jpgBuffer);
+        }
+        
+        const page = pdfDoc.addPage([imageObj.width, imageObj.height]);
+        page.drawImage(imageObj, { x: 0, y: 0, width: imageObj.width, height: imageObj.height });
+        
+        const pdfBytes = await pdfDoc.save();
+        buffer = Buffer.from(pdfBytes);
+        
+        await simulateHumanTyping(sock, targetJid, pollData.caption);
+        result = await sock.sendMessage(targetJid, {
+            document: buffer,
+            mimetype: 'application/pdf',
+            fileName: `Certificate_${getPureNumber(pollData.phoneNumber)}.pdf`,
+            caption: pollData.caption
+        });
+      } else {
+        // Normal Image Delivery
+        buffer = await randomizeImage(buffer);
+        await simulateHumanTyping(sock, targetJid, pollData.caption);
+        result = await sock.sendMessage(targetJid, { 
+          image: buffer, 
+          mimetype: 'image/jpeg', 
+          caption: pollData.caption 
+        });
+      }
+    } else {
+      // Normal Text Delivery
+      await simulateHumanTyping(sock, targetJid, pollData.text);
+      result = await sock.sendMessage(targetJid, { text: pollData.text });
+    }
+
+    await simulateRead(sock, targetJid).catch(() => { });
+
+    // Update RTDB Chat History
+    const finalChatId = getPureNumber(targetJid);
+    let msgData = {
+      text: pollData.caption || pollData.text || "",
+      type: pollData.type || "text",
+      time: Date.now(),
+      sender: "me",
+      id: result.key.id,
+      senderName: pollData.senderName || "نظام",
+      senderId: pollData.senderId || "system"
+    };
+
+    if (pollData.type === 'image') {
+      const mediaUrl = await uploadToStorage(buffer, `sent_${Date.now()}.jpg`, 'image/jpeg');
+      msgData.mediaData = mediaUrl || "📷 (خطأ في رفع الصورة)";
+    }
+
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
+    
+    // Enforce 50-message limit
+    const whatsappService = require('./whatsappService');
+    whatsappService.enforceMessageLimit(employeeId, finalChatId).catch(() => { });
+
+    const metaData = {
+      lastMessage: pollData.caption || pollData.text || "",
+      timestamp: Date.now(),
+      phone: finalChatId,
+      fullJid: targetJid,
+      lastSender: "me"
+    };
+    await rtdb.ref(`chats/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+    await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
+
+  } catch (err) {
+    console.error('[POLL-DELIVERY ERROR]', err.message);
+  }
+}
 
 const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) => {
   if (type !== 'notify') return;
@@ -184,6 +286,15 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
 
     if (rawMsg.conversation) textMsg = rawMsg.conversation;
     else if (rawMsg.extendedTextMessage) textMsg = rawMsg.extendedTextMessage.text;
+    else if (rawMsg.pollUpdateMessage) {
+      const pollId = rawMsg.pollUpdateMessage.pollCreationMessageKey?.id;
+      if (pollId) {
+        console.log(`[POLL-VOTE] Detected poll update for pollId: ${pollId}`);
+        triggerPendingPollMessage(employeeId, pollId, sock).catch(e => console.error(`[POLL-VOTE TRIGGER ERROR]`, e.message));
+      }
+      textMsg = "📊 تصويت في استبيان تفاعلي";
+      mediaType = "text";
+    }
     else if (rawMsg.imageMessage) {
       textMsg = rawMsg.imageMessage.caption || "📷 صورة";
       mediaType = "image";
