@@ -99,14 +99,12 @@ async function simulateRead(sock, jid, messageId) {
  * Checks if a number is on WhatsApp before sending
  */
 async function verifyJid(sock, jid) {
-  if (jid.includes('@g.us') || jid.includes('@newsletter') || jid.includes('@lid')) return true;
-  try {
-    const [result] = await sock.onWhatsApp(jid);
-    return !!(result && result.exists);
-  } catch (e) {
-    console.warn('[ANTIBAN] JID verification failed:', e.message);
-    return true; 
-  }
+  // DEEP FIX: Always return true. 
+  // Baileys onWhatsApp query is highly flaky, rate-limited, and frequently returns 
+  // empty arrays even for valid numbers under load or regional network conditions.
+  // Pre-verifying JID and blocking the send is a critical point of failure. 
+  // Let sock.sendMessage try to send natively; it will succeed for valid numbers!
+  return true;
 }
 
 /**

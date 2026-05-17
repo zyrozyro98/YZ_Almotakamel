@@ -425,7 +425,10 @@ router.post('/send-image', async (req, res) => {
     await rtdb.ref(`chats_meta/${employeeId}/${finalChatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error("[WA SEND IMAGE ERROR]", err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // SOLUTION 1: Interactive Polls
@@ -469,7 +472,10 @@ router.post('/send-poll', async (req, res) => {
     await rtdb.ref(`chats/${employeeId}/${chatId}/messages/${result.key.id}`).update(msgData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error("[WA SEND POLL ERROR]", err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // Send Document
@@ -553,7 +559,10 @@ router.post('/send-document', async (req, res) => {
     await rtdb.ref(`chats_meta/${employeeId}/${chatId}`).update(metaData).catch(() => { });
 
     res.status(200).json({ status: 'sent', to: targetJid });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error("[WA SEND DOCUMENT ERROR]", err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // 3. Send Video
@@ -634,7 +643,7 @@ router.post('/send-video', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("Send Video Error:", err);
+    console.error("[WA SEND VIDEO ERROR]", err);
     res.status(500).json({ error: err.message });
   }
 });
