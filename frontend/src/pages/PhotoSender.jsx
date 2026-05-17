@@ -527,32 +527,14 @@ export default function PhotoSender() {
             };
 
             if (b64) {
-              if (isInteractivePoll) {
-                  const pollData = {
-                      ...sendData,
-                      pollName: "مرحباً، هل تفضل استلام الصورة وتفاصيل الحضور الآن؟",
-                      pollOptions: ["نعم، أرسلها الآن ✅", "لاحقاً ⏳"]
-                  };
-                  await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
-                  // Wait 2-3 seconds before sending the actual image
-                  await new Promise(r => setTimeout(r, 2500));
-              }
-
               sendData.base64Image = b64;
               sendData.caption = finalMessage;
               sendData.asDynamicPdf = isDynamicPdf;
+              sendData.isInteractivePoll = isInteractivePoll;
               await axios.post(`${BASE_URL}/api/whatsapp/send-image`, sendData);
             } else {
-              if (isInteractivePoll) {
-                  const pollData = {
-                      ...sendData,
-                      pollName: "مرحباً، هل تفضل استلام التفاصيل الآن؟",
-                      pollOptions: ["نعم ✅", "لاحقاً ⏳"]
-                  };
-                  await axios.post(`${BASE_URL}/api/whatsapp/send-poll`, pollData);
-                  await new Promise(r => setTimeout(r, 2500));
-              }
               sendData.message = finalMessage;
+              sendData.isInteractivePoll = isInteractivePoll;
               await axios.post(`${BASE_URL}/api/whatsapp/send`, sendData);
             }
             

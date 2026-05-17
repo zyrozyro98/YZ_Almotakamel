@@ -152,6 +152,120 @@ const messageUpsertHandler = (employeeId, sock) => async ({ messages, type }) =>
     if (processedMessageIds.has(msgId)) continue;
     processedMessageIds.add(msgId);
 
+    // --- INTERACTIVE POLL ACTION LISTENERS ---
+    // If the message contains a poll update, check if it's a vote on one of our pending polls!
+    if (msg.message.pollUpdateMessage) {
+        try {
+            const pollUpdate = msg.message.pollUpdateMessage;
+            const pollCreationKey = pollUpdate.pollCreationMessageKey;
+            if (pollCreationKey) {
+                const pollMessageId = pollCreationKey.id;
+                const pendingRef = rtdb.ref(`pending_polls/${employeeId}/${pollMessageId}`);
+                const pendingSnap = await pendingRef.once('value');
+                
+                if (pendingSnap.exists()) {
+                    const pollData = pendingSnap.val();
+                    const selectedOptions = pollUpdate.vote?.selectedOptions || [];
+                    
+                    if (selectedOptions.length > 0) {
+                        const voteHash = Buffer.from(selectedOptions[0]).toString('hex');
+                        
+                        if (voteHash === pollData.yesHash) {
+                            console.log(`[POLL YES VOTE] Student ${pollData.studentPhone} voted YES on poll ${pollMessageId}. Triggering auto-send...`);
+                            
+                            const targetJid = `${pollData.studentPhone}@s.whatsapp.net`;
+                            
+                            if (pollData.type === 'text') {
+                                // Send the stored text message using the SAME socket connection!
+                                const sentMsg = await sock.sendMessage(targetJid, { text: pollData.message });
+                                console.log(`[POLL ACTION] Text message successfully sent to ${pollData.studentPhone}`);
+                                
+                                const msgData = {
+                                    text: pollData.message,
+                                    type: 'text',
+                                    time: Date.now(),
+                                    sender: 'me',
+                                    id: sentMsg.key.id,
+                                    senderName: 'نظام الاستجابة',
+                                    senderId: 'system'
+                                };
+                                await rtdb.ref(`chats/${employeeId}/${pollData.studentPhone}/messages/${sentMsg.key.id}`).update(msgData).catch(() => {});
+                                
+                                const metaData = {
+                                    lastMessage: pollData.message.substring(0, 50),
+                                    timestamp: Date.now(),
+                                    phone: pollData.studentPhone,
+                                    fullJid: targetJid,
+                                    lastSender: 'me'
+                                };
+                                await rtdb.ref(`chats/${employeeId}/${pollData.studentPhone}`).update(metaData).catch(() => {});
+                                await rtdb.ref(`chats_meta/${employeeId}/${pollData.studentPhone}`).update(metaData).catch(() => {});
+                            } else {
+                                // Fetch the image from mediaUrl and send it using the SAME socket connection!
+                                const axios = require('axios');
+                                try {
+                                    const axiosRes = await axios.get(pollData.mediaUrl, { responseType: 'arraybuffer' });
+                                    const buffer = Buffer.from(axiosRes.data);
+                                    
+                                    let sentMsg;
+                                    if (pollData.type === 'document') {
+                                        sentMsg = await sock.sendMessage(targetJid, {
+                                            document: buffer,
+                                            mimetype: pollData.mimeType || 'application/pdf',
+                                            fileName: pollData.fileName || `Certificate_${pollData.studentPhone}.pdf`,
+                                            caption: pollData.caption || ''
+                                        });
+                                    } else {
+                                        sentMsg = await sock.sendMessage(targetJid, {
+                                            image: buffer,
+                                            mimetype: 'image/jpeg',
+                                            caption: pollData.caption || ''
+                                        });
+                                    }
+                                    
+                                    console.log(`[POLL ACTION] Media successfully sent to ${pollData.studentPhone}`);
+                                    
+                                    const msgData = {
+                                        text: pollData.caption || (pollData.type === 'document' ? '📎 مستند' : '📷 صورة'),
+                                        type: pollData.type,
+                                        mediaData: pollData.mediaUrl,
+                                        time: Date.now(),
+                                        sender: 'me',
+                                        id: sentMsg.key.id,
+                                        senderName: 'نظام الاستجابة',
+                                        senderId: 'system'
+                                    };
+                                    await rtdb.ref(`chats/${employeeId}/${pollData.studentPhone}/messages/${sentMsg.key.id}`).update(msgData).catch(() => {});
+                                    
+                                    const metaData = {
+                                        lastMessage: pollData.caption ? pollData.caption.substring(0, 50) : (pollData.type === 'document' ? '📎 مستند' : '📷 صورة'),
+                                        timestamp: Date.now(),
+                                        phone: pollData.studentPhone,
+                                        fullJid: targetJid,
+                                        lastSender: 'me'
+                                    };
+                                    await rtdb.ref(`chats/${employeeId}/${pollData.studentPhone}`).update(metaData).catch(() => {});
+                                    await rtdb.ref(`chats_meta/${employeeId}/${pollData.studentPhone}`).update(metaData).catch(() => {});
+                                } catch (axiosErr) {
+                                    console.error('[POLL AXIOS ERROR]', axiosErr.message);
+                                }
+                            }
+                            
+                            // Delete the pending poll record
+                            await pendingRef.remove().catch(() => {});
+                        } else {
+                            console.log(`[POLL VOTE] Student ${pollData.studentPhone} voted NO/other on poll ${pollMessageId}. Ignoring.`);
+                            await pendingRef.remove().catch(() => {});
+                        }
+                    }
+                }
+            }
+        } catch (pollErr) {
+            console.error('[POLL UPDATE HANDLER ERROR]', pollErr.message);
+        }
+        continue; // Since this is a poll update, skip standard message processing
+    }
+
     const remoteJid = msg.key.remoteJid;
     const jidUser = remoteJid.split('@')[0].split(':')[0];
     const jidDomain = remoteJid.split('@')[1];
